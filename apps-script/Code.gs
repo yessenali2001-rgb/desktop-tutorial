@@ -29,7 +29,7 @@ const HEADERS = {
   students: ["ID", "ФИО", "PIN", "Наставник", "Сильные стороны", "Комментарий учителя", "Телефон мамы", "Телефон папы"],
   schedule: ["День", "№ урока", "Время", "Предмет", "Кабинет", "Учитель"],
   idp: ["ID ученика", "Цель", "Направление", "Срок", "Шаг", "Выполнено"],
-  attendance: ["Дата", "Предмет", "Пропуск (ID через запятую)", "Опоздал", "Уважительная причина"],
+  attendance: ["Дата", "Этюд", "Пропуск (ID через запятую)", "Опоздал", "Уважительная причина"],
   portfolio: ["ID ученика", "Раздел", "Название", "Детали", "Дата / год"],
   resources: ["Раздел", "Ресурс", "Где показывать (Ресурсы / Тесты)"],
   calendar: ["Начало", "Окончание (если несколько дней)", "Событие"],
@@ -201,6 +201,11 @@ function readSettings_() {
     teacherPin: map["PIN учителя"] || "",
     tutorLogin: map["Логин воспитателя"] || "vospitatel",
     tutorPin: map["PIN воспитателя"] || "",
+    // Этюды, которые отмечаются на сайте: «1 этюд, 2 этюд»
+    etudes: (map["Этюды"] || "1 этюд, 2 этюд")
+      .split(/[,;]/)
+      .map((x) => x.trim())
+      .filter(Boolean),
   };
 }
 
@@ -343,6 +348,7 @@ function teacherData_() {
   const ctx = context_();
   return {
     className: readSettings_().className,
+    etudes: readSettings_().etudes,
     schedule: readSchedule_(),
     calendar: readCalendar_(),
     resources: readResources_(),
@@ -377,7 +383,7 @@ function studentData_(id) {
 function saveLesson_(lesson) {
   if (!lesson || !/^\d{4}-\d{2}-\d{2}$/.test(lesson.date)) throw new Error("Неверная дата");
   const subject = String(lesson.subject || "").trim();
-  if (!subject) throw new Error("Не указан предмет");
+  if (!subject) throw new Error("Не указан этюд");
 
   const known = readStudents_().map((s) => s.id);
   const clean = (list) => (list || []).map((x) => String(x).toUpperCase()).filter((x) => known.indexOf(x) >= 0);
@@ -460,7 +466,7 @@ function headersFor_(key) {
 function seedRows_(key) {
   if (typeof SEED === "undefined") {
     return key === "settings"
-      ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"], ["Логин воспитателя", "vospitatel"], ["PIN воспитателя", ""]]
+      ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"], ["Логин воспитателя", "vospitatel"], ["PIN воспитателя", ""], ["Этюды", "1 этюд, 2 этюд"]]
       : [];
   }
   const tz = tz_();
@@ -474,6 +480,7 @@ function seedRows_(key) {
         ["PIN учителя", SEED.teacher.pin],
         ["Логин воспитателя", SEED.tutor.login],
         ["PIN воспитателя", SEED.tutor.pin],
+        ["Этюды", (SEED.etudes || ["1 этюд", "2 этюд"]).join(", ")],
       ];
     case "students":
       return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || ""]);

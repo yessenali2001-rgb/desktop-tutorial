@@ -59,7 +59,7 @@ function attendanceStats(id, subject = "") {
     res.total++;
     res[statusFor(l, id)]++;
   }
-  // Посещаемость: был на уроке (включая опоздания)
+  // Посещаемость: был на этюде (включая опоздания)
   res.rate = pct(res.present + res.late, res.total);
   return res;
 }
@@ -139,6 +139,7 @@ async function demoApi(action, payload) {
       data: {
         className: D.className,
         schedule: D.schedule,
+        etudes: D.etudes,
         calendar: D.calendar,
         resources: D.resources,
         students: [strip(s)],
@@ -668,7 +669,7 @@ function linkify(text) {
 
 function subjectSelectHtml() {
   return `<select id="subject-filter">
-    <option value="">Все предметы</option>
+    <option value="">Все этюды</option>
     ${subjects().map((x) => `<option ${x === state.subjectFilter ? "selected" : ""}>${esc(x)}</option>`).join("")}
   </select>`;
 }
@@ -688,9 +689,9 @@ function studentAttendanceHtml(s) {
   const bySubject = subjects().map((subj) => [subj, attendanceStats(s.id, subj)]);
   return `
     <div class="card">
-      <h2>Посещаемость по предметам</h2>
+      <h2>Посещаемость этюдов</h2>
       <div class="table-wrap"><table>
-        <tr><th>Предмет</th><th class="num">Уроков</th><th class="num">Был</th><th class="num">Опоздал</th><th class="num">Пропуск</th><th class="num">Уваж.</th><th class="num">%</th></tr>
+        <tr><th>Этюд</th><th class="num">Всего</th><th class="num">Был</th><th class="num">Опоздал</th><th class="num">Пропуск</th><th class="num">Уваж.</th><th class="num">%</th></tr>
         ${bySubject
           .map(
             ([subj, x]) => `<tr><td>${esc(subj)}</td><td class="num">${x.total}</td><td class="num">${x.present}</td>
@@ -700,12 +701,12 @@ function studentAttendanceHtml(s) {
       </table></div>
     </div>
     <div class="card">
-      <h2>История уроков</h2>
+      <h2>История этюдов</h2>
       <div class="filters">${subjectSelectHtml()}
-        <span class="muted small" style="align-self:center">Уроков: ${st.total} · пропусков: ${st.absent} · опозданий: ${st.late}</span>
+        <span class="muted small" style="align-self:center">Этюдов: ${st.total} · пропусков: ${st.absent} · опозданий: ${st.late}</span>
       </div>
       <div class="table-wrap"><table>
-        <tr><th>Дата</th><th>Предмет</th><th>Статус</th></tr>
+        <tr><th>Дата</th><th>Этюд</th><th>Статус</th></tr>
         ${lessons
           .map((l) => {
             const status = statusFor(l, s.id);
@@ -720,7 +721,7 @@ function studentAttendanceHtml(s) {
 function renderTeacher() {
   const tabs = [
     ["summary", "👥 Сводка"],
-    ["mark", "✏️ Отметить урок"],
+    ["mark", "✏️ Отметить этюд"],
     ["journal", "📋 Журнал"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
@@ -754,7 +755,7 @@ function renderTeacher() {
   app.innerHTML = `
     <div class="stats">
       <div class="stat"><div class="stat-value">${DATA.students.length}</div><div class="stat-label">Учеников</div></div>
-      <div class="stat"><div class="stat-value">${totalLessons}</div><div class="stat-label">Проведено уроков</div></div>
+      <div class="stat"><div class="stat-value">${totalLessons}</div><div class="stat-label">Проведено этюдов</div></div>
       <div class="stat blue"><div class="stat-value">${totalLessons ? avgRate + "%" : "—"}</div><div class="stat-label">Средняя посещаемость</div></div>
       <div class="stat red"><div class="stat-value">${totalAbs}</div><div class="stat-label">Всего пропусков</div></div>
     </div>
@@ -897,7 +898,7 @@ function summaryHtml(all) {
         </select>
       </div>
       <div class="table-wrap"><table>
-        <tr><th>#</th><th>Ученик</th><th class="num">Уроков</th><th class="num">Был</th><th class="num">Опоздал</th>
+        <tr><th>#</th><th>Ученик</th><th class="num">Этюдов</th><th class="num">Был</th><th class="num">Опоздал</th>
           <th class="num">Пропуск</th><th class="num">Уваж.</th><th class="num">Посещ.</th><th class="num">IDP</th><th>Олимпиада</th><th>День рождения</th></tr>
         ${rows
           .map(
@@ -929,7 +930,7 @@ function journalHtml() {
   const lessons = lessonsSorted().filter((l) => !f || l.subject === f);
   return `
     <div class="card">
-      <h2>Журнал посещаемости</h2>
+      <h2>Журнал этюдов</h2>
       <div class="filters">${subjectSelectHtml()}</div>
       <div class="legend">
         <span><span class="mark present">✓</span> был</span>
@@ -976,21 +977,19 @@ function idpAllHtml() {
     </div>`;
 }
 
-// ---------- teacher: отметить урок ----------
+// ---------- teacher: отметить этюд ----------
 function todayIso() {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
-// Предметы выбранного дня недели идут первыми, затем все остальные
-function subjectsForDate(iso) {
-  const dayName = Object.keys(DAY_INDEX).find((k) => DAY_INDEX[k] === new Date(iso + "T12:00:00").getDay());
-  const ofDay = (DATA.schedule.find((d) => d.day === dayName)?.lessons || []).map((l) => l.subject);
-  const all = new Set(DATA.schedule.flatMap((d) => d.lessons.map((l) => l.subject)).concat(subjects()));
-  return { ofDay: [...new Set(ofDay)], other: [...all].filter((x) => !ofDay.includes(x)).sort() };
+// Этюды из настроек (лист «Настройки» → «Этюды»), плюс уже отмеченные в журнале
+function etudeList() {
+  const list = DATA.etudes && DATA.etudes.length ? DATA.etudes : ["1 этюд", "2 этюд"];
+  return [...new Set([...list, ...subjects()])];
 }
 
-// Загружает отметки урока из журнала (если он уже отмечен) в state.mark
+// Загружает отметки этюда из журнала (если он уже отмечен) в state.mark
 function loadMark(date, subject) {
   const existing = DATA.attendance.find((l) => l.date === date && l.subject === subject);
   const marks = {};
@@ -1000,27 +999,23 @@ function loadMark(date, subject) {
 
 function markHtml() {
   if (!state.mark) {
-    const date = todayIso();
-    const { ofDay, other } = subjectsForDate(date);
-    loadMark(date, ofDay[0] || other[0] || "");
+    loadMark(todayIso(), etudeList()[0]);
   }
   const m = state.mark;
-  const { ofDay, other } = subjectsForDate(m.date);
   const opt = (x) => `<option ${x === m.subject ? "selected" : ""}>${esc(x)}</option>`;
   const counts = { present: 0, absent: 0, late: 0, excused: 0 };
   Object.values(m.marks).forEach((st) => counts[st]++);
   return `
     <div class="card">
-      <h2>Отметить посещаемость</h2>
+      <h2>Отметить посещаемость этюда</h2>
       <div class="filters">
         <input type="date" id="mark-date" value="${m.date}">
         <select id="mark-subject">
-          ${ofDay.length ? `<optgroup label="По расписанию">${ofDay.map(opt).join("")}</optgroup>` : ""}
-          ${other.length ? `<optgroup label="Другие предметы">${other.map(opt).join("")}</optgroup>` : ""}
+          ${etudeList().map(opt).join("")}
         </select>
         <button class="btn btn-ghost" id="mark-all">Все присутствовали</button>
       </div>
-      <p class="small muted">${m.existing ? "Этот урок уже отмечен: загружены сохранённые отметки. При сохранении они обновятся." : "Новый урок. По умолчанию все присутствовали, отметьте отсутствующих."}</p>
+      <p class="small muted">${m.existing ? "Этот этюд уже отмечен: загружены сохранённые отметки. При сохранении они обновятся." : "Новый этюд. По умолчанию все присутствовали, отметьте отсутствующих."}</p>
       <div class="table-wrap"><table>
         ${DATA.students
           .map(
@@ -1043,9 +1038,7 @@ function bindMark() {
   const refresh = () => render();
   document.getElementById("mark-date").addEventListener("change", (e) => {
     if (!e.target.value) return;
-    const { ofDay, other } = subjectsForDate(e.target.value);
-    const subject = ofDay.includes(m.subject) || other.includes(m.subject) ? m.subject : ofDay[0] || other[0];
-    loadMark(e.target.value, subject);
+    loadMark(e.target.value, m.subject);
     refresh();
   });
   document.getElementById("mark-subject").addEventListener("change", (e) => {
