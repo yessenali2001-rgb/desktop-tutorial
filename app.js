@@ -324,6 +324,7 @@ function renderStudent(s, byTeacher) {
     ["attendance", "✅ Посещаемость"],
     ["portfolio", "📁 Портфолио"],
     ["olympiads", "🏅 Олимпиады"],
+    ["exams", "📝 Экзамены"],
     ["tests", "🧠 Тесты"],
   ];
   if (isParent || byTeacher) tabs.push(["events", "👪 Мероприятия родителей"]);
@@ -337,6 +338,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "attendance") body = studentAttendanceHtml(s);
   if (state.tab === "portfolio") body = portfolioHtml(s);
   if (state.tab === "olympiads") body = kvCardHtml("Олимпиады", s.olympiads);
+  if (state.tab === "exams") body = kvCardHtml("Экзамены", s.exams);
   if (state.tab === "tests") body = testsHtml(s);
   if (state.tab === "events") body = parentEventsHtml(s);
   if (state.tab === "resources") body = resourcesHtml();
@@ -629,6 +631,7 @@ function renderTeacher() {
     ["journal", "📋 Журнал"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
+    ["exams-all", "📝 Экзамены"],
     ["events-all", "👪 Родители"],
     ["tests-all", "🧠 Тесты"],
     ["schedule", "📅 Расписание"],
@@ -648,6 +651,7 @@ function renderTeacher() {
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
+  if (state.tab === "exams-all") body = wideTableHtml("Экзамены", "exams");
   if (state.tab === "events-all") body = eventsTableHtml();
   if (state.tab === "tests-all") body = wideTableHtml("Результаты тестов", "tests");
   if (state.tab === "resources") body = resourcesHtml();

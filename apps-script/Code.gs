@@ -14,13 +14,14 @@ const SHEETS = {
   attendance: "Посещаемость",
   portfolio: "Портфолио",
   olympiads: "Олимпиады",
+  exams: "Экзамены",
   tests: "Тесты",
   parentEvents: "Мероприятия родителей",
   resources: "Ресурсы",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
-const WIDE = { olympiads: false, tests: false, parentEvents: true }; // true — значения-галочки
+const WIDE = { olympiads: false, exams: false, tests: false, parentEvents: true }; // true — значения-галочки
 
 const HEADERS = {
   settings: ["Параметр", "Значение"],
@@ -31,6 +32,7 @@ const HEADERS = {
   portfolio: ["ID ученика", "Раздел", "Название", "Детали", "Дата / год"],
   resources: ["Раздел", "Ресурс", "Где показывать (Ресурсы / Тесты)"],
   olympiads: ["ID", "ФИО", "Областной", "KBO final"],
+  exams: ["ID", "ФИО", "KET", "BTS"],
   tests: ["ID", "ФИО", "Темперамент"],
   parentEvents: ["ID", "ФИО", "Родительское собрание"],
 };
@@ -294,6 +296,7 @@ function context_() {
     idp: readIdp_(),
     portfolio: readPortfolio_(),
     olympiads: readWide_("olympiads"),
+    exams: readWide_("exams"),
     tests: readWide_("tests"),
     parentEvents: readWide_("parentEvents"),
   };
@@ -306,6 +309,7 @@ function publicStudent_(s, ctx) {
     idp: { mentor: s.mentor, strengths: s.strengths, comment: s.comment, goals: ctx.idp[s.id] || [] },
     portfolio: ctx.portfolio[s.id] || [],
     olympiads: ctx.olympiads[s.id] || [],
+    exams: ctx.exams[s.id] || [],
     tests: ctx.tests[s.id] || [],
     parentEvents: ctx.parentEvents[s.id] || [],
   };
@@ -470,6 +474,7 @@ function seedRows_(key) {
     case "resources":
       return (SEED.resources || []).map((x) => [x.section, x.text, x.where === "Ресурсы" ? "" : x.where]);
     case "olympiads":
+    case "exams":
     case "tests":
     case "parentEvents":
       return SEED.students.map((s) => [s.id, s.name].concat((s[key] || []).map((x) => x.value)));
