@@ -1,6 +1,10 @@
-// Логика сайта. Данные берутся из data.js (переменная DATA).
+// Логика сайта. Данные приходят из Google Apps Script (CONFIG.API_URL),
+// а если адрес не задан, берутся демо-данные из data.js.
 
 const app = document.getElementById("app");
+const DEMO = !CONFIG.API_URL;
+let DATA = null; // данные текущего пользователя (ученик получает только свои)
+let creds = null; // { login, pin } для запросов к API
 const STATUS_LABEL = {
   present: "Был",
   absent: "Пропуск",
@@ -69,30 +73,96 @@ function subjects() {
   return [...new Set(DATA.attendance.map((l) => l.subject))].sort();
 }
 
+// ---------- API ----------
+async function api(action, payload = {}) {
+  if (DEMO) return demoApi(action, payload);
+  // Тело отправляется как text/plain, чтобы Apps Script принимал запрос без CORS-preflight
+  const r = await fetch(CONFIG.API_URL, {
+    method: "POST",
+    body: JSON.stringify({ action, login: creds.login, pin: creds.pin, ...payload }),
+  });
+  if (!r.ok) throw new Error("Сервер недоступен (" + r.status + ")");
+  const res = await r.json();
+  if (!res.ok) throw new Error(res.error || "Ошибка сервера");
+  return res;
+}
+
+// Демо-режим: повторяет ответы сервера на данных из data.js
+let demoScriptLoaded = null;
+function loadDemoData() {
+  demoScriptLoaded =
+    demoScriptLoaded ||
+    new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = "data.js";
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("Не найден data.js"));
+      document.head.appendChild(s);
+    });
+  return demoScriptLoaded;
+}
+async function demoApi(action, payload) {
+  await loadDemoData();
+  const D = DEMO_DATA;
+  const login = creds.login.toLowerCase();
+  const isTeacher = login === D.teacher.login.toLowerCase() && creds.pin === D.teacher.pin;
+  const s = D.students.find((x) => x.id.toLowerCase() === login && x.pin === creds.pin);
+  if (!isTeacher && !s) throw new Error("Неверный логин или PIN-код");
+  if (action === "login") {
+    const strip = ({ pin, ...rest }) => rest;
+    if (isTeacher) return { ok: true, role: "teacher", data: { ...D, students: D.students.map(strip) } };
+    const only = (list) => (list.includes(s.id) ? [s.id] : []);
+    return {
+      ok: true,
+      role: "student",
+      id: s.id,
+      data: {
+        className: D.className,
+        schedule: D.schedule,
+        students: [strip(s)],
+        attendance: D.attendance.map((l) => ({ date: l.date, subject: l.subject, absent: only(l.absent), late: only(l.late), excused: only(l.excused) })),
+      },
+    };
+  }
+  if (action === "saveLesson" && isTeacher) return { ok: true, lesson: payload.lesson };
+  throw new Error("Недоступно");
+}
+
 // ---------- session ----------
 function saveSession() {
   try {
-    sessionStorage.setItem("user", JSON.stringify(state.user));
+    sessionStorage.setItem("creds", JSON.stringify(creds));
   } catch (e) {}
 }
 function loadSession() {
   try {
-    const u = JSON.parse(sessionStorage.getItem("user"));
-    if (u && (u.role === "teacher" || findStudent(u.id))) state.user = u;
-  } catch (e) {}
+    return JSON.parse(sessionStorage.getItem("creds"));
+  } catch (e) {
+    return null;
+  }
+}
+
+async function login(loginValue, pin) {
+  creds = { login: loginValue, pin };
+  const res = await api("login");
+  DATA = res.data;
+  state.user = res.role === "teacher" ? { role: "teacher" } : { role: "student", id: res.id };
+  saveSession();
 }
 
 function logout() {
   state = { user: null, tab: null, viewStudent: null, subjectFilter: "" };
+  DATA = null;
+  creds = null;
   try {
-    sessionStorage.removeItem("user");
+    sessionStorage.removeItem("creds");
   } catch (e) {}
   render();
 }
 
 // ---------- rendering ----------
 function render() {
-  document.getElementById("class-name").textContent = DATA.className || "";
+  document.getElementById("class-name").textContent = DATA?.className || "";
   const userBox = document.getElementById("user-box");
   if (!state.user) {
     userBox.hidden = true;
@@ -116,6 +186,7 @@ function renderLogin() {
     <div class="login-wrap card">
       <h2>Вход</h2>
       <p class="muted small">Введите свой логин (например, S01) и PIN-код, который дал учитель.</p>
+      ${DEMO ? '<p class="small notice">Демо-режим: тестовые данные. Подключите Google Таблицу в config.js.</p>' : ""}
       <form id="login-form">
         <div class="field">
           <label for="login">Логин</label>
@@ -126,25 +197,25 @@ function renderLogin() {
           <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
         </div>
         <div class="error" id="login-error"></div>
-        <button class="btn btn-block" type="submit">Войти</button>
+        <button class="btn btn-block" type="submit" id="login-btn">Войти</button>
       </form>
     </div>`;
-  document.getElementById("login-form").addEventListener("submit", (e) => {
+  document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const login = document.getElementById("login").value.trim();
-    const pin = document.getElementById("pin").value.trim();
-    if (login.toLowerCase() === DATA.teacher.login.toLowerCase() && pin === DATA.teacher.pin) {
-      state.user = { role: "teacher" };
-    } else {
-      const s = DATA.students.find((x) => x.id.toLowerCase() === login.toLowerCase() && x.pin === pin);
-      if (!s) {
-        document.getElementById("login-error").textContent = "Неверный логин или PIN-код";
-        return;
-      }
-      state.user = { role: "student", id: s.id };
+    const btn = document.getElementById("login-btn");
+    const err = document.getElementById("login-error");
+    btn.disabled = true;
+    btn.textContent = "Загрузка…";
+    err.textContent = "";
+    try {
+      await login(document.getElementById("login").value.trim(), document.getElementById("pin").value.trim());
+      render();
+    } catch (ex) {
+      creds = null;
+      err.textContent = ex.message;
+      btn.disabled = false;
+      btn.textContent = "Войти";
     }
-    saveSession();
-    render();
   });
 }
 
@@ -306,7 +377,7 @@ function studentAttendanceHtml(s) {
 
 // ---------- teacher view ----------
 function renderTeacher() {
-  const tabs = [["summary", "👥 Сводка"], ["journal", "📋 Журнал"], ["idp-all", "🎯 IDP всех"], ["schedule", "📅 Расписание"]];
+  const tabs = [["summary", "👥 Сводка"], ["mark", "✏️ Отметить урок"], ["journal", "📋 Журнал"], ["idp-all", "🎯 IDP всех"], ["schedule", "📅 Расписание"]];
   if (!tabs.some(([k]) => k === state.tab)) state.tab = "summary";
 
   const all = DATA.students.map((s) => ({ s, st: attendanceStats(s.id, state.subjectFilter) }));
@@ -316,6 +387,7 @@ function renderTeacher() {
 
   let body = "";
   if (state.tab === "summary") body = summaryHtml(all);
+  if (state.tab === "mark") body = markHtml();
   if (state.tab === "journal") body = journalHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = scheduleHtml(DATA.schedule);
@@ -331,6 +403,7 @@ function renderTeacher() {
     ${body}`;
   bindTabs();
   bindSubjectFilter();
+  if (state.tab === "mark") bindMark();
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
@@ -444,7 +517,133 @@ function idpAllHtml() {
     </div>`;
 }
 
+// ---------- teacher: отметить урок ----------
+function todayIso() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+
+// Предметы выбранного дня недели идут первыми, затем все остальные
+function subjectsForDate(iso) {
+  const dayName = Object.keys(DAY_INDEX).find((k) => DAY_INDEX[k] === new Date(iso + "T12:00:00").getDay());
+  const ofDay = (DATA.schedule.find((d) => d.day === dayName)?.lessons || []).map((l) => l.subject);
+  const all = new Set(DATA.schedule.flatMap((d) => d.lessons.map((l) => l.subject)).concat(subjects()));
+  return { ofDay: [...new Set(ofDay)], other: [...all].filter((x) => !ofDay.includes(x)).sort() };
+}
+
+// Загружает отметки урока из журнала (если он уже отмечен) в state.mark
+function loadMark(date, subject) {
+  const existing = DATA.attendance.find((l) => l.date === date && l.subject === subject);
+  const marks = {};
+  DATA.students.forEach((s) => (marks[s.id] = existing ? statusFor(existing, s.id) : "present"));
+  state.mark = { date, subject, marks, existing: !!existing };
+}
+
+function markHtml() {
+  if (!state.mark) {
+    const date = todayIso();
+    const { ofDay, other } = subjectsForDate(date);
+    loadMark(date, ofDay[0] || other[0] || "");
+  }
+  const m = state.mark;
+  const { ofDay, other } = subjectsForDate(m.date);
+  const opt = (x) => `<option ${x === m.subject ? "selected" : ""}>${esc(x)}</option>`;
+  const counts = { present: 0, absent: 0, late: 0, excused: 0 };
+  Object.values(m.marks).forEach((st) => counts[st]++);
+  return `
+    <div class="card">
+      <h2>Отметить посещаемость</h2>
+      <div class="filters">
+        <input type="date" id="mark-date" value="${m.date}">
+        <select id="mark-subject">
+          ${ofDay.length ? `<optgroup label="По расписанию">${ofDay.map(opt).join("")}</optgroup>` : ""}
+          ${other.length ? `<optgroup label="Другие предметы">${other.map(opt).join("")}</optgroup>` : ""}
+        </select>
+        <button class="btn btn-ghost" id="mark-all">Все присутствовали</button>
+      </div>
+      <p class="small muted">${m.existing ? "Этот урок уже отмечен: загружены сохранённые отметки. При сохранении они обновятся." : "Новый урок. По умолчанию все присутствовали, отметьте отсутствующих."}</p>
+      <div class="table-wrap"><table>
+        ${DATA.students
+          .map(
+            (s, i) => `<tr><td class="muted">${i + 1}</td><td>${esc(s.name)}</td><td><div class="seg">${Object.keys(STATUS_LABEL)
+              .map((st) => `<button class="seg-btn ${st} ${m.marks[s.id] === st ? "active" : ""}" data-mark="${esc(s.id)}" data-st="${st}">${STATUS_LABEL[st]}</button>`)
+              .join("")}</div></td></tr>`
+          )
+          .join("")}
+      </table></div>
+      <div class="save-bar">
+        <button class="btn" id="save-lesson">Сохранить</button>
+        <span class="small" id="mark-counts">Был: ${counts.present} · Пропуск: ${counts.absent} · Опоздал: ${counts.late} · Уваж.: ${counts.excused}</span>
+        <span class="small" id="save-msg"></span>
+      </div>
+    </div>`;
+}
+
+function bindMark() {
+  const m = state.mark;
+  const refresh = () => render();
+  document.getElementById("mark-date").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    const { ofDay, other } = subjectsForDate(e.target.value);
+    const subject = ofDay.includes(m.subject) || other.includes(m.subject) ? m.subject : ofDay[0] || other[0];
+    loadMark(e.target.value, subject);
+    refresh();
+  });
+  document.getElementById("mark-subject").addEventListener("change", (e) => {
+    loadMark(m.date, e.target.value);
+    refresh();
+  });
+  document.getElementById("mark-all").addEventListener("click", () => {
+    Object.keys(m.marks).forEach((id) => (m.marks[id] = "present"));
+    refresh();
+  });
+  app.querySelectorAll("[data-mark]").forEach((b) =>
+    b.addEventListener("click", () => {
+      m.marks[b.dataset.mark] = b.dataset.st;
+      b.parentElement.querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("active", x === b));
+      const c = { present: 0, absent: 0, late: 0, excused: 0 };
+      Object.values(m.marks).forEach((st) => c[st]++);
+      document.getElementById("mark-counts").textContent = `Был: ${c.present} · Пропуск: ${c.absent} · Опоздал: ${c.late} · Уваж.: ${c.excused}`;
+      document.getElementById("save-msg").textContent = "";
+    })
+  );
+  document.getElementById("save-lesson").addEventListener("click", async (e) => {
+    const btn = e.target;
+    const msg = document.getElementById("save-msg");
+    const pick = (st) => Object.keys(m.marks).filter((id) => m.marks[id] === st);
+    const lesson = { date: m.date, subject: m.subject, absent: pick("absent"), late: pick("late"), excused: pick("excused") };
+    btn.disabled = true;
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    try {
+      const res = await api("saveLesson", { lesson });
+      const i = DATA.attendance.findIndex((l) => l.date === res.lesson.date && l.subject === res.lesson.subject);
+      if (i >= 0) DATA.attendance[i] = res.lesson;
+      else DATA.attendance.push(res.lesson);
+      m.existing = true;
+      msg.textContent = DEMO ? "Сохранено ✓ (демо-режим: только до перезагрузки)" : "Сохранено в Google Таблицу ✓";
+      msg.style.color = "var(--green)";
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+    }
+    btn.disabled = false;
+  });
+}
+
 // ---------- start ----------
 document.getElementById("logout-btn").addEventListener("click", logout);
-loadSession();
-render();
+
+(async function start() {
+  const saved = loadSession();
+  if (saved) {
+    app.innerHTML = '<p class="muted" style="text-align:center;margin-top:60px">Загрузка…</p>';
+    try {
+      await login(saved.login, saved.pin);
+    } catch (e) {
+      logout();
+      return;
+    }
+  }
+  render();
+})();

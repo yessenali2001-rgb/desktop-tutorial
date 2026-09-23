@@ -186,3 +186,37 @@ tr:hover td { background: var(--accent-soft); }
   .brand-title { font-size: 15px; }
   .card { padding: 14px; }
 }
+
+/* ---------- Demo notice ---------- */
+.notice { background: var(--orange-soft); color: var(--orange); padding: 8px 10px; border-radius: 8px; }
+
+/* ---------- Отметить урок ---------- */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg-btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+}
+.seg-btn:first-child { border-left: none; }
+.seg-btn.active.present { background: var(--green-soft); color: var(--green); font-weight: 700; }
+.seg-btn.active.absent { background: var(--red-soft); color: var(--red); font-weight: 700; }
+.seg-btn.active.late { background: var(--orange-soft); color: var(--orange); font-weight: 700; }
+.seg-btn.active.excused { background: var(--blue-soft); color: var(--blue); font-weight: 700; }
+.save-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 12px 0 0;
+  margin-top: 8px;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+}
+.btn:disabled { opacity: .6; cursor: default; }
