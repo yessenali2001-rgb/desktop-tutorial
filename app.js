@@ -135,6 +135,7 @@ async function demoApi(action, payload) {
       data: {
         className: D.className,
         schedule: D.schedule,
+        calendar: D.calendar,
         resources: D.resources,
         students: [strip(s)],
         attendance: D.attendance.map((l) => ({ date: l.date, subject: l.subject, absent: only(l.absent), late: only(l.late), excused: only(l.excused) })),
@@ -333,7 +334,7 @@ function renderStudent(s, byTeacher) {
   const st = attendanceStats(s.id);
 
   let body = "";
-  if (state.tab === "schedule") body = scheduleHtml(s.schedule || DATA.schedule);
+  if (state.tab === "schedule") body = calendarHtml() + scheduleHtml(s.schedule || DATA.schedule);
   if (state.tab === "idp") body = idpHtml(s);
   if (state.tab === "attendance") body = studentAttendanceHtml(s);
   if (state.tab === "portfolio") body = portfolioHtml(s);
@@ -359,7 +360,7 @@ function renderStudent(s, byTeacher) {
       }
     </div>
     <div class="stats">
-      <div class="stat blue"><div class="stat-value">${st.rate}%</div><div class="stat-label">Посещаемость</div></div>
+      <div class="stat blue"><div class="stat-value">${st.total ? st.rate + "%" : "—"}</div><div class="stat-label">Посещаемость</div></div>
       <div class="stat red"><div class="stat-value">${st.absent}</div><div class="stat-label">Пропусков без причины</div></div>
       <div class="stat orange"><div class="stat-value">${st.late}</div><div class="stat-label">Опозданий</div></div>
       <div class="stat green"><div class="stat-value">${idpProgress(s)}%</div><div class="stat-label">Выполнение IDP</div></div>
@@ -396,6 +397,33 @@ function recentMissesHtml(s) {
   </div>`;
 }
 
+// «Алдағы күнтізбе» — ближайшие события; all = показать и прошедшие
+const MONTHS = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+function dayLabel(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${d} ${MONTHS[m - 1]}`;
+}
+function calendarHtml(all = false) {
+  const today = todayIso();
+  const events = (DATA.calendar || []).filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.start));
+  const list = all ? events : events.filter((e) => (e.end || e.start) >= today);
+  if (!list.length) return "";
+  const days = (iso) => Math.round((new Date(iso + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000);
+  return `<div class="card"><h2>📆 ${all ? "Календарь событий" : "Ближайшие события"}</h2><div class="events">${list
+    .map((e) => {
+      const end = e.end || e.start;
+      const past = end < today;
+      const now = e.start <= today && today <= end;
+      const when = past ? "прошло" : now ? "идёт сейчас" : days(e.start) === 1 ? "завтра" : `через ${days(e.start)} дн.`;
+      return `<div class="event ${past ? "past" : ""}">
+        <div class="event-date">${dayLabel(e.start)}${end !== e.start ? " – " + dayLabel(end) : ""}</div>
+        <div class="event-title">${esc(e.title)}</div>
+        <span class="badge ${now ? "now" : ""}">${when}</span>
+      </div>`;
+    })
+    .join("")}</div></div>`;
+}
+
 function scheduleHtml(schedule) {
   if (!schedule || !schedule.length) return '<div class="card"><h2>Расписание на неделю</h2><p class="muted">Расписание пока не добавлено.</p></div>';
   const today = new Date().getDay();
@@ -407,9 +435,10 @@ function scheduleHtml(schedule) {
         ${d.lessons
           .map(
             (l, i) => `<div class="lesson">
-              <div class="lesson-time">${i + 1} урок · ${esc(l.time)}</div>
+              <div class="lesson-time">${esc(l.num || i + 1)} урок · ${esc(l.time)}</div>
               <div class="lesson-subj">${esc(l.subject)}</div>
-              ${l.room ? `<div class="muted small">Кабинет ${esc(l.room)}</div>` : ""}
+              ${l.room ? `<div class="muted small">Кабинет: ${esc(l.room)}</div>` : ""}
+              ${l.teacher ? `<div class="muted small">👤 ${esc(l.teacher)}</div>` : ""}
             </div>`
           )
           .join("")}
@@ -649,7 +678,7 @@ function renderTeacher() {
   if (state.tab === "mark") body = markHtml();
   if (state.tab === "journal") body = journalHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
-  if (state.tab === "schedule") body = scheduleHtml(DATA.schedule);
+  if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
   if (state.tab === "exams-all") body = wideTableHtml("Экзамены", "exams");
   if (state.tab === "events-all") body = eventsTableHtml();
@@ -660,7 +689,7 @@ function renderTeacher() {
     <div class="stats">
       <div class="stat"><div class="stat-value">${DATA.students.length}</div><div class="stat-label">Учеников</div></div>
       <div class="stat"><div class="stat-value">${totalLessons}</div><div class="stat-label">Проведено уроков</div></div>
-      <div class="stat blue"><div class="stat-value">${avgRate}%</div><div class="stat-label">Средняя посещаемость</div></div>
+      <div class="stat blue"><div class="stat-value">${totalLessons ? avgRate + "%" : "—"}</div><div class="stat-label">Средняя посещаемость</div></div>
       <div class="stat red"><div class="stat-value">${totalAbs}</div><div class="stat-label">Всего пропусков</div></div>
     </div>
     ${tabsHtml(tabs)}
@@ -768,6 +797,7 @@ function summaryHtml(all) {
     return a.s.name.localeCompare(b.s.name, "ru");
   });
   return `
+    ${calendarHtml()}
     ${birthdaysHtml()}
     <div class="card">
       <h2>Посещаемость учеников</h2>

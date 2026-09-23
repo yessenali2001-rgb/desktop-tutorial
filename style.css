@@ -245,3 +245,16 @@ td.wrap { white-space: normal; min-width: 120px; }
   .pill.silver { background: #2b3036; color: #ced4da; }
   .pill.bronze { background: #3b2a1c; color: #ffa94d; }
 }
+
+/* ---------- Календарь событий ---------- */
+.events { display: flex; flex-direction: column; gap: 8px; }
+.event { display: grid; grid-template-columns: 130px 1fr auto; gap: 12px; align-items: center; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.event-date { background: #14142b; color: #e9d8a6; font-weight: 700; font-size: 13px; padding: 12px; text-align: center; height: 100%; display: flex; align-items: center; justify-content: center; }
+.event-title { font-size: 15px; }
+.event .badge { margin-right: 12px; white-space: nowrap; }
+.event .badge.now { background: var(--green-soft); color: var(--green); }
+.event.past { opacity: .55; }
+@media (max-width: 600px) {
+  .event { grid-template-columns: 100px 1fr; }
+  .event .badge { grid-column: 2; justify-self: start; margin: -6px 0 10px; }
+}

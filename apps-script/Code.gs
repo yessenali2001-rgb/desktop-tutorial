@@ -18,6 +18,7 @@ const SHEETS = {
   tests: "Тесты",
   parentEvents: "Мероприятия родителей",
   resources: "Ресурсы",
+  calendar: "Календарь",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -26,11 +27,12 @@ const WIDE = { olympiads: false, exams: false, tests: false, parentEvents: true 
 const HEADERS = {
   settings: ["Параметр", "Значение"],
   students: ["ID", "ФИО", "PIN", "Наставник", "Сильные стороны", "Комментарий учителя", "Телефон мамы", "Телефон папы"],
-  schedule: ["День", "№ урока", "Время", "Предмет", "Кабинет"],
+  schedule: ["День", "№ урока", "Время", "Предмет", "Кабинет", "Учитель"],
   idp: ["ID ученика", "Цель", "Направление", "Срок", "Шаг", "Выполнено"],
   attendance: ["Дата", "Предмет", "Пропуск (ID через запятую)", "Опоздал", "Уважительная причина"],
   portfolio: ["ID ученика", "Раздел", "Название", "Детали", "Дата / год"],
   resources: ["Раздел", "Ресурс", "Где показывать (Ресурсы / Тесты)"],
+  calendar: ["Начало", "Окончание (если несколько дней)", "Событие"],
   olympiads: ["ID", "ФИО", "Областной", "KBO final"],
   exams: ["ID", "ФИО", "KET", "BTS"],
   tests: ["ID", "ФИО", "Темперамент"],
@@ -214,12 +216,18 @@ function readSchedule_() {
   const byDay = {};
   rows_("schedule").forEach((r) => {
     const day = String(r[0]).trim();
-    (byDay[day] = byDay[day] || []).push({ num: Number(r[1]) || 0, time: time_(r[2]), subject: String(r[3]).trim(), room: String(r[4]).trim() });
+    (byDay[day] = byDay[day] || []).push({
+      num: Number(r[1]) || 0,
+      time: time_(r[2]),
+      subject: String(r[3]).trim(),
+      room: String(r[4]).trim(),
+      teacher: String(r[5] || "").trim(),
+    });
   });
   const order = DAYS.filter((d) => byDay[d]).concat(Object.keys(byDay).filter((d) => DAYS.indexOf(d) < 0));
   return order.map((day) => ({
     day: day,
-    lessons: byDay[day].sort((a, b) => a.num - b.num).map((l) => ({ time: l.time, subject: l.subject, room: l.room })),
+    lessons: byDay[day].sort((a, b) => a.num - b.num),
   }));
 }
 
@@ -264,6 +272,17 @@ function readPortfolio_() {
     (res[id] = res[id] || []).push({ section: section, title: cellText_(r[2]), details: cellText_(r[3]), date: cellText_(r[4]) });
   });
   return res;
+}
+
+// Календарь событий: [{start, end, title}] с датами "yyyy-MM-dd"
+function readCalendar_() {
+  return rows_("calendar", true)
+    .filter((r) => String(r[0]).trim() && String(r[2]).trim())
+    .map((r) => {
+      const start = iso_(r[0]);
+      return { start: start, end: String(r[1]).trim() ? iso_(r[1]) : start, title: String(r[2]).trim() };
+    })
+    .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
 }
 
 function readResources_() {
@@ -320,6 +339,7 @@ function teacherData_() {
   return {
     className: readSettings_().className,
     schedule: readSchedule_(),
+    calendar: readCalendar_(),
     resources: readResources_(),
     students: readStudents_().map((s) => Object.assign(publicStudent_(s, ctx), { momPhone: s.momPhone, dadPhone: s.dadPhone })),
     attendance: readAttendance_(),
@@ -334,6 +354,7 @@ function studentData_(id) {
   return {
     className: readSettings_().className,
     schedule: readSchedule_(),
+    calendar: readCalendar_(),
     resources: readResources_(),
     students: [publicStudent_(s, ctx)],
     attendance: readAttendance_().map((l) => ({
@@ -407,6 +428,7 @@ function setup() {
     }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
+    if (key === "calendar") sh.getRange(2, 1, Math.max(data.length, 100), 2).setNumberFormat("dd.mm.yyyy");
     if (key === "parentEvents" && headers.length > 2) sh.getRange(2, 3, Math.max(data.length, 30), headers.length - 2).insertCheckboxes();
     if (key === "idp") {
       sh.getRange(2, 4, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
@@ -452,7 +474,7 @@ function seedRows_(key) {
       return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || ""]);
     case "schedule": {
       const rows = [];
-      SEED.schedule.forEach((day) => day.lessons.forEach((l, i) => rows.push([day.day, i + 1, l.time, l.subject, l.room])));
+      SEED.schedule.forEach((day) => day.lessons.forEach((l, i) => rows.push([day.day, l.num || i + 1, l.time, l.subject, l.room, l.teacher || ""])));
       return rows;
     }
     case "idp": {
@@ -471,6 +493,8 @@ function seedRows_(key) {
       SEED.students.forEach((s) => (s.portfolio || []).forEach((p) => rows.push([s.id, p.section, p.title, p.details, p.date])));
       return rows;
     }
+    case "calendar":
+      return (SEED.calendar || []).map((x) => [d(x.start), x.end && x.end !== x.start ? d(x.end) : "", x.title]);
     case "resources":
       return (SEED.resources || []).map((x) => [x.section, x.text, x.where === "Ресурсы" ? "" : x.where]);
     case "olympiads":
