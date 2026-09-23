@@ -21,6 +21,7 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 function fmtDate(iso) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso; // текстовый срок, например «до конца 8 класса»
   const [y, m, d] = iso.split("-");
   return `${d}.${m}.${y}`;
 }
@@ -65,7 +66,7 @@ function attendanceStats(id, subject = "") {
 
 function goalProgress(goal) {
   const steps = goal.steps || [];
-  if (!steps.length) return goal.progress ?? 0;
+  if (!steps.length) return goal.done ? 100 : goal.progress ?? 0;
   return pct(steps.filter((s) => s.done).length, steps.length);
 }
 function idpProgress(student) {
@@ -113,7 +114,8 @@ async function demoApi(action, payload) {
   const login = creds.login.toLowerCase();
   const parent = creds.as === "parent";
   const code = phoneKey(creds.pin);
-  const isTeacher = !parent && login === D.teacher.login.toLowerCase() && creds.pin === D.teacher.pin;
+  const isTutor = !parent && D.tutor && login === D.tutor.login.toLowerCase() && creds.pin === D.tutor.pin;
+  const isTeacher = isTutor || (!parent && login === D.teacher.login.toLowerCase() && creds.pin === D.teacher.pin);
   const s = D.students.find(
     (x) => x.id.toLowerCase() === login && (parent ? code && (phoneKey(x.momPhone) === code || phoneKey(x.dadPhone) === code) : x.pin === creds.pin)
   );
@@ -123,7 +125,8 @@ async function demoApi(action, payload) {
   }
   if (action === "login") {
     const strip = ({ pin, momPhone, dadPhone, ...rest }) => rest;
-    if (isTeacher) return { ok: true, role: "teacher", data: { ...D, students: D.students.map(({ pin, ...rest }) => rest) } };
+    if (isTeacher)
+      return { ok: true, role: "teacher", staff: isTutor ? "Воспитатель" : "Учитель", data: { ...D, students: D.students.map(({ pin, ...rest }) => rest) } };
     const only = (list) => (list.includes(s.id) ? [s.id] : []);
     return {
       ok: true,
@@ -132,6 +135,7 @@ async function demoApi(action, payload) {
       data: {
         className: D.className,
         schedule: D.schedule,
+        resources: D.resources,
         students: [strip(s)],
         attendance: D.attendance.map((l) => ({ date: l.date, subject: l.subject, absent: only(l.absent), late: only(l.late), excused: only(l.excused) })),
       },
@@ -170,7 +174,7 @@ async function login(loginValue, pin, as) {
   creds = { login: loginValue, pin, as };
   const res = await api("login");
   DATA = res.data;
-  state.user = res.role === "teacher" ? { role: "teacher" } : { role: res.role, id: res.id };
+  state.user = res.role === "teacher" ? { role: "teacher", staff: res.staff || "Учитель" } : { role: res.role, id: res.id };
   saveSession();
 }
 
@@ -195,7 +199,7 @@ function render() {
   }
   userBox.hidden = false;
   if (state.user.role === "teacher") {
-    document.getElementById("user-name").textContent = "Учитель";
+    document.getElementById("user-name").textContent = state.user.staff || "Учитель";
     if (state.viewStudent) renderStudent(findStudent(state.viewStudent), true);
     else renderTeacher();
   } else {
@@ -224,7 +228,7 @@ const LOGIN_ROLES = {
   },
   teacher: {
     label: "Учитель",
-    hint: "Введите логин и PIN-код учителя.",
+    hint: "Для учителя и воспитателя: введите свой логин и PIN-код.",
     login: "Логин",
     code: "PIN-код",
     codeInput: 'type="password" autocomplete="current-password"',
@@ -313,7 +317,17 @@ function bindTabs() {
 
 // ---------- student view ----------
 function renderStudent(s, byTeacher) {
-  const tabs = [["schedule", "📅 Расписание"], ["idp", "🎯 IDP план"], ["attendance", "✅ Посещаемость"]];
+  const isParent = state.user.role === "parent";
+  const tabs = [
+    ["schedule", "📅 Расписание"],
+    ["idp", "🎯 Цели (IDP)"],
+    ["attendance", "✅ Посещаемость"],
+    ["portfolio", "📁 Портфолио"],
+    ["olympiads", "🏅 Олимпиады"],
+    ["tests", "🧠 Тесты"],
+  ];
+  if (isParent || byTeacher) tabs.push(["events", "👪 Мероприятия родителей"]);
+  tabs.push(["resources", "📚 Ресурсы"]);
   if (!tabs.some(([k]) => k === state.tab)) state.tab = "schedule";
   const st = attendanceStats(s.id);
 
@@ -321,8 +335,12 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "schedule") body = scheduleHtml(s.schedule || DATA.schedule);
   if (state.tab === "idp") body = idpHtml(s);
   if (state.tab === "attendance") body = studentAttendanceHtml(s);
+  if (state.tab === "portfolio") body = portfolioHtml(s);
+  if (state.tab === "olympiads") body = kvCardHtml("Олимпиады", s.olympiads);
+  if (state.tab === "tests") body = testsHtml(s);
+  if (state.tab === "events") body = parentEventsHtml(s);
+  if (state.tab === "resources") body = resourcesHtml();
 
-  const isParent = state.user.role === "parent";
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
     ${byTeacher ? `<button class="btn btn-ghost" id="back-btn" style="margin-bottom:14px">← Ко всем ученикам</button>` : ""}
@@ -377,6 +395,7 @@ function recentMissesHtml(s) {
 }
 
 function scheduleHtml(schedule) {
+  if (!schedule || !schedule.length) return '<div class="card"><h2>Расписание на неделю</h2><p class="muted">Расписание пока не добавлено.</p></div>';
   const today = new Date().getDay();
   return `<div class="card"><h2>Расписание на неделю</h2><div class="week">${schedule
     .map((d) => {
@@ -402,7 +421,7 @@ function idpHtml(s) {
   const goals = idp.goals || [];
   return `
     <div class="card">
-      <h2>Индивидуальный план развития (IDP)</h2>
+      <h2>Цели и план развития (IDP)</h2>
       <div class="info-grid" style="margin-bottom:16px">
         <div><div class="muted small">Наставник</div><div>${esc(idp.mentor || "—")}</div></div>
         <div><div class="muted small">Сильные стороны</div><div>${esc(idp.strengths || "—")}</div></div>
@@ -420,16 +439,136 @@ function idpHtml(s) {
               </div>
               <div class="small">${g.deadline ? `Срок: <b>${fmtDate(g.deadline)}</b>` : ""}</div>
             </div>
-            <div class="progress ${p === 100 ? "done" : ""}"><span style="width:${p}%"></span></div>
-            <div class="small muted">Выполнено: ${p}%</div>
-            <ul class="steps">${(g.steps || [])
-              .map((st) => `<li class="${st.done ? "done" : ""}">${st.done ? "☑" : "☐"} ${esc(st.text)}</li>`)
-              .join("")}</ul>
+            ${
+              (g.steps || []).length
+                ? `<div class="progress ${p === 100 ? "done" : ""}"><span style="width:${p}%"></span></div><div class="small muted">Выполнено: ${p}%</div>`
+                : ""
+            }
+            ${
+              (g.steps || []).length
+                ? `<ul class="steps">${g.steps.map((st) => `<li class="${st.done ? "done" : ""}">${st.done ? "☑" : "☐"} ${esc(st.text)}</li>`).join("")}</ul>`
+                : `<div class="small" style="margin-top:6px">${g.done ? '<span class="pill present">☑ Выполнено</span>' : '<span class="pill neutral">☐ В процессе</span>'}</div>`
+            }
           </div>`;
         })
         .join("")}
       ${idp.comment ? `<div class="card" style="background:var(--accent-soft);border:none;margin:0"><b>Комментарий учителя:</b> ${esc(idp.comment)}</div>` : ""}
     </div>`;
+}
+
+// ---------- портфолио, олимпиады, тесты, мероприятия, ресурсы ----------
+const PORTFOLIO_ORDER = ["Личное", "Оценки", "Достижения", "Сертификаты", "Хобби", "Прочитанные книги", "Языки", "Поездки", "Цели на будущее"];
+const PORTFOLIO_ICON = {
+  "Личное": "👤",
+  "Оценки": "📚",
+  "Достижения": "🏆",
+  "Сертификаты": "📜",
+  "Хобби": "⚽",
+  "Прочитанные книги": "📖",
+  "Языки": "🗣️",
+  "Поездки": "✈️",
+  "Цели на будущее": "🎓",
+};
+
+function groupBy(list, key) {
+  const map = new Map();
+  list.forEach((x) => {
+    if (!map.has(x[key])) map.set(x[key], []);
+    map.get(x[key]).push(x);
+  });
+  return map;
+}
+
+function portfolioHtml(s) {
+  const items = s.portfolio || [];
+  if (!items.length) return '<div class="card"><h2>Портфолио</h2><p class="muted">Портфолио пока не заполнено.</p></div>';
+  const groups = groupBy(items, "section");
+  const order = [...PORTFOLIO_ORDER.filter((k) => groups.has(k)), ...[...groups.keys()].filter((k) => !PORTFOLIO_ORDER.includes(k))];
+  const section = (name) => {
+    const list = groups.get(name);
+    let inner;
+    if (name === "Личное") {
+      inner = `<div class="info-grid">${list
+        .map((x) => `<div><div class="muted small">${esc(x.title)}</div><div>${esc(x.details || "—")}</div></div>`)
+        .join("")}</div>`;
+    } else if (name === "Оценки" || name === "Языки") {
+      inner = `<div class="chips">${list
+        .map((x) => `<span class="chip">${esc(x.title)} <b>${esc(x.details)}</b></span>`)
+        .join("")}</div>`;
+    } else {
+      inner = `<ul class="plist">${list
+        .map(
+          (x) => `<li><span>${esc(x.title)}</span>${x.details ? ` <span class="muted">— ${esc(x.details)}</span>` : ""}${
+            x.date ? ` <span class="badge">${esc(x.date)}</span>` : ""
+          }</li>`
+        )
+        .join("")}</ul>`;
+    }
+    return `<div class="psection"><h3>${PORTFOLIO_ICON[name] || "•"} ${esc(name)}</h3>${inner}</div>`;
+  };
+  return `<div class="card"><h2>Портфолио</h2>${order.map(section).join("")}</div>`;
+}
+
+// Пустые значения из таблицы («Nope», «None», «-») показываем как прочерк
+function cellValue(v) {
+  const t = String(v ?? "").trim();
+  return !t || /^(nope|none|-|—)$/i.test(t) ? "" : t;
+}
+function valueHtml(v) {
+  const t = cellValue(v);
+  if (!t) return '<span class="muted">—</span>';
+  const medal = /gold/i.test(t) ? "gold" : /silver/i.test(t) ? "silver" : /bronze/i.test(t) ? "bronze" : "";
+  return medal ? `<span class="pill ${medal}">${esc(t)}</span>` : esc(t);
+}
+
+function kvCardHtml(title, items, extra = "") {
+  const list = items || [];
+  return `<div class="card"><h2>${esc(title)}</h2>${
+    list.length
+      ? `<div class="table-wrap"><table class="kv">${list
+          .map((x) => `<tr><th>${esc(x.name)}</th><td class="wrap">${valueHtml(x.value)}</td></tr>`)
+          .join("")}</table></div>`
+      : '<p class="muted">Данных пока нет.</p>'
+  }${extra}</div>`;
+}
+
+function testsHtml(s) {
+  const notes = (DATA.resources || []).filter((x) => x.where === "Тесты");
+  const extra = notes.length
+    ? `<h3 style="margin-top:18px">Пояснения</h3>${[...groupBy(notes, "section")]
+        .map(([sec, list]) => `<div class="note"><b>${esc(sec)}</b><br>${list.map((x) => esc(x.text)).join("<br>")}</div>`)
+        .join("")}`
+    : "";
+  return kvCardHtml("Результаты тестов", s.tests, extra);
+}
+
+function parentEventsHtml(s) {
+  const list = s.parentEvents || [];
+  const done = list.filter((x) => x.value).length;
+  return `<div class="card"><h2>Мероприятия для родителей</h2>${
+    list.length
+      ? `<p class="small muted">Посещено: <b>${done} из ${list.length}</b></p>
+         <div class="table-wrap"><table class="kv">${list
+           .map((x) => `<tr><th>${esc(x.name)}</th><td>${x.value ? '<span class="pill present">✓ Был</span>' : '<span class="pill absent">✗ Не был</span>'}</td></tr>`)
+           .join("")}</table></div>`
+      : '<p class="muted">Данных пока нет.</p>'
+  }</div>`;
+}
+
+function resourcesHtml() {
+  const list = (DATA.resources || []).filter((x) => x.where !== "Тесты");
+  if (!list.length) return '<div class="card"><h2>Ресурсы</h2><p class="muted">Ресурсы пока не добавлены.</p></div>';
+  return `<div class="card"><h2>Полезные ресурсы</h2><div class="table-wrap"><table class="kv">${[...groupBy(list, "section")]
+    .map(([sec, items]) => `<tr><th>${esc(sec)}</th><td class="wrap">${items.map((x) => linkify(x.text)).join("<br>")}</td></tr>`)
+    .join("")}</table></div></div>`;
+}
+
+// Делает кликабельными адреса сайтов вида example.com
+function linkify(text) {
+  return esc(text).replace(/\b((?:https?:\/\/)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|kz|ru|io|uk)(?:\/[^\s;,]*)?)/gi, (m) => {
+    const href = /^https?:/i.test(m) ? m : "https://" + m;
+    return `<a href="${href}" target="_blank" rel="noopener">${m}</a>`;
+  });
 }
 
 function subjectSelectHtml() {
@@ -484,7 +623,17 @@ function studentAttendanceHtml(s) {
 
 // ---------- teacher view ----------
 function renderTeacher() {
-  const tabs = [["summary", "👥 Сводка"], ["mark", "✏️ Отметить урок"], ["journal", "📋 Журнал"], ["idp-all", "🎯 IDP всех"], ["schedule", "📅 Расписание"]];
+  const tabs = [
+    ["summary", "👥 Сводка"],
+    ["mark", "✏️ Отметить урок"],
+    ["journal", "📋 Журнал"],
+    ["idp-all", "🎯 Цели всех"],
+    ["olympiads-all", "🏅 Олимпиады"],
+    ["events-all", "👪 Родители"],
+    ["tests-all", "🧠 Тесты"],
+    ["schedule", "📅 Расписание"],
+    ["resources", "📚 Ресурсы"],
+  ];
   if (!tabs.some(([k]) => k === state.tab)) state.tab = "summary";
 
   const all = DATA.students.map((s) => ({ s, st: attendanceStats(s.id, state.subjectFilter) }));
@@ -498,6 +647,10 @@ function renderTeacher() {
   if (state.tab === "journal") body = journalHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = scheduleHtml(DATA.schedule);
+  if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
+  if (state.tab === "events-all") body = eventsTableHtml();
+  if (state.tab === "tests-all") body = wideTableHtml("Результаты тестов", "tests");
+  if (state.tab === "resources") body = resourcesHtml();
 
   app.innerHTML = `
     <div class="stats">
@@ -531,6 +684,78 @@ function studentLink(s) {
   return `<button class="btn-link" data-student="${esc(s.id)}">${esc(s.name)}</button>`;
 }
 
+// Таблица «ученик × показатель» для широких листов (олимпиады, тесты)
+function wideTableHtml(title, key) {
+  const cols = [...new Set(DATA.students.flatMap((s) => (s[key] || []).map((x) => x.name)))];
+  if (!cols.length) return `<div class="card"><h2>${esc(title)}</h2><p class="muted">Данных пока нет.</p></div>`;
+  return `<div class="card"><h2>${esc(title)}</h2><div class="table-wrap"><table>
+    <tr><th>Ученик</th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr>
+    ${DATA.students
+      .map((s) => {
+        const map = Object.fromEntries((s[key] || []).map((x) => [x.name, x.value]));
+        return `<tr><td>${studentLink(s)}</td>${cols.map((c) => `<td class="wrap">${valueHtml(map[c])}</td>`).join("")}</tr>`;
+      })
+      .join("")}
+  </table></div></div>`;
+}
+
+function eventsTableHtml() {
+  const cols = [...new Set(DATA.students.flatMap((s) => (s.parentEvents || []).map((x) => x.name)))];
+  if (!cols.length) return '<div class="card"><h2>Мероприятия для родителей</h2><p class="muted">Данных пока нет.</p></div>';
+  const rows = DATA.students
+    .map((s) => {
+      const map = Object.fromEntries((s.parentEvents || []).map((x) => [x.name, x.value]));
+      return { s, map, total: cols.filter((c) => map[c]).length };
+    })
+    .sort((a, b) => b.total - a.total || a.s.name.localeCompare(b.s.name, "ru"));
+  const perEvent = cols.map((c) => rows.filter((r) => r.map[c]).length);
+  const phones = (s) =>
+    [s.momPhone, s.dadPhone]
+      .filter(Boolean)
+      .map((p) => `<a href="tel:${esc(p.replace(/[^\d+]/g, ""))}">${esc(p)}</a>`)
+      .join("<br>") || '<span class="muted">—</span>';
+  return `<div class="card"><h2>Участие родителей в мероприятиях</h2>
+    <div class="table-wrap"><table class="journal">
+      <tr><th class="name">Ученик</th><th>Итого</th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}<th>Телефоны</th></tr>
+      ${rows
+        .map(
+          ({ s, map, total }) => `<tr><td class="name">${studentLink(s)}</td><td><b>${total}/${cols.length}</b></td>${cols
+            .map((c) => `<td>${map[c] ? '<span class="mark present">✓</span>' : '<span class="mark absent">✗</span>'}</td>`)
+            .join("")}<td class="small" style="text-align:left">${phones(s)}</td></tr>`
+        )
+        .join("")}
+      <tr><td class="name muted">Пришли</td><td></td>${perEvent.map((n) => `<td class="muted">${n}</td>`).join("")}<td></td></tr>
+    </table></div></div>`;
+}
+
+// Ближайшие дни рождения (из портфолио: Личное → Дата рождения)
+function birthdaysHtml() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const list = DATA.students
+    .map((s) => {
+      const item = (s.portfolio || []).find((x) => x.section === "Личное" && /дата рождения|туған күн/i.test(x.title));
+      const m = item && String(item.details).match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?/);
+      if (!m) return null;
+      let next = new Date(today.getFullYear(), m[2] - 1, m[1]);
+      if (next < today) next = new Date(today.getFullYear() + 1, m[2] - 1, m[1]);
+      const days = Math.round((next - today) / 86400000);
+      const age = m[3] ? next.getFullYear() - Number(m[3]) : null;
+      return { s, next, days, age };
+    })
+    .filter((x) => x && x.days <= 30)
+    .sort((a, b) => a.days - b.days);
+  if (!list.length) return "";
+  return `<div class="card"><h3>🎂 Дни рождения в ближайшие 30 дней</h3><div class="chips">${list
+    .map(
+      ({ s, next, days, age }) =>
+        `<span class="chip">${studentLink(s)} <b>${String(next.getDate()).padStart(2, "0")}.${String(next.getMonth() + 1).padStart(2, "0")}</b>${
+          age ? ` · ${age} лет` : ""
+        } <span class="muted">${days === 0 ? "сегодня!" : "через " + days + " дн."}</span></span>`
+    )
+    .join("")}</div></div>`;
+}
+
 function summaryHtml(all) {
   const sort = state.sort || "name";
   const rows = [...all].sort((a, b) => {
@@ -539,6 +764,7 @@ function summaryHtml(all) {
     return a.s.name.localeCompare(b.s.name, "ru");
   });
   return `
+    ${birthdaysHtml()}
     <div class="card">
       <h2>Посещаемость учеников</h2>
       <div class="filters">

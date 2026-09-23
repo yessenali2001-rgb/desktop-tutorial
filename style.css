@@ -170,6 +170,7 @@ tr:hover td { background: var(--accent-soft); }
 .pill.absent { background: var(--red-soft); color: var(--red); }
 .pill.late { background: var(--orange-soft); color: var(--orange); }
 .pill.excused { background: var(--blue-soft); color: var(--blue); }
+.pill.neutral { background: var(--border); color: var(--text); }
 
 /* journal matrix */
 .journal th, .journal td { padding: 4px; text-align: center; font-size: 12px; }
@@ -225,3 +226,22 @@ tr:hover td { background: var(--accent-soft); }
 .seg-wide { display: flex; }
 .seg-wide .seg-btn { flex: 1; padding: 8px 10px; }
 .seg-btn.active.role { background: var(--accent); color: #fff; font-weight: 700; }
+
+/* ---------- Портфолио, олимпиады, тесты ---------- */
+.psection { padding: 14px 0; border-top: 1px solid var(--border); }
+.psection:first-of-type { border-top: none; padding-top: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; gap: 6px; align-items: center; padding: 6px 12px; border-radius: 999px; background: var(--accent-soft); font-size: 14px; }
+.plist { margin: 0; padding-left: 20px; }
+.plist li { padding: 3px 0; }
+table.kv th { text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--muted); width: 35%; white-space: normal; vertical-align: top; }
+td.wrap { white-space: normal; min-width: 120px; }
+.note { background: var(--accent-soft); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; font-size: 14px; }
+.pill.gold { background: #fff3bf; color: #946800; }
+.pill.silver { background: #e9ecef; color: #495057; }
+.pill.bronze { background: #ffe8cc; color: #a0522d; }
+@media (prefers-color-scheme: dark) {
+  .pill.gold { background: #3d3414; color: #ffd43b; }
+  .pill.silver { background: #2b3036; color: #ced4da; }
+  .pill.bronze { background: #3b2a1c; color: #ffa94d; }
+}

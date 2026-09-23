@@ -12,7 +12,15 @@ const SHEETS = {
   schedule: "Расписание",
   idp: "IDP",
   attendance: "Посещаемость",
+  portfolio: "Портфолио",
+  olympiads: "Олимпиады",
+  tests: "Тесты",
+  parentEvents: "Мероприятия родителей",
+  resources: "Ресурсы",
 };
+
+// «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
+const WIDE = { olympiads: false, tests: false, parentEvents: true }; // true — значения-галочки
 
 const HEADERS = {
   settings: ["Параметр", "Значение"],
@@ -20,6 +28,11 @@ const HEADERS = {
   schedule: ["День", "№ урока", "Время", "Предмет", "Кабинет"],
   idp: ["ID ученика", "Цель", "Направление", "Срок", "Шаг", "Выполнено"],
   attendance: ["Дата", "Предмет", "Пропуск (ID через запятую)", "Опоздал", "Уважительная причина"],
+  portfolio: ["ID ученика", "Раздел", "Название", "Детали", "Дата / год"],
+  resources: ["Раздел", "Ресурс", "Где показывать (Ресурсы / Тесты)"],
+  olympiads: ["ID", "ФИО", "Областной", "KBO final"],
+  tests: ["ID", "ФИО", "Темперамент"],
+  parentEvents: ["ID", "ФИО", "Родительское собрание"],
 };
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
@@ -61,7 +74,7 @@ function handle_(req) {
   const user = auth_(req.login, req.pin, req.as);
   switch (req.action) {
     case "login":
-      return { ok: true, role: user.role, id: user.id, data: user.role === "teacher" ? teacherData_() : studentData_(user.id) }; // родитель видит то же, что и ребёнок
+      return { ok: true, role: user.role, id: user.id, staff: user.staff, data: user.role === "teacher" ? teacherData_() : studentData_(user.id) }; // родитель видит то же, что и ребёнок
     case "saveLesson":
       if (user.role !== "teacher") throw new Error("Доступно только учителю");
       return { ok: true, lesson: saveLesson_(req.lesson) };
@@ -91,8 +104,11 @@ function auth_(login, pin, as) {
     if (child) return { role: "parent", id: child.id };
   } else {
     const settings = readSettings_();
-    if (login.toLowerCase() === settings.teacherLogin.toLowerCase() && pin === settings.teacherPin) {
-      return { role: "teacher" };
+    if (settings.teacherPin && login.toLowerCase() === settings.teacherLogin.toLowerCase() && pin === settings.teacherPin) {
+      return { role: "teacher", staff: "Учитель" };
+    }
+    if (settings.tutorPin && login.toLowerCase() === settings.tutorLogin.toLowerCase() && pin === settings.tutorPin) {
+      return { role: "teacher", staff: "Воспитатель" };
     }
     const s = readStudents_().find((x) => x.id.toLowerCase() === login.toLowerCase() && x.pin === pin);
     if (s) return { role: "student", id: s.id };
@@ -112,7 +128,8 @@ function sheet_(key) {
   return sh;
 }
 
-function rows_(key) {
+function rows_(key, optional) {
+  if (optional && !SpreadsheetApp.getActive().getSheetByName(SHEETS[key])) return [];
   return sheet_(key)
     .getDataRange()
     .getValues()
@@ -143,6 +160,12 @@ function time_(v) {
   return String(v).trim();
 }
 
+// Значение ячейки как текст (даты → дд.мм.гггг)
+function cellText_(v) {
+  if (isDate_(v)) return Utilities.formatDate(v, tz_(), "dd.MM.yyyy");
+  return String(v === null || v === undefined ? "" : v).trim();
+}
+
 function ids_(v) {
   return String(v || "")
     .split(/[,;\s]+/)
@@ -167,6 +190,8 @@ function readSettings_() {
     className: map["Название класса"] || "",
     teacherLogin: map["Логин учителя"] || "teacher",
     teacherPin: map["PIN учителя"] || "",
+    tutorLogin: map["Логин воспитателя"] || "vospitatel",
+    tutorPin: map["PIN воспитателя"] || "",
   };
 }
 
@@ -212,6 +237,7 @@ function readIdp_() {
     if (String(r[2]).trim()) g.area = String(r[2]).trim();
     if (String(r[3]).trim()) g.deadline = iso_(r[3]);
     if (String(r[4]).trim()) g.steps.push({ text: String(r[4]).trim(), done: isDone_(r[5]) });
+    else g.done = isDone_(r[5]); // цель без шагов: галочка относится к самой цели
   });
   return res;
 }
@@ -226,33 +252,86 @@ function readAttendance_() {
   }));
 }
 
-function publicStudent_(s, idp) {
+// { "S01": [ {section, title, details, date} ] }
+function readPortfolio_() {
+  const res = {};
+  rows_("portfolio", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    const section = String(r[1]).trim();
+    if (!id || !section) return;
+    (res[id] = res[id] || []).push({ section: section, title: cellText_(r[2]), details: cellText_(r[3]), date: cellText_(r[4]) });
+  });
+  return res;
+}
+
+function readResources_() {
+  return rows_("resources", true)
+    .filter((r) => String(r[1]).trim())
+    .map((r) => ({ section: String(r[0]).trim(), text: String(r[1]).trim(), where: String(r[2] || "").trim() || "Ресурсы" }));
+}
+
+// Широкий лист → { "S01": [ {name: "<заголовок колонки>", value} ] }
+function readWide_(key) {
+  const res = {};
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEETS[key]);
+  if (!sh) return res;
+  const values = sh.getDataRange().getValues();
+  if (!values.length) return res;
+  const head = values[0].map((h) => String(h).trim());
+  values.slice(1).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    if (!id) return;
+    res[id] = [];
+    for (let j = 2; j < head.length; j++) {
+      if (head[j]) res[id].push({ name: head[j], value: WIDE[key] ? isDone_(r[j]) : cellText_(r[j]) });
+    }
+  });
+  return res;
+}
+
+function context_() {
+  return {
+    idp: readIdp_(),
+    portfolio: readPortfolio_(),
+    olympiads: readWide_("olympiads"),
+    tests: readWide_("tests"),
+    parentEvents: readWide_("parentEvents"),
+  };
+}
+
+function publicStudent_(s, ctx) {
   return {
     id: s.id,
     name: s.name,
-    idp: { mentor: s.mentor, strengths: s.strengths, comment: s.comment, goals: idp[s.id] || [] },
+    idp: { mentor: s.mentor, strengths: s.strengths, comment: s.comment, goals: ctx.idp[s.id] || [] },
+    portfolio: ctx.portfolio[s.id] || [],
+    olympiads: ctx.olympiads[s.id] || [],
+    tests: ctx.tests[s.id] || [],
+    parentEvents: ctx.parentEvents[s.id] || [],
   };
 }
 
 function teacherData_() {
-  const idp = readIdp_();
+  const ctx = context_();
   return {
     className: readSettings_().className,
     schedule: readSchedule_(),
-    students: readStudents_().map((s) => Object.assign(publicStudent_(s, idp), { momPhone: s.momPhone, dadPhone: s.dadPhone })),
+    resources: readResources_(),
+    students: readStudents_().map((s) => Object.assign(publicStudent_(s, ctx), { momPhone: s.momPhone, dadPhone: s.dadPhone })),
     attendance: readAttendance_(),
   };
 }
 
-// Ученик получает только свои данные
+// Ученик и его родитель получают только данные этого ученика
 function studentData_(id) {
-  const idp = readIdp_();
+  const ctx = context_();
   const s = readStudents_().find((x) => x.id === id);
   const only = (list) => (list.indexOf(id) >= 0 ? [id] : []);
   return {
     className: readSettings_().className,
     schedule: readSchedule_(),
-    students: [publicStudent_(s, idp)],
+    resources: readResources_(),
+    students: [publicStudent_(s, ctx)],
     attendance: readAttendance_().map((l) => ({
       date: l.date,
       subject: l.subject,
@@ -313,7 +392,7 @@ function setup() {
     if (!sh) sh = ss.insertSheet(SHEETS[key]);
     if (sh.getLastRow() > 0) return;
 
-    const headers = HEADERS[key];
+    const headers = headersFor_(key);
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setBackground("#e7ecff");
     sh.setFrozenRows(1);
 
@@ -324,6 +403,7 @@ function setup() {
     }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
+    if (key === "parentEvents" && headers.length > 2) sh.getRange(2, 3, Math.max(data.length, 30), headers.length - 2).insertCheckboxes();
     if (key === "idp") {
       sh.getRange(2, 4, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
       sh.getRange(2, 6, Math.max(data.length, 500), 1).insertCheckboxes();
@@ -338,13 +418,32 @@ function setup() {
   });
 }
 
+// Заголовки широких листов берутся из тестовых данных (если они есть)
+function headersFor_(key) {
+  if (key in WIDE && typeof SEED !== "undefined" && SEED.students.length && SEED.students[0][key]) {
+    return ["ID", "ФИО"].concat(SEED.students[0][key].map((x) => x.name));
+  }
+  return HEADERS[key];
+}
+
 function seedRows_(key) {
-  if (typeof SEED === "undefined") return key === "settings" ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"]] : [];
+  if (typeof SEED === "undefined") {
+    return key === "settings"
+      ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"], ["Логин воспитателя", "vospitatel"], ["PIN воспитателя", ""]]
+      : [];
+  }
   const tz = tz_();
-  const d = (s) => (s ? Utilities.parseDate(s, tz, "yyyy-MM-dd") : "");
+  // Дата "yyyy-mm-dd" → ячейка-дата; любой другой текст (например, «до конца 8 класса») остаётся текстом
+  const d = (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s || "") ? Utilities.parseDate(s, tz, "yyyy-MM-dd") : s || "");
   switch (key) {
     case "settings":
-      return [["Название класса", SEED.className], ["Логин учителя", SEED.teacher.login], ["PIN учителя", SEED.teacher.pin]];
+      return [
+        ["Название класса", SEED.className],
+        ["Логин учителя", SEED.teacher.login],
+        ["PIN учителя", SEED.teacher.pin],
+        ["Логин воспитателя", SEED.tutor.login],
+        ["PIN воспитателя", SEED.tutor.pin],
+      ];
     case "students":
       return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || ""]);
     case "schedule": {
@@ -355,10 +454,25 @@ function seedRows_(key) {
     case "idp": {
       const rows = [];
       SEED.students.forEach((s) =>
-        s.idp.goals.forEach((g) => g.steps.forEach((st) => rows.push([s.id, g.title, g.area, d(g.deadline), st.text, st.done])))
+        s.idp.goals.forEach((g) =>
+          g.steps && g.steps.length
+            ? g.steps.forEach((st) => rows.push([s.id, g.title, g.area, d(g.deadline), st.text, st.done]))
+            : rows.push([s.id, g.title, g.area, d(g.deadline), "", !!g.done])
+        )
       );
       return rows;
     }
+    case "portfolio": {
+      const rows = [];
+      SEED.students.forEach((s) => (s.portfolio || []).forEach((p) => rows.push([s.id, p.section, p.title, p.details, p.date])));
+      return rows;
+    }
+    case "resources":
+      return (SEED.resources || []).map((x) => [x.section, x.text, x.where === "Ресурсы" ? "" : x.where]);
+    case "olympiads":
+    case "tests":
+    case "parentEvents":
+      return SEED.students.map((s) => [s.id, s.name].concat((s[key] || []).map((x) => x.value)));
     case "attendance":
       return SEED.attendance.map((l) => [d(l.date), l.subject, l.absent.join(", "), l.late.join(", "), l.excused.join(", ")]);
   }
