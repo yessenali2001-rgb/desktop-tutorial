@@ -409,7 +409,7 @@ function calendarHtml(all = false) {
   const list = all ? events : events.filter((e) => (e.end || e.start) >= today);
   if (!list.length) return "";
   const days = (iso) => Math.round((new Date(iso + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000);
-  return `<div class="card"><h2>📆 ${all ? "Календарь событий" : "Ближайшие события"}</h2><div class="events">${list
+  return `<div class="card"><div class="eyebrow">Жоспар</div><h2>${all ? "Күнтізбе" : "Алдағы күнтізбе"}</h2><div class="events">${list
     .map((e) => {
       const end = e.end || e.start;
       const past = end < today;
