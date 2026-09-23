@@ -9665,21 +9665,21 @@ const SEED = {
 
   // ЖУРНАЛ ПОСЕЩАЕМОСТИ ЭТЮДОВ: одна запись = один этюд; перечислены только отсутствовавшие
   attendance: [
-    {"date": "2026-09-01", "subject": "Этюд", "absent": ["S18"], "late": [], "excused": []},
+    {"date": "2026-09-01", "subject": "Этюд", "absent": [], "late": ["S18"], "excused": []},
     {"date": "2026-09-02", "subject": "Этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-03", "subject": "Этюд", "absent": ["S08", "S13"], "late": [], "excused": []},
+    {"date": "2026-09-03", "subject": "Этюд", "absent": ["S13"], "late": ["S08"], "excused": []},
     {"date": "2026-09-04", "subject": "Этюд", "absent": ["S08", "S10"], "late": [], "excused": []},
     {"date": "2026-09-07", "subject": "Этюд", "absent": ["S10", "S18"], "late": [], "excused": []},
     {"date": "2026-09-08", "subject": "Этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-09", "subject": "Этюд", "absent": ["S20", "S21"], "late": [], "excused": []},
+    {"date": "2026-09-09", "subject": "Этюд", "absent": ["S21"], "late": ["S20"], "excused": ["S11", "S16"]},
     {"date": "2026-09-10", "subject": "Этюд", "absent": ["S01"], "late": [], "excused": []},
     {"date": "2026-09-11", "subject": "Этюд", "absent": [], "late": [], "excused": []},
     {"date": "2026-09-14", "subject": "Этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-15", "subject": "Этюд", "absent": ["S02", "S03", "S08", "S10", "S20"], "late": [], "excused": []},
-    {"date": "2026-09-16", "subject": "Этюд", "absent": ["S12"], "late": [], "excused": []},
-    {"date": "2026-09-17", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-15", "subject": "Этюд", "absent": ["S02", "S03", "S10", "S20"], "late": ["S08"], "excused": []},
+    {"date": "2026-09-16", "subject": "Этюд", "absent": [], "late": ["S07", "S12"], "excused": []},
+    {"date": "2026-09-17", "subject": "Этюд", "absent": [], "late": ["S05", "S09"], "excused": ["S25"]},
     {"date": "2026-09-18", "subject": "Этюд", "absent": [], "late": [], "excused": []},
     {"date": "2026-09-21", "subject": "Этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-22", "subject": "Этюд", "absent": [], "late": [], "excused": []}
+    {"date": "2026-09-22", "subject": "Этюд", "absent": [], "late": ["S20"], "excused": []}
   ]
 };

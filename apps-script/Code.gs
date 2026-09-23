@@ -29,7 +29,7 @@ const HEADERS = {
   students: ["ID", "ФИО", "PIN", "Наставник", "Сильные стороны", "Комментарий учителя", "Телефон мамы", "Телефон папы"],
   schedule: ["День", "№ урока", "Время", "Предмет", "Кабинет", "Учитель"],
   idp: ["ID ученика", "Цель", "Направление", "Срок", "Шаг", "Выполнено"],
-  attendance: ["Дата", "Этюд", "Отсутствовали (ID через запятую)"],
+  attendance: ["Дата", "Этюд", "Отсутствовали (ID через запятую)", "Опоздали (ID через запятую)", "Уважительная причина (ID через запятую)"],
   portfolio: ["ID ученика", "Раздел", "Название", "Детали", "Дата / год"],
   resources: ["Раздел", "Ресурс", "Где показывать (Ресурсы / Тесты)"],
   calendar: ["Начало", "Окончание (если несколько дней)", "Событие"],
@@ -515,7 +515,7 @@ function seedRows_(key) {
     case "parentEvents":
       return SEED.students.map((s) => [s.id, s.name].concat((s[key] || []).map((x) => x.value)));
     case "attendance":
-      return SEED.attendance.map((l) => [d(l.date), l.subject, l.absent.join(", ")]);
+      return SEED.attendance.map((l) => [d(l.date), l.subject, l.absent.join(", "), l.late.join(", "), l.excused.join(", ")]);
   }
   return [];
 }
