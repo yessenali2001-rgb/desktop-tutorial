@@ -296,3 +296,18 @@ td.wrap { white-space: normal; min-width: 120px; }
 .books li { padding: 7px 0; border-bottom: 1px dashed var(--border); }
 .books li:last-child { border-bottom: none; }
 .book-title { font-weight: 600; }
+
+/* ---------- Фото ученика ---------- */
+.profile { display: flex; gap: 18px; align-items: center; }
+.profile-info { flex: 1; min-width: 0; }
+.profile-info h2 { margin-bottom: 4px; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; display: inline-grid; place-items: center; }
+.avatar-empty { background: var(--navy); color: var(--gold); font-family: var(--serif); font-weight: 700; }
+.avatar-lg { width: 96px; height: 96px; font-size: 32px; border: 3px solid var(--gold); }
+.avatar-sm { width: 28px; height: 28px; font-size: 11px; }
+.name-cell { display: inline-flex; align-items: center; gap: 8px; }
+.photo-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.photo-actions .btn-ghost { cursor: pointer; font-size: 14px; }
+@media (max-width: 600px) {
+  .avatar-lg { width: 72px; height: 72px; font-size: 24px; }
+}

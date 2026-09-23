@@ -148,6 +148,12 @@ async function demoApi(action, payload) {
     };
   }
   if (action === "saveLesson" && isTeacher) return { ok: true, lesson: payload.lesson };
+  if (action === "setPhoto" && !parent) {
+    const id = isTeacher ? payload.id : s.id;
+    const target = D.students.find((x) => x.id === id);
+    if (target) target.photo = payload.photo;
+    return { ok: true, id, photo: payload.photo };
+  }
   throw new Error("Недоступно");
 }
 
@@ -358,9 +364,25 @@ function renderStudent(s, byTeacher) {
   app.innerHTML = `
     ${byTeacher ? `<button class="btn btn-ghost" id="back-btn" style="margin-bottom:14px">← Ко всем ученикам</button>` : ""}
     <div class="card">
-      ${isParent ? '<div class="muted small">Страница родителя · ваш ребёнок</div>' : ""}
-      <h2>${esc(s.name)}</h2>
-      ${s.idp?.mentor ? `<div class="muted small">Наставник: ${esc(s.idp.mentor)}</div>` : ""}
+      <div class="profile">
+        ${avatarHtml(s, "avatar-lg")}
+        <div class="profile-info">
+          ${isParent ? '<div class="muted small">Страница родителя · ваш ребёнок</div>' : ""}
+          <h2>${esc(s.name)}</h2>
+          ${s.idp?.mentor ? `<div class="muted small">Наставник: ${esc(s.idp.mentor)}</div>` : ""}
+          ${
+            isParent
+              ? ""
+              : `<div class="photo-actions">
+                  <label class="btn btn-ghost">📷 ${s.photo ? "Изменить фото" : "Загрузить фото"}
+                    <input type="file" id="photo-input" accept="image/*" hidden>
+                  </label>
+                  ${s.photo ? '<button class="btn btn-ghost" id="photo-delete">Удалить</button>' : ""}
+                  <span class="small" id="photo-msg"></span>
+                </div>`
+          }
+        </div>
+      </div>
       ${(() => {
         const b = birthdayInfo(s);
         const o = olympiadHtml(s);
@@ -395,6 +417,81 @@ function renderStudent(s, byTeacher) {
       render();
     });
   bindSubjectFilter();
+  if (!isParent) bindPhoto(s);
+}
+
+// ---------- фото ученика ----------
+function initials(name) {
+  return String(name || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+}
+function avatarHtml(s, cls = "") {
+  return s.photo
+    ? `<img class="avatar ${cls}" src="${esc(s.photo)}" alt="">`
+    : `<span class="avatar avatar-empty ${cls}">${esc(initials(s.name))}</span>`;
+}
+
+// Обрезает фото до квадрата 256×256 и сжимает в JPEG так, чтобы поместилось в ячейку таблицы
+function resizePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const size = 256;
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+      for (const q of [0.85, 0.75, 0.6, 0.45, 0.3]) {
+        const data = canvas.toDataURL("image/jpeg", q);
+        if (data.length <= 45000) return resolve(data);
+      }
+      reject(new Error("Фото слишком большое"));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Не удалось открыть изображение"));
+    };
+    img.src = url;
+  });
+}
+
+function bindPhoto(s) {
+  const msg = document.getElementById("photo-msg");
+  const save = async (photo) => {
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    try {
+      const res = await api("setPhoto", { id: s.id, photo });
+      s.photo = res.photo;
+      render();
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+    }
+  };
+  document.getElementById("photo-input")?.addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      await save(await resizePhoto(file));
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+    }
+  });
+  document.getElementById("photo-delete")?.addEventListener("click", () => {
+    if (confirm("Удалить фото?")) save("");
+  });
 }
 
 // Для родителя: последние отсутствия и опоздания
@@ -906,7 +1003,7 @@ function summaryHtml(all) {
           .map(
             ({ s, st }, i) => `<tr>
               <td class="muted">${i + 1}</td>
-              <td>${studentLink(s)}</td>
+              <td><span class="name-cell">${avatarHtml(s, "avatar-sm")}${studentLink(s)}</span></td>
               <td class="num">${st.total}</td>
               <td class="num">${st.present}</td>
               <td class="num">${st.absent ? `<span class="pill absent">${st.absent}</span>` : 0}</td>

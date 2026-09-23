@@ -26,7 +26,7 @@ const WIDE = { olympiads: false, exams: false, tests: false, parentEvents: true 
 
 const HEADERS = {
   settings: ["Параметр", "Значение"],
-  students: ["ID", "ФИО", "PIN", "Наставник", "Сильные стороны", "Комментарий учителя", "Телефон мамы", "Телефон папы"],
+  students: ["ID", "ФИО", "PIN", "Наставник", "Сильные стороны", "Комментарий учителя", "Телефон мамы", "Телефон папы", "Фото"],
   schedule: ["День", "№ урока", "Время", "Предмет", "Кабинет", "Учитель"],
   idp: ["ID ученика", "Цель", "Направление", "Срок", "Шаг", "Выполнено"],
   attendance: ["Дата", "Этюд", "Отсутствовали (ID через запятую)", "Опоздали (ID через запятую)", "Уважительная причина (ID через запятую)"],
@@ -87,6 +87,12 @@ function handle_(req) {
     case "saveLesson":
       if (user.role !== "teacher") throw new Error("Доступно только учителю");
       return { ok: true, lesson: saveLesson_(req.lesson) };
+    case "setPhoto": {
+      // Ученик меняет только своё фото, учитель и воспитатель — любое
+      if (user.role === "parent") throw new Error("Фото загружает сам ученик или учитель");
+      const id = user.role === "student" ? user.id : String(req.id || "").toUpperCase();
+      return { ok: true, id: id, photo: setPhoto_(id, req.photo) };
+    }
     default:
       throw new Error("Неизвестное действие: " + req.action);
   }
@@ -219,6 +225,7 @@ function readStudents_() {
     comment: String(r[5]).trim(),
     momPhone: String(r[6] || "").trim(),
     dadPhone: String(r[7] || "").trim(),
+    photo: String(r[8] || "").trim(),
   }));
 }
 
@@ -335,6 +342,7 @@ function publicStudent_(s, ctx) {
   return {
     id: s.id,
     name: s.name,
+    photo: s.photo,
     idp: { mentor: s.mentor, strengths: s.strengths, comment: s.comment, goals: ctx.idp[s.id] || [] },
     portfolio: ctx.portfolio[s.id] || [],
     olympiads: ctx.olympiads[s.id] || [],
@@ -379,6 +387,36 @@ function studentData_(id) {
 }
 
 // ===================== Запись посещаемости =====================
+
+// ===================== Фото ученика =====================
+
+// Фото хранится прямо в ячейке (колонка «Фото» на листе «Ученики») как маленький JPEG в base64:
+// так его видят только те, кто вошёл на сайт, без публичных ссылок на Google Диск.
+const PHOTO_MAX = 45000; // лимит ячейки Google Таблицы — 50 000 символов
+
+function setPhoto_(id, photo) {
+  photo = String(photo || "");
+  if (photo && (!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(photo) || photo.length > PHOTO_MAX)) {
+    throw new Error("Неподходящее фото. Попробуйте другое изображение.");
+  }
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_("students");
+    const values = sh.getDataRange().getValues();
+    const PHOTO_COL = 9;
+    if (String(values[0][PHOTO_COL - 1] || "").trim() === "") sh.getRange(1, PHOTO_COL, 1, 1).setValues([["Фото"]]);
+    for (let i = 1; i < values.length; i++) {
+      if (String(values[i][0]).trim().toUpperCase() === id) {
+        sh.getRange(i + 1, PHOTO_COL, 1, 1).setValues([[photo]]);
+        return photo;
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  throw new Error("Ученик не найден");
+}
 
 function saveLesson_(lesson) {
   if (!lesson || !/^\d{4}-\d{2}-\d{2}$/.test(lesson.date)) throw new Error("Неверная дата");
