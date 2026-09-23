@@ -65,11 +65,16 @@ function json_(obj) {
 }
 
 function handle_(req) {
-  // Список имён для страницы входа — доступен без пароля (только ID и ФИО)
+  // Список для страницы входа — доступен без пароля (только ID и ФИО учеников, роли учителей)
   if (req.action === "names") {
+    const settings = readSettings_();
+    const staff = [];
+    if (settings.teacherPin) staff.push({ login: settings.teacherLogin, label: "Учитель" });
+    if (settings.tutorPin) staff.push({ login: settings.tutorLogin, label: "Воспитатель" });
     return {
       ok: true,
-      className: readSettings_().className,
+      className: settings.className,
+      staff: staff,
       students: readStudents_()
         .map((s) => ({ id: s.id, name: s.name }))
         .sort((a, b) => a.name.localeCompare(b.name, "ru")),

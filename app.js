@@ -110,7 +110,11 @@ function loadDemoData() {
 async function demoApi(action, payload) {
   await loadDemoData();
   const D = DEMO_DATA;
-  if (action === "names") return { ok: true, className: D.className, students: publicNames(D.students) };
+  if (action === "names") {
+    const staff = [{ login: D.teacher.login, label: "Учитель" }];
+    if (D.tutor && D.tutor.pin) staff.push({ login: D.tutor.login, label: "Воспитатель" });
+    return { ok: true, className: D.className, students: publicNames(D.students), staff };
+  }
   const login = creds.login.toLowerCase();
   const parent = creds.as === "parent";
   const code = phoneKey(creds.pin);
@@ -229,8 +233,9 @@ const LOGIN_ROLES = {
   },
   teacher: {
     label: "Учитель",
-    hint: "Для учителя и воспитателя: введите свой логин и PIN-код.",
-    login: "Логин",
+    hint: "Выберите, кто вы, и введите свой PIN-код.",
+    login: "Кто входит",
+    pick: "Учитель или воспитатель",
     code: "PIN-код",
     codeInput: 'type="password" autocomplete="current-password"',
   },
@@ -239,8 +244,7 @@ const LOGIN_ROLES = {
 function renderLogin() {
   const role = LOGIN_ROLES[state.loginAs] ? state.loginAs : "student";
   const R = LOGIN_ROLES[role];
-  const picker = role !== "teacher";
-  if (picker && !classList) {
+  if (!classList) {
     loadClassList()
       .then(() => state.user || renderLogin())
       .catch((ex) => {
@@ -249,12 +253,15 @@ function renderLogin() {
       });
   }
   if (classList) document.getElementById("class-name").textContent = classList.className || "";
-  const loginField = picker
-    ? `<select id="login" required ${classList ? "" : "disabled"}>
+  // Логины никто не вводит: ученик и родитель выбирают имя, учитель — «Учитель» или «Воспитатель»
+  const options =
+    role === "teacher"
+      ? (classList?.staff || []).map((x) => ({ id: x.login, name: x.label }))
+      : classList?.students || [];
+  const loginField = `<select id="login" required ${classList ? "" : "disabled"}>
         <option value="">${classList ? R.pick : "Загрузка списка…"}</option>
-        ${(classList?.students || []).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}
-      </select>`
-    : `<input id="login" autocomplete="username" required>`;
+        ${options.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}
+      </select>`;
   app.innerHTML = `
     <div class="login-wrap card">
       <h2>Вход</h2>
@@ -350,7 +357,7 @@ function renderStudent(s, byTeacher) {
     <div class="card">
       ${isParent ? '<div class="muted small">Страница родителя · ваш ребёнок</div>' : ""}
       <h2>${esc(s.name)}</h2>
-      <div class="muted small">Логин: ${esc(s.id)} · Наставник: ${esc(s.idp?.mentor || "—")}</div>
+      ${s.idp?.mentor ? `<div class="muted small">Наставник: ${esc(s.idp.mentor)}</div>` : ""}
       ${(() => {
         const b = birthdayInfo(s);
         const o = olympiadHtml(s);
