@@ -333,6 +333,7 @@ function renderStudent(s, byTeacher) {
     ["portfolio", "📁 Портфолио"],
     ["olympiads", "🏅 Олимпиады"],
     ["exams", "📝 Экзамены"],
+    ["books", "📖 Книги"],
     ["tests", "🧠 Тесты"],
   ];
   if (isParent || byTeacher) tabs.push(["events", "👪 Мероприятия родителей"]);
@@ -347,6 +348,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "portfolio") body = portfolioHtml(s);
   if (state.tab === "olympiads") body = kvCardHtml("Олимпиады", s.olympiads);
   if (state.tab === "exams") body = kvCardHtml("Экзамены", s.exams);
+  if (state.tab === "books") body = booksHtml(s);
   if (state.tab === "tests") body = testsHtml(s);
   if (state.tab === "events") body = parentEventsHtml(s);
   if (state.tab === "resources") body = resourcesHtml();
@@ -526,8 +528,62 @@ function groupBy(list, key) {
   return map;
 }
 
+// Прочитанные книги берутся из портфолио (раздел «Прочитанные книги»): название, автор/детали, дата
+const BOOKS_SECTION = "Прочитанные книги";
+function booksOf(s) {
+  return (s.portfolio || []).filter((x) => x.section === BOOKS_SECTION);
+}
+function kitapScore(s) {
+  const x = (s.exams || []).find((e) => /kitap/i.test(e.name));
+  return x ? cellValue(x.value) : "";
+}
+function booksHtml(s) {
+  const books = booksOf(s);
+  const kitap = kitapScore(s);
+  return `<div class="card">
+    <div class="eyebrow">Оқылған кітаптар</div>
+    <h2>Прочитанные книги</h2>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl"><span class="hl-icon">📚</span><div><div class="eyebrow">Прочитано</div><div><b>${books.length}</b> ${plural(books.length, "книга", "книги", "книг")}</div></div></div>
+      ${kitap ? `<div class="hl"><span class="hl-icon">📝</span><div><div class="eyebrow">Kitap exam</div><div><b>${esc(kitap)}</b></div></div></div>` : ""}
+    </div>
+    ${
+      books.length
+        ? `<ol class="books">${books
+            .map(
+              (b) => `<li><span class="book-title">${esc(b.title)}</span>${b.details ? ` <span class="muted">— ${esc(b.details)}</span>` : ""}${
+                b.date ? ` <span class="badge">${esc(b.date)}</span>` : ""
+              }</li>`
+            )
+            .join("")}</ol>`
+        : '<p class="muted">Список пока пуст.</p>'
+    }
+  </div>`;
+}
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+function booksTableHtml() {
+  const rows = DATA.students
+    .map((s) => ({ s, books: booksOf(s), kitap: kitapScore(s) }))
+    .sort((a, b) => b.books.length - a.books.length || a.s.name.localeCompare(b.s.name, "ru"));
+  return `<div class="card"><h2>Прочитанные книги</h2><div class="table-wrap"><table>
+    <tr><th>Ученик</th><th class="num">Книг</th><th class="num">Kitap exam</th><th>Последние книги</th></tr>
+    ${rows
+      .map(
+        ({ s, books, kitap }) => `<tr><td>${studentLink(s)}</td><td class="num"><b>${books.length}</b></td><td class="num">${
+          kitap ? esc(kitap) : '<span class="muted">—</span>'
+        }</td><td class="wrap small">${books.length ? books.slice(-3).map((b) => esc(b.title)).join(" · ") : '<span class="muted">—</span>'}</td></tr>`
+      )
+      .join("")}
+  </table></div><p class="muted small">Книги добавляются в Google Таблице: лист «Портфолио», раздел «Прочитанные книги».</p></div>`;
+}
+
 function portfolioHtml(s) {
-  const items = s.portfolio || [];
+  const items = (s.portfolio || []).filter((x) => x.section !== BOOKS_SECTION);
   if (!items.length) return '<div class="card"><h2>Портфолио</h2><p class="muted">Портфолио пока не заполнено.</p></div>';
   const groups = groupBy(items, "section");
   const order = [...PORTFOLIO_ORDER.filter((k) => groups.has(k)), ...[...groups.keys()].filter((k) => !PORTFOLIO_ORDER.includes(k))];
@@ -677,6 +733,7 @@ function renderTeacher() {
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
     ["exams-all", "📝 Экзамены"],
+    ["books-all", "📖 Книги"],
     ["events-all", "👪 Родители"],
     ["tests-all", "🧠 Тесты"],
     ["schedule", "📅 Расписание"],
@@ -697,6 +754,7 @@ function renderTeacher() {
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
   if (state.tab === "exams-all") body = wideTableHtml("Экзамены", "exams");
+  if (state.tab === "books-all") body = booksTableHtml();
   if (state.tab === "events-all") body = eventsTableHtml();
   if (state.tab === "tests-all") body = wideTableHtml("Результаты тестов", "tests");
   if (state.tab === "resources") body = resourcesHtml();
@@ -716,7 +774,7 @@ function renderTeacher() {
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
-      state.tab = "attendance";
+      state.tab = state.tab === "books-all" ? "books" : "attendance";
       state.subjectFilter = "";
       render();
     })

@@ -290,3 +290,9 @@ td.wrap { white-space: normal; min-width: 120px; }
 .hl-icon { font-size: 24px; }
 .hl-today { background: var(--gold); color: var(--navy); }
 .hl-today .eyebrow { color: var(--navy); }
+
+/* ---------- Книги ---------- */
+.books { margin: 0; padding-left: 26px; }
+.books li { padding: 7px 0; border-bottom: 1px dashed var(--border); }
+.books li:last-child { border-bottom: none; }
+.book-title { font-weight: 600; }
