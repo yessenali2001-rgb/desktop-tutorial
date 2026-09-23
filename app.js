@@ -84,7 +84,7 @@ async function api(action, payload = {}) {
   // Тело отправляется как text/plain, чтобы Apps Script принимал запрос без CORS-preflight
   const r = await fetch(CONFIG.API_URL, {
     method: "POST",
-    body: JSON.stringify({ action, login: creds.login, pin: creds.pin, as: creds.as, ...payload }),
+    body: JSON.stringify({ action, ...(creds || {}), ...payload }),
   });
   if (!r.ok) throw new Error("Сервер недоступен (" + r.status + ")");
   const res = await r.json();
@@ -109,6 +109,7 @@ function loadDemoData() {
 async function demoApi(action, payload) {
   await loadDemoData();
   const D = DEMO_DATA;
+  if (action === "names") return { ok: true, className: D.className, students: publicNames(D.students) };
   const login = creds.login.toLowerCase();
   const parent = creds.as === "parent";
   const code = phoneKey(creds.pin);
@@ -116,7 +117,10 @@ async function demoApi(action, payload) {
   const s = D.students.find(
     (x) => x.id.toLowerCase() === login && (parent ? code && (phoneKey(x.momPhone) === code || phoneKey(x.dadPhone) === code) : x.pin === creds.pin)
   );
-  if (!isTeacher && !s) throw new Error(parent ? "Неверный логин ребёнка или номер телефона" : "Неверный логин или PIN-код");
+  if (!isTeacher && !s) {
+    if (parent) throw new Error("Неверный номер телефона. Введите номер мамы или папы, который указан у учителя.");
+    throw new Error(D.students.some((x) => x.id.toLowerCase() === login) ? "Неверный PIN-код" : "Неверный логин или PIN-код");
+  }
   if (action === "login") {
     const strip = ({ pin, momPhone, dadPhone, ...rest }) => rest;
     if (isTeacher) return { ok: true, role: "teacher", data: { ...D, students: D.students.map(({ pin, ...rest }) => rest) } };
@@ -135,6 +139,17 @@ async function demoApi(action, payload) {
   }
   if (action === "saveLesson" && isTeacher) return { ok: true, lesson: payload.lesson };
   throw new Error("Недоступно");
+}
+
+function publicNames(students) {
+  return students.map((s) => ({ id: s.id, name: s.name })).sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+// Список класса для выбора на странице входа (только ID и имена)
+let classList = null;
+async function loadClassList() {
+  if (!classList) classList = await api("names");
+  return classList;
 }
 
 // ---------- session ----------
@@ -193,15 +208,17 @@ function render() {
 const LOGIN_ROLES = {
   student: {
     label: "Ученик",
-    hint: "Введите свой логин (например, S01) и PIN-код, который дал учитель.",
-    login: "Логин",
+    hint: "Выберите своё имя и введите PIN-код, который дал учитель.",
+    login: "Ученик",
+    pick: "Выберите своё имя",
     code: "PIN-код",
     codeInput: 'type="password" inputmode="numeric" autocomplete="current-password"',
   },
   parent: {
     label: "Родитель",
-    hint: "Введите логин ребёнка (например, S01) и номер телефона мамы или папы, который указан у учителя.",
-    login: "Логин ребёнка",
+    hint: "Выберите своего ребёнка и введите номер телефона мамы или папы, который указан у учителя.",
+    login: "Ваш ребёнок",
+    pick: "Выберите ребёнка",
     code: "Телефон мамы или папы",
     codeInput: 'type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 700 123 45 67"',
   },
@@ -217,6 +234,22 @@ const LOGIN_ROLES = {
 function renderLogin() {
   const role = LOGIN_ROLES[state.loginAs] ? state.loginAs : "student";
   const R = LOGIN_ROLES[role];
+  const picker = role !== "teacher";
+  if (picker && !classList) {
+    loadClassList()
+      .then(() => state.user || renderLogin())
+      .catch((ex) => {
+        const err = document.getElementById("login-error");
+        if (err) err.textContent = "Не удалось загрузить список класса: " + ex.message;
+      });
+  }
+  if (classList) document.getElementById("class-name").textContent = classList.className || "";
+  const loginField = picker
+    ? `<select id="login" required ${classList ? "" : "disabled"}>
+        <option value="">${classList ? R.pick : "Загрузка списка…"}</option>
+        ${(classList?.students || []).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}
+      </select>`
+    : `<input id="login" autocomplete="username" required>`;
   app.innerHTML = `
     <div class="login-wrap card">
       <h2>Вход</h2>
@@ -228,7 +261,7 @@ function renderLogin() {
       <form id="login-form">
         <div class="field">
           <label for="login">${R.login}</label>
-          <input id="login" autocomplete="username" required>
+          ${loginField}
         </div>
         <div class="field">
           <label for="pin">${R.code}</label>

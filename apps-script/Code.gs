@@ -48,6 +48,16 @@ function json_(obj) {
 }
 
 function handle_(req) {
+  // Список имён для страницы входа — доступен без пароля (только ID и ФИО)
+  if (req.action === "names") {
+    return {
+      ok: true,
+      className: readSettings_().className,
+      students: readStudents_()
+        .map((s) => ({ id: s.id, name: s.name }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ru")),
+    };
+  }
   const user = auth_(req.login, req.pin, req.as);
   switch (req.action) {
     case "login":
@@ -89,7 +99,9 @@ function auth_(login, pin, as) {
   }
 
   cache.put(key, String(fails + 1), LOCK_SECONDS);
-  throw new Error(as === "parent" ? "Неверный логин ребёнка или номер телефона" : "Неверный логин или PIN-код");
+  if (as === "parent") throw new Error("Неверный номер телефона. Введите номер мамы или папы, который указан у учителя.");
+  const isStudent = readStudents_().some((x) => x.id.toLowerCase() === login.toLowerCase());
+  throw new Error(isStudent ? "Неверный PIN-код" : "Неверный логин или PIN-код");
 }
 
 // ===================== Чтение данных =====================
