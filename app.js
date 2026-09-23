@@ -791,21 +791,16 @@ function birthdayText(b) {
   return `${b.full}${b.age ? ` · исполнится ${b.age} лет через ${b.days} дн.` : ` · через ${b.days} дн.`}`;
 }
 
-// Олимпиада ученика: предмет (сначала текущего года) и медали
-function olympiadInfo(s) {
+// Олимпиадный предмет ученика (сначала текущего года); результаты — во вкладке «Олимпиады»
+function olympiadSubject(s) {
   const items = (s.olympiads || []).filter((x) => cellValue(x.value));
   const subjectOf = (list) => list.find((x) => /предмет|пән|^olympiad$/i.test(x.name));
   const subject = subjectOf(items.filter((x) => !/^\d+\s*кл/i.test(x.name))) || subjectOf(items);
-  const medals = items.filter((x) => /gold|silver|bronze/i.test(x.value));
-  return { subject: subject ? subject.value : "", medals };
+  return subject ? cellValue(subject.value) : "";
 }
-// compact — для таблицы: только медали, этап виден при наведении
-function olympiadHtml(s, compact = false) {
-  const o = olympiadInfo(s);
-  if (!o.subject && !o.medals.length) return "";
-  const medal = (x) =>
-    compact ? ` <span title="${esc(x.name)}">${valueHtml(x.value)}</span>` : ` ${valueHtml(x.value)} <span class="muted small">${esc(x.name)}</span>`;
-  return `${o.subject ? `<b>${esc(o.subject)}</b>` : ""}${o.medals.map(medal).join("")}`;
+function olympiadHtml(s) {
+  const subject = olympiadSubject(s);
+  return subject ? `<b>${esc(subject)}</b>` : "";
 }
 
 function birthdaysHtml() {
@@ -859,7 +854,7 @@ function summaryHtml(all) {
               <td class="num">${st.excused ? `<span class="pill excused">${st.excused}</span>` : 0}</td>
               <td class="num">${st.total ? `<b style="color:${st.rate < 85 ? "var(--red)" : "inherit"}">${st.rate}%</b>` : '<span class="muted">—</span>'}</td>
               <td class="num">${idpProgress(s)}%</td>
-              <td>${olympiadHtml(s, true) || '<span class="muted">—</span>'}</td>
+              <td>${olympiadHtml(s) || '<span class="muted">—</span>'}</td>
               <td>${(() => {
                 const b = birthdayInfo(s);
                 return b ? `${b.full}${b.days === 0 ? " 🎉" : b.days <= 30 ? ` <span class="badge">через ${b.days} дн.</span>` : ""}` : '<span class="muted">—</span>';
