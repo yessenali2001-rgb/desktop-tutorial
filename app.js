@@ -533,19 +533,13 @@ const BOOKS_SECTION = "Прочитанные книги";
 function booksOf(s) {
   return (s.portfolio || []).filter((x) => x.section === BOOKS_SECTION);
 }
-function kitapScore(s) {
-  const x = (s.exams || []).find((e) => /kitap/i.test(e.name));
-  return x ? cellValue(x.value) : "";
-}
 function booksHtml(s) {
   const books = booksOf(s);
-  const kitap = kitapScore(s);
   return `<div class="card">
     <div class="eyebrow">Оқылған кітаптар</div>
     <h2>Прочитанные книги</h2>
     <div class="highlights" style="margin:0 0 14px">
       <div class="hl"><span class="hl-icon">📚</span><div><div class="eyebrow">Прочитано</div><div><b>${books.length}</b> ${plural(books.length, "книга", "книги", "книг")}</div></div></div>
-      ${kitap ? `<div class="hl"><span class="hl-icon">📝</span><div><div class="eyebrow">Kitap exam</div><div><b>${esc(kitap)}</b></div></div></div>` : ""}
     </div>
     ${
       books.length
@@ -568,15 +562,13 @@ function plural(n, one, few, many) {
 }
 function booksTableHtml() {
   const rows = DATA.students
-    .map((s) => ({ s, books: booksOf(s), kitap: kitapScore(s) }))
+    .map((s) => ({ s, books: booksOf(s) }))
     .sort((a, b) => b.books.length - a.books.length || a.s.name.localeCompare(b.s.name, "ru"));
   return `<div class="card"><h2>Прочитанные книги</h2><div class="table-wrap"><table>
-    <tr><th>Ученик</th><th class="num">Книг</th><th class="num">Kitap exam</th><th>Последние книги</th></tr>
+    <tr><th>Ученик</th><th class="num">Книг</th><th>Последние книги</th></tr>
     ${rows
       .map(
-        ({ s, books, kitap }) => `<tr><td>${studentLink(s)}</td><td class="num"><b>${books.length}</b></td><td class="num">${
-          kitap ? esc(kitap) : '<span class="muted">—</span>'
-        }</td><td class="wrap small">${books.length ? books.slice(-3).map((b) => esc(b.title)).join(" · ") : '<span class="muted">—</span>'}</td></tr>`
+        ({ s, books }) => `<tr><td>${studentLink(s)}</td><td class="num"><b>${books.length}</b></td><td class="wrap small">${books.length ? books.slice(-3).map((b) => esc(b.title)).join(" · ") : '<span class="muted">—</span>'}</td></tr>`
       )
       .join("")}
   </table></div><p class="muted small">Книги добавляются в Google Таблице: лист «Портфолио», раздел «Прочитанные книги».</p></div>`;
