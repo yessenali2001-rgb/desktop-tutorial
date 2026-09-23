@@ -351,6 +351,15 @@ function renderStudent(s, byTeacher) {
       ${isParent ? '<div class="muted small">Страница родителя · ваш ребёнок</div>' : ""}
       <h2>${esc(s.name)}</h2>
       <div class="muted small">Логин: ${esc(s.id)} · Наставник: ${esc(s.idp?.mentor || "—")}</div>
+      ${(() => {
+        const b = birthdayInfo(s);
+        const o = olympiadHtml(s);
+        if (!b && !o) return "";
+        return `<div class="highlights">
+          ${b ? `<div class="hl ${b.days === 0 ? "hl-today" : ""}"><span class="hl-icon">🎂</span><div><div class="eyebrow">День рождения</div><div>${esc(birthdayText(b))}</div></div></div>` : ""}
+          ${o ? `<div class="hl"><span class="hl-icon">🏅</span><div><div class="eyebrow">Олимпиада</div><div>${o}</div></div></div>` : ""}
+        </div>`;
+      })()}
       ${
         byTeacher
           ? `<div class="small" style="margin-top:8px">Родители: ${
@@ -762,27 +771,53 @@ function eventsTableHtml() {
 }
 
 // Ближайшие дни рождения (из портфолио: Личное → Дата рождения)
-function birthdaysHtml() {
+// День рождения из портфолио (Личное → Дата рождения): дата, сколько исполнится, через сколько дней
+function birthdayInfo(s) {
+  const item = (s.portfolio || []).find((x) => x.section === "Личное" && /^(дата рождения|туған күн)/i.test(x.title));
+  const m = item && String(item.details).match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?/);
+  if (!m) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  let next = new Date(today.getFullYear(), m[2] - 1, m[1]);
+  if (next < today) next = new Date(today.getFullYear() + 1, m[2] - 1, m[1]);
+  const days = Math.round((next - today) / 86400000);
+  const age = m[3] ? next.getFullYear() - Number(m[3]) : null;
+  const date = `${String(m[1]).padStart(2, "0")}.${String(m[2]).padStart(2, "0")}`;
+  return { s, next, days, age, date, full: m[3] ? `${date}.${m[3]}` : date };
+}
+function birthdayText(b) {
+  if (!b) return "";
+  if (b.days === 0) return `🎉 Сегодня день рождения${b.age ? ` — ${b.age} лет` : ""}!`;
+  return `${b.full}${b.age ? ` · исполнится ${b.age} лет через ${b.days} дн.` : ` · через ${b.days} дн.`}`;
+}
+
+// Олимпиада ученика: предмет (сначала текущего года) и медали
+function olympiadInfo(s) {
+  const items = (s.olympiads || []).filter((x) => cellValue(x.value));
+  const subjectOf = (list) => list.find((x) => /предмет|пән|^olympiad$/i.test(x.name));
+  const subject = subjectOf(items.filter((x) => !/^\d+\s*кл/i.test(x.name))) || subjectOf(items);
+  const medals = items.filter((x) => /gold|silver|bronze/i.test(x.value));
+  return { subject: subject ? subject.value : "", medals };
+}
+// compact — для таблицы: только медали, этап виден при наведении
+function olympiadHtml(s, compact = false) {
+  const o = olympiadInfo(s);
+  if (!o.subject && !o.medals.length) return "";
+  const medal = (x) =>
+    compact ? ` <span title="${esc(x.name)}">${valueHtml(x.value)}</span>` : ` ${valueHtml(x.value)} <span class="muted small">${esc(x.name)}</span>`;
+  return `${o.subject ? `<b>${esc(o.subject)}</b>` : ""}${o.medals.map(medal).join("")}`;
+}
+
+function birthdaysHtml() {
   const list = DATA.students
-    .map((s) => {
-      const item = (s.portfolio || []).find((x) => x.section === "Личное" && /дата рождения|туған күн/i.test(x.title));
-      const m = item && String(item.details).match(/^(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?/);
-      if (!m) return null;
-      let next = new Date(today.getFullYear(), m[2] - 1, m[1]);
-      if (next < today) next = new Date(today.getFullYear() + 1, m[2] - 1, m[1]);
-      const days = Math.round((next - today) / 86400000);
-      const age = m[3] ? next.getFullYear() - Number(m[3]) : null;
-      return { s, next, days, age };
-    })
+    .map(birthdayInfo)
     .filter((x) => x && x.days <= 30)
     .sort((a, b) => a.days - b.days);
   if (!list.length) return "";
   return `<div class="card"><h3>🎂 Дни рождения в ближайшие 30 дней</h3><div class="chips">${list
     .map(
-      ({ s, next, days, age }) =>
-        `<span class="chip">${studentLink(s)} <b>${String(next.getDate()).padStart(2, "0")}.${String(next.getMonth() + 1).padStart(2, "0")}</b>${
+      ({ s, days, age, date }) =>
+        `<span class="chip">${studentLink(s)} <b>${date}</b>${
           age ? ` · ${age} лет` : ""
         } <span class="muted">${days === 0 ? "сегодня!" : "через " + days + " дн."}</span></span>`
     )
@@ -800,7 +835,7 @@ function summaryHtml(all) {
     ${calendarHtml()}
     ${birthdaysHtml()}
     <div class="card">
-      <h2>Посещаемость учеников</h2>
+      <h2>Ученики класса</h2>
       <div class="filters">
         ${subjectSelectHtml()}
         <select id="sort">
@@ -811,7 +846,7 @@ function summaryHtml(all) {
       </div>
       <div class="table-wrap"><table>
         <tr><th>#</th><th>Ученик</th><th class="num">Уроков</th><th class="num">Был</th><th class="num">Опоздал</th>
-          <th class="num">Пропуск</th><th class="num">Уваж.</th><th class="num">Посещ.</th><th class="num">IDP</th></tr>
+          <th class="num">Пропуск</th><th class="num">Уваж.</th><th class="num">Посещ.</th><th class="num">IDP</th><th>Олимпиада</th><th>День рождения</th></tr>
         ${rows
           .map(
             ({ s, st }, i) => `<tr>
@@ -822,8 +857,13 @@ function summaryHtml(all) {
               <td class="num">${st.late ? `<span class="pill late">${st.late}</span>` : 0}</td>
               <td class="num">${st.absent ? `<span class="pill absent">${st.absent}</span>` : 0}</td>
               <td class="num">${st.excused ? `<span class="pill excused">${st.excused}</span>` : 0}</td>
-              <td class="num"><b style="color:${st.rate < 85 ? "var(--red)" : "inherit"}">${st.rate}%</b></td>
+              <td class="num">${st.total ? `<b style="color:${st.rate < 85 ? "var(--red)" : "inherit"}">${st.rate}%</b>` : '<span class="muted">—</span>'}</td>
               <td class="num">${idpProgress(s)}%</td>
+              <td>${olympiadHtml(s, true) || '<span class="muted">—</span>'}</td>
+              <td>${(() => {
+                const b = birthdayInfo(s);
+                return b ? `${b.full}${b.days === 0 ? " 🎉" : b.days <= 30 ? ` <span class="badge">через ${b.days} дн.</span>` : ""}` : '<span class="muted">—</span>';
+              })()}</td>
             </tr>`
           )
           .join("")}
