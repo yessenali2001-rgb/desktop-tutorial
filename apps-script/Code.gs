@@ -521,7 +521,7 @@ function seedRows_(key) {
         ["Этюды", (SEED.etudes || ["Этюд"]).join(", ")],
       ];
     case "students":
-      return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || ""]);
+      return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || "", s.photo || ""]);
     case "schedule": {
       const rows = [];
       SEED.schedule.forEach((day) => day.lessons.forEach((l, i) => rows.push([day.day, l.num || i + 1, l.time, l.subject, l.room, l.teacher || ""])));
