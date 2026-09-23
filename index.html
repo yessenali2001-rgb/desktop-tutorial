@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кабинет ученика</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📘</span>
+      <div>
+        <div class="brand-title">Кабинет ученика</div>
+        <div class="brand-sub" id="class-name"></div>
+      </div>
+    </div>
+    <div class="user-box" id="user-box" hidden>
+      <span id="user-name"></span>
+      <button class="btn btn-ghost" id="logout-btn">Выйти</button>
+    </div>
+  </header>
+
+  <main id="app"></main>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
