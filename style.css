@@ -38,6 +38,8 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
+a { color: var(--accent); }
 
 body {
   margin: 0;
@@ -220,3 +222,6 @@ tr:hover td { background: var(--accent-soft); }
   border-top: 1px solid var(--border);
 }
 .btn:disabled { opacity: .6; cursor: default; }
+.seg-wide { display: flex; }
+.seg-wide .seg-btn { flex: 1; padding: 8px 10px; }
+.seg-btn.active.role { background: var(--accent); color: #fff; font-weight: 700; }

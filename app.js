@@ -4,7 +4,7 @@
 const app = document.getElementById("app");
 const DEMO = !CONFIG.API_URL;
 let DATA = null; // данные текущего пользователя (ученик получает только свои)
-let creds = null; // { login, pin } для запросов к API
+let creds = null; // { login, pin, as } для запросов к API; as = "parent" для входа родителя
 const STATUS_LABEL = {
   present: "Был",
   absent: "Пропуск",
@@ -14,7 +14,7 @@ const STATUS_LABEL = {
 const STATUS_MARK = { present: "✓", absent: "Н", late: "О", excused: "У" };
 const DAY_INDEX = { "Понедельник": 1, "Вторник": 2, "Среда": 3, "Четверг": 4, "Пятница": 5, "Суббота": 6, "Воскресенье": 0 };
 
-let state = { user: null, tab: null, viewStudent: null, subjectFilter: "" };
+let state = { user: null, tab: null, viewStudent: null, subjectFilter: "", loginAs: "student" };
 
 // ---------- helpers ----------
 function esc(s) {
@@ -27,6 +27,11 @@ function fmtDate(iso) {
 function fmtShort(iso) {
   const [, m, d] = iso.split("-");
   return `${d}.${m}`;
+}
+// Телефон → последние 10 цифр, чтобы +7 701…, 8 701… и 701… совпадали
+function phoneKey(v) {
+  const d = String(v || "").replace(/\D/g, "");
+  return d.length >= 10 ? d.slice(-10) : "";
 }
 function pct(a, b) {
   return b === 0 ? 0 : Math.round((a / b) * 100);
@@ -79,7 +84,7 @@ async function api(action, payload = {}) {
   // Тело отправляется как text/plain, чтобы Apps Script принимал запрос без CORS-preflight
   const r = await fetch(CONFIG.API_URL, {
     method: "POST",
-    body: JSON.stringify({ action, login: creds.login, pin: creds.pin, ...payload }),
+    body: JSON.stringify({ action, login: creds.login, pin: creds.pin, as: creds.as, ...payload }),
   });
   if (!r.ok) throw new Error("Сервер недоступен (" + r.status + ")");
   const res = await r.json();
@@ -105,16 +110,20 @@ async function demoApi(action, payload) {
   await loadDemoData();
   const D = DEMO_DATA;
   const login = creds.login.toLowerCase();
-  const isTeacher = login === D.teacher.login.toLowerCase() && creds.pin === D.teacher.pin;
-  const s = D.students.find((x) => x.id.toLowerCase() === login && x.pin === creds.pin);
-  if (!isTeacher && !s) throw new Error("Неверный логин или PIN-код");
+  const parent = creds.as === "parent";
+  const code = phoneKey(creds.pin);
+  const isTeacher = !parent && login === D.teacher.login.toLowerCase() && creds.pin === D.teacher.pin;
+  const s = D.students.find(
+    (x) => x.id.toLowerCase() === login && (parent ? code && (phoneKey(x.momPhone) === code || phoneKey(x.dadPhone) === code) : x.pin === creds.pin)
+  );
+  if (!isTeacher && !s) throw new Error(parent ? "Неверный логин ребёнка или номер телефона" : "Неверный логин или PIN-код");
   if (action === "login") {
-    const strip = ({ pin, ...rest }) => rest;
-    if (isTeacher) return { ok: true, role: "teacher", data: { ...D, students: D.students.map(strip) } };
+    const strip = ({ pin, momPhone, dadPhone, ...rest }) => rest;
+    if (isTeacher) return { ok: true, role: "teacher", data: { ...D, students: D.students.map(({ pin, ...rest }) => rest) } };
     const only = (list) => (list.includes(s.id) ? [s.id] : []);
     return {
       ok: true,
-      role: "student",
+      role: parent ? "parent" : "student",
       id: s.id,
       data: {
         className: D.className,
@@ -142,16 +151,16 @@ function loadSession() {
   }
 }
 
-async function login(loginValue, pin) {
-  creds = { login: loginValue, pin };
+async function login(loginValue, pin, as) {
+  creds = { login: loginValue, pin, as };
   const res = await api("login");
   DATA = res.data;
-  state.user = res.role === "teacher" ? { role: "teacher" } : { role: "student", id: res.id };
+  state.user = res.role === "teacher" ? { role: "teacher" } : { role: res.role, id: res.id };
   saveSession();
 }
 
 function logout() {
-  state = { user: null, tab: null, viewStudent: null, subjectFilter: "" };
+  state = { user: null, tab: null, viewStudent: null, subjectFilter: "", loginAs: state.loginAs };
   DATA = null;
   creds = null;
   try {
@@ -176,30 +185,65 @@ function render() {
     else renderTeacher();
   } else {
     const s = findStudent(state.user.id);
-    document.getElementById("user-name").textContent = s.name;
+    document.getElementById("user-name").textContent = state.user.role === "parent" ? "Родитель · " + s.name : s.name;
     renderStudent(s, false);
   }
 }
 
+const LOGIN_ROLES = {
+  student: {
+    label: "Ученик",
+    hint: "Введите свой логин (например, S01) и PIN-код, который дал учитель.",
+    login: "Логин",
+    code: "PIN-код",
+    codeInput: 'type="password" inputmode="numeric" autocomplete="current-password"',
+  },
+  parent: {
+    label: "Родитель",
+    hint: "Введите логин ребёнка (например, S01) и номер телефона мамы или папы, который указан у учителя.",
+    login: "Логин ребёнка",
+    code: "Телефон мамы или папы",
+    codeInput: 'type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 700 123 45 67"',
+  },
+  teacher: {
+    label: "Учитель",
+    hint: "Введите логин и PIN-код учителя.",
+    login: "Логин",
+    code: "PIN-код",
+    codeInput: 'type="password" autocomplete="current-password"',
+  },
+};
+
 function renderLogin() {
+  const role = LOGIN_ROLES[state.loginAs] ? state.loginAs : "student";
+  const R = LOGIN_ROLES[role];
   app.innerHTML = `
     <div class="login-wrap card">
       <h2>Вход</h2>
-      <p class="muted small">Введите свой логин (например, S01) и PIN-код, который дал учитель.</p>
+      <div class="seg seg-wide" style="margin-bottom:12px">${Object.keys(LOGIN_ROLES)
+        .map((k) => `<button type="button" class="seg-btn ${k === role ? "active role" : ""}" data-login-as="${k}">${LOGIN_ROLES[k].label}</button>`)
+        .join("")}</div>
+      <p class="muted small">${R.hint}</p>
       ${DEMO ? '<p class="small notice">Демо-режим: тестовые данные. Подключите Google Таблицу в config.js.</p>' : ""}
       <form id="login-form">
         <div class="field">
-          <label for="login">Логин</label>
+          <label for="login">${R.login}</label>
           <input id="login" autocomplete="username" required>
         </div>
         <div class="field">
-          <label for="pin">PIN-код</label>
-          <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+          <label for="pin">${R.code}</label>
+          <input id="pin" ${R.codeInput} required>
         </div>
         <div class="error" id="login-error"></div>
         <button class="btn btn-block" type="submit" id="login-btn">Войти</button>
       </form>
     </div>`;
+  app.querySelectorAll("[data-login-as]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.loginAs = b.dataset.loginAs;
+      renderLogin();
+    })
+  );
   document.getElementById("login-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = document.getElementById("login-btn");
@@ -208,7 +252,7 @@ function renderLogin() {
     btn.textContent = "Загрузка…";
     err.textContent = "";
     try {
-      await login(document.getElementById("login").value.trim(), document.getElementById("pin").value.trim());
+      await login(document.getElementById("login").value.trim(), document.getElementById("pin").value.trim(), role === "parent" ? "parent" : undefined);
       render();
     } catch (ex) {
       creds = null;
@@ -245,11 +289,21 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "idp") body = idpHtml(s);
   if (state.tab === "attendance") body = studentAttendanceHtml(s);
 
+  const isParent = state.user.role === "parent";
+  const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
     ${byTeacher ? `<button class="btn btn-ghost" id="back-btn" style="margin-bottom:14px">← Ко всем ученикам</button>` : ""}
     <div class="card">
+      ${isParent ? '<div class="muted small">Страница родителя · ваш ребёнок</div>' : ""}
       <h2>${esc(s.name)}</h2>
       <div class="muted small">Логин: ${esc(s.id)} · Наставник: ${esc(s.idp?.mentor || "—")}</div>
+      ${
+        byTeacher
+          ? `<div class="small" style="margin-top:8px">Родители: ${
+              phones.length ? phones.map(([who, p]) => `${who} <a href="tel:${esc(p.replace(/[^\d+]/g, ""))}">${esc(p)}</a>`).join(" · ") : '<span class="muted">телефоны не указаны</span>'
+            }</div>`
+          : ""
+      }
     </div>
     <div class="stats">
       <div class="stat blue"><div class="stat-value">${st.rate}%</div><div class="stat-label">Посещаемость</div></div>
@@ -257,6 +311,7 @@ function renderStudent(s, byTeacher) {
       <div class="stat orange"><div class="stat-value">${st.late}</div><div class="stat-label">Опозданий</div></div>
       <div class="stat green"><div class="stat-value">${idpProgress(s)}%</div><div class="stat-label">Выполнение IDP</div></div>
     </div>
+    ${isParent ? recentMissesHtml(s) : ""}
     ${tabsHtml(tabs)}
     ${body}`;
   bindTabs();
@@ -267,6 +322,25 @@ function renderStudent(s, byTeacher) {
       render();
     });
   bindSubjectFilter();
+}
+
+// Для родителя: последние пропуски и опоздания
+function recentMissesHtml(s) {
+  const misses = lessonsSorted()
+    .reverse()
+    .map((l) => ({ l, st: statusFor(l, s.id) }))
+    .filter((x) => x.st !== "present")
+    .slice(0, 5);
+  return `<div class="card">
+    <h3>Последние пропуски и опоздания</h3>
+    ${
+      misses.length
+        ? `<div class="table-wrap"><table>${misses
+            .map(({ l, st }) => `<tr><td>${fmtDate(l.date)}</td><td>${esc(l.subject)}</td><td><span class="pill ${st}">${STATUS_LABEL[st]}</span></td></tr>`)
+            .join("")}</table></div>`
+        : '<p class="muted" style="margin:0">Пропусков нет 👍</p>'
+    }
+  </div>`;
 }
 
 function scheduleHtml(schedule) {
@@ -639,7 +713,7 @@ document.getElementById("logout-btn").addEventListener("click", logout);
   if (saved) {
     app.innerHTML = '<p class="muted" style="text-align:center;margin-top:60px">Загрузка…</p>';
     try {
-      await login(saved.login, saved.pin);
+      await login(saved.login, saved.pin, saved.as);
     } catch (e) {
       logout();
       return;

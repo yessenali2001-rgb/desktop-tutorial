@@ -16,7 +16,7 @@ const SHEETS = {
 
 const HEADERS = {
   settings: ["Параметр", "Значение"],
-  students: ["ID", "ФИО", "PIN", "Наставник", "Сильные стороны", "Комментарий учителя"],
+  students: ["ID", "ФИО", "PIN", "Наставник", "Сильные стороны", "Комментарий учителя", "Телефон мамы", "Телефон папы"],
   schedule: ["День", "№ урока", "Время", "Предмет", "Кабинет"],
   idp: ["ID ученика", "Цель", "Направление", "Срок", "Шаг", "Выполнено"],
   attendance: ["Дата", "Предмет", "Пропуск (ID через запятую)", "Опоздал", "Уважительная причина"],
@@ -48,10 +48,10 @@ function json_(obj) {
 }
 
 function handle_(req) {
-  const user = auth_(req.login, req.pin);
+  const user = auth_(req.login, req.pin, req.as);
   switch (req.action) {
     case "login":
-      return { ok: true, role: user.role, id: user.id, data: user.role === "teacher" ? teacherData_() : studentData_(user.id) };
+      return { ok: true, role: user.role, id: user.id, data: user.role === "teacher" ? teacherData_() : studentData_(user.id) }; // родитель видит то же, что и ребёнок
     case "saveLesson":
       if (user.role !== "teacher") throw new Error("Доступно только учителю");
       return { ok: true, lesson: saveLesson_(req.lesson) };
@@ -62,7 +62,8 @@ function handle_(req) {
 
 // ===================== Авторизация =====================
 
-function auth_(login, pin) {
+// as = "parent": логин — ID ребёнка, код — телефон мамы или папы
+function auth_(login, pin, as) {
   login = String(login || "").trim();
   pin = String(pin || "").trim();
   if (!login || !pin) throw new Error("Введите логин и PIN-код");
@@ -72,15 +73,23 @@ function auth_(login, pin) {
   const fails = Number(cache.get(key) || 0);
   if (fails >= MAX_FAILS) throw new Error("Слишком много неверных попыток. Подождите 10 минут.");
 
-  const settings = readSettings_();
-  if (login.toLowerCase() === settings.teacherLogin.toLowerCase() && pin === settings.teacherPin) {
-    return { role: "teacher" };
+  if (as === "parent") {
+    const code = phone_(pin);
+    const child =
+      code &&
+      readStudents_().find((x) => x.id.toLowerCase() === login.toLowerCase() && (phone_(x.momPhone) === code || phone_(x.dadPhone) === code));
+    if (child) return { role: "parent", id: child.id };
+  } else {
+    const settings = readSettings_();
+    if (login.toLowerCase() === settings.teacherLogin.toLowerCase() && pin === settings.teacherPin) {
+      return { role: "teacher" };
+    }
+    const s = readStudents_().find((x) => x.id.toLowerCase() === login.toLowerCase() && x.pin === pin);
+    if (s) return { role: "student", id: s.id };
   }
-  const s = readStudents_().find((x) => x.id.toLowerCase() === login.toLowerCase() && x.pin === pin);
-  if (s) return { role: "student", id: s.id };
 
   cache.put(key, String(fails + 1), LOCK_SECONDS);
-  throw new Error("Неверный логин или PIN-код");
+  throw new Error(as === "parent" ? "Неверный логин ребёнка или номер телефона" : "Неверный логин или PIN-код");
 }
 
 // ===================== Чтение данных =====================
@@ -129,6 +138,12 @@ function ids_(v) {
     .filter(Boolean);
 }
 
+// Телефон → последние 10 цифр, чтобы +7 701…, 8 701… и 701… совпадали
+function phone_(v) {
+  const digits = String(v || "").replace(/\D/g, "");
+  return digits.length >= 10 ? digits.slice(-10) : "";
+}
+
 function isDone_(v) {
   return v === true || /^(да|true|1|x|х|✓|\+)$/i.test(String(v).trim());
 }
@@ -151,6 +166,8 @@ function readStudents_() {
     mentor: String(r[3]).trim(),
     strengths: String(r[4]).trim(),
     comment: String(r[5]).trim(),
+    momPhone: String(r[6] || "").trim(),
+    dadPhone: String(r[7] || "").trim(),
   }));
 }
 
@@ -210,7 +227,7 @@ function teacherData_() {
   return {
     className: readSettings_().className,
     schedule: readSchedule_(),
-    students: readStudents_().map((s) => publicStudent_(s, idp)),
+    students: readStudents_().map((s) => Object.assign(publicStudent_(s, idp), { momPhone: s.momPhone, dadPhone: s.dadPhone })),
     attendance: readAttendance_(),
   };
 }
@@ -289,7 +306,10 @@ function setup() {
     sh.setFrozenRows(1);
 
     const data = seedRows_(key);
-    if (key === "students") sh.getRange(2, 3, Math.max(data.length, 100), 1).setNumberFormat("@"); // PIN как текст
+    if (key === "students") {
+      sh.getRange(2, 3, Math.max(data.length, 100), 1).setNumberFormat("@"); // PIN как текст
+      sh.getRange(2, 7, Math.max(data.length, 100), 2).setNumberFormat("@"); // телефоны как текст
+    }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "idp") {
@@ -314,7 +334,7 @@ function seedRows_(key) {
     case "settings":
       return [["Название класса", SEED.className], ["Логин учителя", SEED.teacher.login], ["PIN учителя", SEED.teacher.pin]];
     case "students":
-      return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment]);
+      return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || ""]);
     case "schedule": {
       const rows = [];
       SEED.schedule.forEach((day) => day.lessons.forEach((l, i) => rows.push([day.day, i + 1, l.time, l.subject, l.room])));
