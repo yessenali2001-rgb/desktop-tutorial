@@ -225,7 +225,7 @@ const LOGIN_ROLES = {
     login: "Ваш ребёнок",
     pick: "Выберите ребёнка",
     code: "Телефон мамы или папы",
-    codeInput: 'type="tel" inputmode="tel" autocomplete="tel" placeholder="+7 700 123 45 67"',
+    codeInput: 'type="tel" inputmode="tel" autocomplete="tel" placeholder="8 700 123 45 67"',
   },
   teacher: {
     label: "Учитель",
