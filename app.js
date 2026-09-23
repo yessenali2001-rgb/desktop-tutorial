@@ -405,7 +405,7 @@ function recentMissesHtml(s) {
     ${
       misses.length
         ? `<div class="table-wrap"><table>${misses
-            .map(({ l, st }) => `<tr><td>${fmtDate(l.date)}</td><td>${esc(l.subject)}</td><td><span class="pill ${st}">${STATUS_LABEL[st]}</span></td></tr>`)
+            .map(({ l, st }) => `<tr><td>${fmtDate(l.date)}</td>${subjects().length > 1 ? `<td>${esc(l.subject)}</td>` : ""}<td><span class="pill ${st}">${STATUS_LABEL[st]}</span></td></tr>`)
             .join("")}</table></div>`
         : '<p class="muted" style="margin:0">Отсутствий нет 👍</p>'
     }
@@ -664,6 +664,7 @@ function linkify(text) {
 }
 
 function subjectSelectHtml() {
+  if (subjects().length <= 1) return ""; // этюд один — фильтр не нужен
   return `<select id="subject-filter">
     <option value="">Все этюды</option>
     ${subjects().map((x) => `<option ${x === state.subjectFilter ? "selected" : ""}>${esc(x)}</option>`).join("")}
@@ -683,8 +684,9 @@ function studentAttendanceHtml(s) {
   const lessons = lessonsSorted().filter((l) => !f || l.subject === f).reverse();
   const st = attendanceStats(s.id, f);
   const bySubject = subjects().map((subj) => [subj, attendanceStats(s.id, subj)]);
+  const multi = subjects().length > 1; // если этюд один, разбивка по этюдам не нужна
   return `
-    <div class="card">
+    ${multi ? `<div class="card">
       <h2>Посещаемость этюдов</h2>
       <div class="table-wrap"><table>
         <tr><th>Этюд</th><th class="num">Всего</th><th class="num">Был</th><th class="num">Отсутствовал</th><th class="num">%</th></tr>
@@ -695,18 +697,18 @@ function studentAttendanceHtml(s) {
           )
           .join("")}
       </table></div>
-    </div>
+    </div>` : ""}
     <div class="card">
       <h2>История этюдов</h2>
       <div class="filters">${subjectSelectHtml()}
         <span class="muted small" style="align-self:center">Этюдов: ${st.total} · был: ${st.present} · отсутствовал: ${st.absent}</span>
       </div>
       <div class="table-wrap"><table>
-        <tr><th>Дата</th><th>Этюд</th><th>Статус</th></tr>
+        <tr><th>Дата</th>${multi ? "<th>Этюд</th>" : ""}<th>Статус</th></tr>
         ${lessons
           .map((l) => {
             const status = statusFor(l, s.id);
-            return `<tr><td>${fmtDate(l.date)}</td><td>${esc(l.subject)}</td><td><span class="pill ${status}">${STATUS_LABEL[status]}</span></td></tr>`;
+            return `<tr><td>${fmtDate(l.date)}</td>${multi ? `<td>${esc(l.subject)}</td>` : ""}<td><span class="pill ${status}">${STATUS_LABEL[status]}</span></td></tr>`;
           })
           .join("")}
       </table></div>
@@ -932,7 +934,7 @@ function journalHtml() {
       </div>
       <div class="table-wrap"><table class="journal">
         <tr><th class="name">Ученик</th>${lessons
-          .map((l) => `<th title="${esc(l.subject)}">${fmtShort(l.date)}${f ? "" : `<br><span style="text-transform:none;font-weight:400">${esc(l.subject.slice(0, 4))}.</span>`}</th>`)
+          .map((l) => `<th title="${esc(l.subject)}">${fmtShort(l.date)}${f || subjects().length <= 1 ? "" : `<br><span style="text-transform:none;font-weight:400">${esc(l.subject.slice(0, 4))}.</span>`}</th>`)
           .join("")}</tr>
         ${DATA.students
           .map(
@@ -977,7 +979,7 @@ function todayIso() {
 
 // Этюды из настроек (лист «Настройки» → «Этюды»), плюс уже отмеченные в журнале
 function etudeList() {
-  const list = DATA.etudes && DATA.etudes.length ? DATA.etudes : ["1 этюд", "2 этюд"];
+  const list = DATA.etudes && DATA.etudes.length ? DATA.etudes : ["Этюд"];
   return [...new Set([...list, ...subjects()])];
 }
 
@@ -1002,9 +1004,11 @@ function markHtml() {
       <h2>Отметить посещаемость этюда</h2>
       <div class="filters">
         <input type="date" id="mark-date" value="${m.date}">
-        <select id="mark-subject">
-          ${etudeList().map(opt).join("")}
-        </select>
+        ${
+          etudeList().length > 1
+            ? `<select id="mark-subject">${etudeList().map(opt).join("")}</select>`
+            : "" /* этюд один — выбирать нечего */
+        }
         <button class="btn btn-ghost" id="mark-all">Все присутствовали</button>
       </div>
       <p class="small muted">${m.existing ? "Этот этюд уже отмечен: загружены сохранённые отметки. При сохранении они обновятся." : "Новый этюд. По умолчанию все присутствовали, отметьте отсутствующих."}</p>
@@ -1033,7 +1037,8 @@ function bindMark() {
     loadMark(e.target.value, m.subject);
     refresh();
   });
-  document.getElementById("mark-subject").addEventListener("change", (e) => {
+  // Выбор этюда есть, только если этюдов несколько
+  document.getElementById("mark-subject")?.addEventListener("change", (e) => {
     loadMark(m.date, e.target.value);
     refresh();
   });

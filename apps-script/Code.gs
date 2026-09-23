@@ -201,8 +201,8 @@ function readSettings_() {
     teacherPin: map["PIN учителя"] || "",
     tutorLogin: map["Логин воспитателя"] || "vospitatel",
     tutorPin: map["PIN воспитателя"] || "",
-    // Этюды, которые отмечаются на сайте: «1 этюд, 2 этюд»
-    etudes: (map["Этюды"] || "1 этюд, 2 этюд")
+    // Этюды, которые отмечаются на сайте. Обычно один — «Этюд»; несколько — через запятую
+    etudes: (map["Этюды"] || "Этюд")
       .split(/[,;]/)
       .map((x) => x.trim())
       .filter(Boolean),
@@ -466,7 +466,7 @@ function headersFor_(key) {
 function seedRows_(key) {
   if (typeof SEED === "undefined") {
     return key === "settings"
-      ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"], ["Логин воспитателя", "vospitatel"], ["PIN воспитателя", ""], ["Этюды", "1 этюд, 2 этюд"]]
+      ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"], ["Логин воспитателя", "vospitatel"], ["PIN воспитателя", ""], ["Этюды", "Этюд"]]
       : [];
   }
   const tz = tz_();
@@ -480,7 +480,7 @@ function seedRows_(key) {
         ["PIN учителя", SEED.teacher.pin],
         ["Логин воспитателя", SEED.tutor.login],
         ["PIN воспитателя", SEED.tutor.pin],
-        ["Этюды", (SEED.etudes || ["1 этюд", "2 этюд"]).join(", ")],
+        ["Этюды", (SEED.etudes || ["Этюд"]).join(", ")],
       ];
     case "students":
       return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || ""]);

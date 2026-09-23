@@ -10,7 +10,7 @@ const SEED = {
   tutor: { login: "vospitatel", pin: "1111" },
 
   // ЭТЮДЫ, которые отмечаются во вкладке «Отметить этюд»
-  etudes: ["1 этюд", "2 этюд"],
+  etudes: ["Этюд"],
 
   // РАСПИСАНИЕ (общее для класса)
   schedule: [
@@ -9665,37 +9665,21 @@ const SEED = {
 
   // ЖУРНАЛ ПОСЕЩАЕМОСТИ ЭТЮДОВ: одна запись = один этюд; перечислены только отсутствовавшие
   attendance: [
-    {"date": "2026-09-01", "subject": "1 этюд", "absent": ["S18"], "late": [], "excused": []},
-    {"date": "2026-09-01", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-02", "subject": "1 этюд", "absent": ["S08", "S13"], "late": [], "excused": []},
-    {"date": "2026-09-02", "subject": "2 этюд", "absent": ["S08", "S10"], "late": [], "excused": []},
-    {"date": "2026-09-03", "subject": "1 этюд", "absent": ["S10", "S18"], "late": [], "excused": []},
-    {"date": "2026-09-03", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-04", "subject": "1 этюд", "absent": ["S20", "S21"], "late": [], "excused": []},
-    {"date": "2026-09-04", "subject": "2 этюд", "absent": ["S01"], "late": [], "excused": []},
-    {"date": "2026-09-07", "subject": "1 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-07", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-08", "subject": "1 этюд", "absent": ["S02", "S03", "S08", "S10", "S20"], "late": [], "excused": []},
-    {"date": "2026-09-08", "subject": "2 этюд", "absent": ["S12"], "late": [], "excused": []},
-    {"date": "2026-09-09", "subject": "1 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-09", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-10", "subject": "1 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-10", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-11", "subject": "1 этюд", "absent": ["S14", "S22", "S24", "S25"], "late": [], "excused": []},
-    {"date": "2026-09-11", "subject": "2 этюд", "absent": ["S04", "S07", "S09"], "late": [], "excused": []},
-    {"date": "2026-09-14", "subject": "1 этюд", "absent": ["S01", "S09", "S25"], "late": [], "excused": []},
-    {"date": "2026-09-14", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-15", "subject": "1 этюд", "absent": ["S17", "S19"], "late": [], "excused": []},
-    {"date": "2026-09-15", "subject": "2 этюд", "absent": ["S06", "S24"], "late": [], "excused": []},
-    {"date": "2026-09-16", "subject": "1 этюд", "absent": ["S06", "S10"], "late": [], "excused": []},
-    {"date": "2026-09-16", "subject": "2 этюд", "absent": ["S11", "S24"], "late": [], "excused": []},
-    {"date": "2026-09-17", "subject": "1 этюд", "absent": ["S08", "S15", "S24"], "late": [], "excused": []},
-    {"date": "2026-09-17", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-18", "subject": "1 этюд", "absent": ["S20", "S25"], "late": [], "excused": []},
-    {"date": "2026-09-18", "subject": "2 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-21", "subject": "1 этюд", "absent": ["S21"], "late": [], "excused": []},
-    {"date": "2026-09-21", "subject": "2 этюд", "absent": ["S05", "S24"], "late": [], "excused": []},
-    {"date": "2026-09-22", "subject": "1 этюд", "absent": [], "late": [], "excused": []},
-    {"date": "2026-09-22", "subject": "2 этюд", "absent": ["S04", "S08", "S20"], "late": [], "excused": []}
+    {"date": "2026-09-01", "subject": "Этюд", "absent": ["S18"], "late": [], "excused": []},
+    {"date": "2026-09-02", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-03", "subject": "Этюд", "absent": ["S08", "S13"], "late": [], "excused": []},
+    {"date": "2026-09-04", "subject": "Этюд", "absent": ["S08", "S10"], "late": [], "excused": []},
+    {"date": "2026-09-07", "subject": "Этюд", "absent": ["S10", "S18"], "late": [], "excused": []},
+    {"date": "2026-09-08", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-09", "subject": "Этюд", "absent": ["S20", "S21"], "late": [], "excused": []},
+    {"date": "2026-09-10", "subject": "Этюд", "absent": ["S01"], "late": [], "excused": []},
+    {"date": "2026-09-11", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-14", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-15", "subject": "Этюд", "absent": ["S02", "S03", "S08", "S10", "S20"], "late": [], "excused": []},
+    {"date": "2026-09-16", "subject": "Этюд", "absent": ["S12"], "late": [], "excused": []},
+    {"date": "2026-09-17", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-18", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-21", "subject": "Этюд", "absent": [], "late": [], "excused": []},
+    {"date": "2026-09-22", "subject": "Этюд", "absent": [], "late": [], "excused": []}
   ]
 };
