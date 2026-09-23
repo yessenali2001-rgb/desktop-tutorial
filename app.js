@@ -7,11 +7,9 @@ let DATA = null; // данные текущего пользователя (уч
 let creds = null; // { login, pin, as } для запросов к API; as = "parent" для входа родителя
 const STATUS_LABEL = {
   present: "Был",
-  absent: "Пропуск",
-  late: "Опоздал",
-  excused: "Уваж. причина",
+  absent: "Отсутствовал",
 };
-const STATUS_MARK = { present: "✓", absent: "Н", late: "О", excused: "У" };
+const STATUS_MARK = { present: "✓", absent: "Н" };
 const DAY_INDEX = { "Понедельник": 1, "Вторник": 2, "Среда": 3, "Четверг": 4, "Пятница": 5, "Суббота": 6, "Воскресенье": 0 };
 
 let state = { user: null, tab: null, viewStudent: null, subjectFilter: "", loginAs: "student" };
@@ -43,8 +41,8 @@ function findStudent(id) {
 
 function statusFor(lesson, id) {
   if ((lesson.absent || []).includes(id)) return "absent";
-  if ((lesson.late || []).includes(id)) return "late";
-  if ((lesson.excused || []).includes(id)) return "excused";
+  // Старые отметки: «опоздал» считается «был», «уважительная причина» — «отсутствовал»
+  if ((lesson.excused || []).includes(id)) return "absent";
   return "present";
 }
 
@@ -53,14 +51,13 @@ function lessonsSorted() {
 }
 
 function attendanceStats(id, subject = "") {
-  const res = { total: 0, present: 0, absent: 0, late: 0, excused: 0 };
+  const res = { total: 0, present: 0, absent: 0 };
   for (const l of DATA.attendance) {
     if (subject && l.subject !== subject) continue;
     res.total++;
     res[statusFor(l, id)]++;
   }
-  // Посещаемость: был на этюде (включая опоздания)
-  res.rate = pct(res.present + res.late, res.total);
+  res.rate = pct(res.present, res.total);
   return res;
 }
 
@@ -380,8 +377,7 @@ function renderStudent(s, byTeacher) {
     </div>
     <div class="stats">
       <div class="stat blue"><div class="stat-value">${st.total ? st.rate + "%" : "—"}</div><div class="stat-label">Посещаемость</div></div>
-      <div class="stat red"><div class="stat-value">${st.absent}</div><div class="stat-label">Пропусков без причины</div></div>
-      <div class="stat orange"><div class="stat-value">${st.late}</div><div class="stat-label">Опозданий</div></div>
+      <div class="stat red"><div class="stat-value">${st.absent}</div><div class="stat-label">Отсутствовал на этюдах</div></div>
       <div class="stat green"><div class="stat-value">${idpProgress(s)}%</div><div class="stat-label">Выполнение IDP</div></div>
     </div>
     ${isParent ? recentMissesHtml(s) : ""}
@@ -397,7 +393,7 @@ function renderStudent(s, byTeacher) {
   bindSubjectFilter();
 }
 
-// Для родителя: последние пропуски и опоздания
+// Для родителя: последние отсутствия
 function recentMissesHtml(s) {
   const misses = lessonsSorted()
     .reverse()
@@ -405,13 +401,13 @@ function recentMissesHtml(s) {
     .filter((x) => x.st !== "present")
     .slice(0, 5);
   return `<div class="card">
-    <h3>Последние пропуски и опоздания</h3>
+    <h3>Последние отсутствия на этюдах</h3>
     ${
       misses.length
         ? `<div class="table-wrap"><table>${misses
             .map(({ l, st }) => `<tr><td>${fmtDate(l.date)}</td><td>${esc(l.subject)}</td><td><span class="pill ${st}">${STATUS_LABEL[st]}</span></td></tr>`)
             .join("")}</table></div>`
-        : '<p class="muted" style="margin:0">Пропусков нет 👍</p>'
+        : '<p class="muted" style="margin:0">Отсутствий нет 👍</p>'
     }
   </div>`;
 }
@@ -691,11 +687,11 @@ function studentAttendanceHtml(s) {
     <div class="card">
       <h2>Посещаемость этюдов</h2>
       <div class="table-wrap"><table>
-        <tr><th>Этюд</th><th class="num">Всего</th><th class="num">Был</th><th class="num">Опоздал</th><th class="num">Пропуск</th><th class="num">Уваж.</th><th class="num">%</th></tr>
+        <tr><th>Этюд</th><th class="num">Всего</th><th class="num">Был</th><th class="num">Отсутствовал</th><th class="num">%</th></tr>
         ${bySubject
           .map(
             ([subj, x]) => `<tr><td>${esc(subj)}</td><td class="num">${x.total}</td><td class="num">${x.present}</td>
-            <td class="num">${x.late}</td><td class="num">${x.absent}</td><td class="num">${x.excused}</td><td class="num"><b>${x.rate}%</b></td></tr>`
+            <td class="num">${x.absent}</td><td class="num"><b>${x.rate}%</b></td></tr>`
           )
           .join("")}
       </table></div>
@@ -703,7 +699,7 @@ function studentAttendanceHtml(s) {
     <div class="card">
       <h2>История этюдов</h2>
       <div class="filters">${subjectSelectHtml()}
-        <span class="muted small" style="align-self:center">Этюдов: ${st.total} · пропусков: ${st.absent} · опозданий: ${st.late}</span>
+        <span class="muted small" style="align-self:center">Этюдов: ${st.total} · был: ${st.present} · отсутствовал: ${st.absent}</span>
       </div>
       <div class="table-wrap"><table>
         <tr><th>Дата</th><th>Этюд</th><th>Статус</th></tr>
@@ -757,7 +753,7 @@ function renderTeacher() {
       <div class="stat"><div class="stat-value">${DATA.students.length}</div><div class="stat-label">Учеников</div></div>
       <div class="stat"><div class="stat-value">${totalLessons}</div><div class="stat-label">Проведено этюдов</div></div>
       <div class="stat blue"><div class="stat-value">${totalLessons ? avgRate + "%" : "—"}</div><div class="stat-label">Средняя посещаемость</div></div>
-      <div class="stat red"><div class="stat-value">${totalAbs}</div><div class="stat-label">Всего пропусков</div></div>
+      <div class="stat red"><div class="stat-value">${totalAbs}</div><div class="stat-label">Всего отсутствий</div></div>
     </div>
     ${tabsHtml(tabs)}
     ${body}`;
@@ -893,13 +889,13 @@ function summaryHtml(all) {
         ${subjectSelectHtml()}
         <select id="sort">
           <option value="name" ${sort === "name" ? "selected" : ""}>По алфавиту</option>
-          <option value="absent" ${sort === "absent" ? "selected" : ""}>Больше всего пропусков</option>
+          <option value="absent" ${sort === "absent" ? "selected" : ""}>Больше всего отсутствий</option>
           <option value="rate" ${sort === "rate" ? "selected" : ""}>Худшая посещаемость</option>
         </select>
       </div>
       <div class="table-wrap"><table>
-        <tr><th>#</th><th>Ученик</th><th class="num">Этюдов</th><th class="num">Был</th><th class="num">Опоздал</th>
-          <th class="num">Пропуск</th><th class="num">Уваж.</th><th class="num">Посещ.</th><th class="num">IDP</th><th>Олимпиада</th><th>День рождения</th></tr>
+        <tr><th>#</th><th>Ученик</th><th class="num">Этюдов</th><th class="num">Был</th>
+          <th class="num">Отсутствовал</th><th class="num">Посещ.</th><th class="num">IDP</th><th>Олимпиада</th><th>День рождения</th></tr>
         ${rows
           .map(
             ({ s, st }, i) => `<tr>
@@ -907,9 +903,7 @@ function summaryHtml(all) {
               <td>${studentLink(s)}</td>
               <td class="num">${st.total}</td>
               <td class="num">${st.present}</td>
-              <td class="num">${st.late ? `<span class="pill late">${st.late}</span>` : 0}</td>
               <td class="num">${st.absent ? `<span class="pill absent">${st.absent}</span>` : 0}</td>
-              <td class="num">${st.excused ? `<span class="pill excused">${st.excused}</span>` : 0}</td>
               <td class="num">${st.total ? `<b style="color:${st.rate < 85 ? "var(--red)" : "inherit"}">${st.rate}%</b>` : '<span class="muted">—</span>'}</td>
               <td class="num">${idpProgress(s)}%</td>
               <td>${olympiadHtml(s) || '<span class="muted">—</span>'}</td>
@@ -934,9 +928,7 @@ function journalHtml() {
       <div class="filters">${subjectSelectHtml()}</div>
       <div class="legend">
         <span><span class="mark present">✓</span> был</span>
-        <span><span class="mark absent">Н</span> пропуск</span>
-        <span><span class="mark late">О</span> опоздал</span>
-        <span><span class="mark excused">У</span> уважительная причина</span>
+        <span><span class="mark absent">Н</span> отсутствовал</span>
       </div>
       <div class="table-wrap"><table class="journal">
         <tr><th class="name">Ученик</th>${lessons
@@ -1003,7 +995,7 @@ function markHtml() {
   }
   const m = state.mark;
   const opt = (x) => `<option ${x === m.subject ? "selected" : ""}>${esc(x)}</option>`;
-  const counts = { present: 0, absent: 0, late: 0, excused: 0 };
+  const counts = { present: 0, absent: 0 };
   Object.values(m.marks).forEach((st) => counts[st]++);
   return `
     <div class="card">
@@ -1027,7 +1019,7 @@ function markHtml() {
       </table></div>
       <div class="save-bar">
         <button class="btn" id="save-lesson">Сохранить</button>
-        <span class="small" id="mark-counts">Был: ${counts.present} · Пропуск: ${counts.absent} · Опоздал: ${counts.late} · Уваж.: ${counts.excused}</span>
+        <span class="small" id="mark-counts">Был: ${counts.present} · Отсутствовал: ${counts.absent}</span>
         <span class="small" id="save-msg"></span>
       </div>
     </div>`;
@@ -1053,9 +1045,9 @@ function bindMark() {
     b.addEventListener("click", () => {
       m.marks[b.dataset.mark] = b.dataset.st;
       b.parentElement.querySelectorAll(".seg-btn").forEach((x) => x.classList.toggle("active", x === b));
-      const c = { present: 0, absent: 0, late: 0, excused: 0 };
+      const c = { present: 0, absent: 0 };
       Object.values(m.marks).forEach((st) => c[st]++);
-      document.getElementById("mark-counts").textContent = `Был: ${c.present} · Пропуск: ${c.absent} · Опоздал: ${c.late} · Уваж.: ${c.excused}`;
+      document.getElementById("mark-counts").textContent = `Был: ${c.present} · Отсутствовал: ${c.absent}`;
       document.getElementById("save-msg").textContent = "";
     })
   );
@@ -1063,7 +1055,7 @@ function bindMark() {
     const btn = e.target;
     const msg = document.getElementById("save-msg");
     const pick = (st) => Object.keys(m.marks).filter((id) => m.marks[id] === st);
-    const lesson = { date: m.date, subject: m.subject, absent: pick("absent"), late: pick("late"), excused: pick("excused") };
+    const lesson = { date: m.date, subject: m.subject, absent: pick("absent"), late: [], excused: [] };
     btn.disabled = true;
     msg.textContent = "Сохранение…";
     msg.style.color = "";
