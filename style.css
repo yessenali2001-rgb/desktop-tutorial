@@ -311,3 +311,12 @@ td.wrap { white-space: normal; min-width: 120px; }
 @media (max-width: 600px) {
   .avatar-lg { width: 72px; height: 72px; font-size: 24px; }
 }
+
+/* ---------- Табель ---------- */
+.grade { display: inline-block; min-width: 26px; padding: 2px 0; border-radius: 6px; font-weight: 700; }
+.grade.g5 { background: var(--green-soft); color: var(--green); }
+.grade.g4 { background: var(--blue-soft); color: var(--blue); }
+.grade.g3 { background: var(--orange-soft); color: var(--orange); }
+.grade.g2 { background: var(--red-soft); color: var(--red); }
+table.grades td:first-child { white-space: normal; min-width: 160px; }
+table.grades tr.info-row td { background: var(--accent-soft); }

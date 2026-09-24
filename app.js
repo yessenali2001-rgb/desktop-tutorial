@@ -337,6 +337,7 @@ function renderStudent(s, byTeacher) {
     ["schedule", "📅 Расписание"],
     ["idp", "🎯 Цели (IDP)"],
     ["attendance", "✅ Посещаемость"],
+    ["grades", "📊 Оценки"],
     ["portfolio", "📁 Портфолио"],
     ["olympiads", "🏅 Олимпиады"],
     ["exams", "📝 Экзамены"],
@@ -356,6 +357,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "olympiads") body = kvCardHtml("Олимпиады", s.olympiads);
   if (state.tab === "exams") body = kvCardHtml("Экзамены", s.exams);
   if (state.tab === "books") body = booksHtml(s);
+  if (state.tab === "grades") body = gradesHtml(s);
   if (state.tab === "tests") body = testsHtml(s);
   if (state.tab === "events") body = parentEventsHtml(s);
   if (state.tab === "resources") body = resourcesHtml();
@@ -417,6 +419,7 @@ function renderStudent(s, byTeacher) {
       render();
     });
   bindSubjectFilter();
+  bindPeriods();
   if (!isParent) bindPhoto(s);
 }
 
@@ -626,6 +629,114 @@ function groupBy(list, key) {
   return map;
 }
 
+// ---------- табель (оценки) ----------
+const GRADE_COLS = [["q1", "1 тоқсан"], ["q2", "2 тоқсан"], ["q3", "3 тоқсан"], ["q4", "4 тоқсан"], ["year", "Жылдық"], ["exam", "Емтихан"], ["final", "Қорытынды"]];
+const GRADE_INFO_ROWS = ["Тәртібі", "Сабақ саны", "Қатыспаған сабақ"]; // не предметы: поведение и уроки
+
+// Учебные периоды (например «8А · 2025/2026»), новые — первыми
+function gradePeriods(list) {
+  return [...new Set(list.map((g) => g.period))].sort().reverse();
+}
+function currentPeriod(periods) {
+  return periods.includes(state.gradePeriod) ? state.gradePeriod : periods[0];
+}
+function periodChips(periods, current) {
+  if (periods.length < 2) return "";
+  return `<div class="tabs">${periods
+    .map((p) => `<button class="tab ${p === current ? "active" : ""}" data-period="${esc(p)}">${esc(p)}</button>`)
+    .join("")}</div>`;
+}
+function bindPeriods() {
+  app.querySelectorAll("[data-period]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.gradePeriod = b.dataset.period;
+      render();
+    })
+  );
+}
+function gradeCell(v) {
+  const t = cellValue(v);
+  if (!t) return '<span class="muted">·</span>';
+  return /^[2-5]$/.test(t) ? `<span class="grade g${t}">${t}</span>` : `<span class="small muted">${esc(t)}</span>`;
+}
+// Итог по периоду: средний итоговый балл и статус (отличник / хорошист / есть тройки)
+function gradeSummary(rows) {
+  const nums = rows
+    .filter((g) => !GRADE_INFO_ROWS.includes(g.subject))
+    .map((g) => cellValue(g.final) || cellValue(g.year))
+    .filter((v) => /^[2-5]$/.test(v))
+    .map(Number);
+  if (!nums.length) return null;
+  const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+  const min = Math.min(...nums);
+  const status = min === 5 ? "Үздік · отличник" : min === 4 ? "Екпінді · хорошист" : min === 3 ? "Есть тройки" : "Есть двойки";
+  const missed = rows.find((g) => g.subject === "Қатыспаған сабақ");
+  const missedSum = missed ? ["q1", "q2", "q3", "q4"].reduce((a, k) => a + (Number(cellValue(missed[k])) || 0), 0) : null;
+  return { avg, status, min, fours: nums.filter((n) => n === 4).length, threes: nums.filter((n) => n <= 3).length, missedSum };
+}
+
+function gradesHtml(s) {
+  const all = s.grades || [];
+  if (!all.length) return '<div class="card"><h2>Оценки</h2><p class="muted">Табель пока не добавлен.</p></div>';
+  const periods = gradePeriods(all);
+  const period = currentPeriod(periods);
+  const rows = all.filter((g) => g.period === period);
+  const subjects = rows.filter((g) => !GRADE_INFO_ROWS.includes(g.subject));
+  const info = rows.filter((g) => GRADE_INFO_ROWS.includes(g.subject));
+  const sum = gradeSummary(rows);
+  const hasExam = rows.some((g) => cellValue(g.exam));
+  const cols = GRADE_COLS.filter(([k]) => k !== "exam" || hasExam);
+  return `<div class="card">
+    <div class="eyebrow">Үлгерім табелі</div>
+    <h2>Оценки · ${esc(period)}</h2>
+    ${periodChips(periods, period)}
+    ${
+      sum
+        ? `<div class="highlights" style="margin:0 0 14px">
+            <div class="hl"><span class="hl-icon">📊</span><div><div class="eyebrow">Средний балл</div><div><b>${sum.avg.toFixed(2)}</b></div></div></div>
+            <div class="hl ${sum.min === 5 ? "hl-today" : ""}"><span class="hl-icon">${sum.min === 5 ? "🏆" : "📘"}</span><div><div class="eyebrow">Итог года</div><div><b>${esc(sum.status)}</b></div></div></div>
+            ${sum.missedSum !== null ? `<div class="hl"><span class="hl-icon">🕒</span><div><div class="eyebrow">Пропущено уроков за год</div><div><b>${sum.missedSum}</b></div></div></div>` : ""}
+          </div>`
+        : ""
+    }
+    <div class="table-wrap"><table class="grades">
+      <tr><th>Пән</th>${cols.map(([, l]) => `<th class="num">${l}</th>`).join("")}</tr>
+      ${subjects.map((g) => `<tr><td>${esc(g.subject)}</td>${cols.map(([k]) => `<td class="num">${gradeCell(g[k])}</td>`).join("")}</tr>`).join("")}
+      ${info
+        .map((g) => `<tr class="info-row"><td>${esc(g.subject)}</td>${cols.map(([k]) => `<td class="num small">${esc(cellValue(g[k]) || "")}</td>`).join("")}</tr>`)
+        .join("")}
+    </table></div>
+    <p class="small muted">ЕСП — есептелді (зачтено), Үлг. — үлгілі (примерное поведение).</p>
+  </div>`;
+}
+
+function gradesTableHtml() {
+  const periods = gradePeriods(DATA.students.flatMap((s) => s.grades || []));
+  if (!periods.length) return '<div class="card"><h2>Оценки</h2><p class="muted">Табели пока не добавлены.</p></div>';
+  const period = currentPeriod(periods);
+  const rows = DATA.students
+    .map((s) => ({ s, sum: gradeSummary((s.grades || []).filter((g) => g.period === period)) }))
+    .sort((a, b) => (b.sum ? b.sum.avg : -1) - (a.sum ? a.sum.avg : -1) || a.s.name.localeCompare(b.s.name, "ru"));
+  const count = (st) => rows.filter((r) => r.sum && r.sum.status === st).length;
+  return `<div class="card"><div class="eyebrow">Үлгерім</div><h2>Оценки класса · ${esc(period)}</h2>
+    ${periodChips(periods, period)}
+    <p class="small">🏆 Отличников: <b>${count("Үздік · отличник")}</b> · Хорошистов: <b>${count("Екпінді · хорошист")}</b> · С тройками: <b>${count("Есть тройки") + count("Есть двойки")}</b></p>
+    <div class="table-wrap"><table>
+      <tr><th>Ученик</th><th class="num">Средний</th><th>Итог</th><th class="num">«4»</th><th class="num">«3» и ниже</th><th class="num">Пропущено уроков</th></tr>
+      ${rows
+        .map(({ s, sum }) =>
+          sum
+            ? `<tr><td><span class="name-cell">${avatarHtml(s, "avatar-sm")}${studentLink(s)}</span></td><td class="num"><b>${sum.avg.toFixed(2)}</b></td>
+                <td>${sum.min === 5 ? '<span class="pill gold">отличник</span>' : sum.min === 4 ? '<span class="pill excused">хорошист</span>' : '<span class="pill absent">есть «3»</span>'}</td>
+                <td class="num">${sum.fours || '<span class="muted">0</span>'}</td><td class="num">${sum.threes ? `<b style="color:var(--red)">${sum.threes}</b>` : '<span class="muted">0</span>'}</td>
+                <td class="num">${sum.missedSum ?? "—"}</td></tr>`
+            : `<tr><td><span class="name-cell">${avatarHtml(s, "avatar-sm")}${studentLink(s)}</span></td><td class="num muted" colspan="5">нет табеля за этот год</td></tr>`
+        )
+        .join("")}
+    </table></div>
+    <p class="muted small">Нажмите на имя, чтобы открыть табель ученика по четвертям.</p></div>`;
+}
+
 // Прочитанные книги берутся из портфолио (раздел «Прочитанные книги»): название, автор/детали, дата
 const BOOKS_SECTION = "Прочитанные книги";
 function booksOf(s) {
@@ -822,6 +933,7 @@ function renderTeacher() {
     ["summary", "👥 Сводка"],
     ["mark", "✏️ Отметить этюд"],
     ["journal", "📋 Журнал"],
+    ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
     ["exams-all", "📝 Экзамены"],
@@ -847,6 +959,7 @@ function renderTeacher() {
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
   if (state.tab === "exams-all") body = wideTableHtml("Экзамены", "exams");
   if (state.tab === "books-all") body = booksTableHtml();
+  if (state.tab === "grades-all") body = gradesTableHtml();
   if (state.tab === "events-all") body = eventsTableHtml();
   if (state.tab === "tests-all") body = wideTableHtml("Результаты тестов", "tests");
   if (state.tab === "resources") body = resourcesHtml();
@@ -862,11 +975,12 @@ function renderTeacher() {
     ${body}`;
   bindTabs();
   bindSubjectFilter();
+  bindPeriods();
   if (state.tab === "mark") bindMark();
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
-      state.tab = state.tab === "books-all" ? "books" : "attendance";
+      state.tab = { "books-all": "books", "grades-all": "grades" }[state.tab] || "attendance";
       state.subjectFilter = "";
       render();
     })

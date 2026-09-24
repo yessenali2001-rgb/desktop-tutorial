@@ -13,6 +13,7 @@ const SHEETS = {
   idp: "IDP",
   attendance: "Посещаемость",
   portfolio: "Портфолио",
+  grades: "Оценки",
   olympiads: "Олимпиады",
   exams: "Экзамены",
   tests: "Тесты",
@@ -31,6 +32,7 @@ const HEADERS = {
   idp: ["ID ученика", "Цель", "Направление", "Срок", "Шаг", "Выполнено"],
   attendance: ["Дата", "Этюд", "Отсутствовали (ID через запятую)", "Опоздали (ID через запятую)", "Уважительная причина (ID через запятую)"],
   portfolio: ["ID ученика", "Раздел", "Название", "Детали", "Дата / год"],
+  grades: ["ID ученика", "Класс, учебный год", "Предмет", "1 тоқсан", "2 тоқсан", "3 тоқсан", "4 тоқсан", "Жылдық", "Емтихан", "Қорытынды"],
   resources: ["Раздел", "Ресурс", "Где показывать (Ресурсы / Тесты)"],
   calendar: ["Начало", "Окончание (если несколько дней)", "Событие"],
   olympiads: ["ID", "ФИО", "Областной", "KBO final"],
@@ -302,6 +304,22 @@ function readCalendar_() {
     .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
 }
 
+// Табель: { "S01": [ {period, subject, q1, q2, q3, q4, year, exam, final} ] }
+// Строки «Тәртібі», «Сабақ саны», «Қатыспаған сабақ» — поведение, число уроков и пропущенные уроки
+function readGrades_() {
+  const res = {};
+  const keys = ["q1", "q2", "q3", "q4", "year", "exam", "final"];
+  rows_("grades", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    const subject = String(r[2]).trim();
+    if (!id || !subject) return;
+    const row = { period: cellText_(r[1]), subject: subject };
+    keys.forEach((k, i) => (row[k] = cellText_(r[3 + i])));
+    (res[id] = res[id] || []).push(row);
+  });
+  return res;
+}
+
 function readResources_() {
   return rows_("resources", true)
     .filter((r) => String(r[1]).trim())
@@ -331,6 +349,7 @@ function context_() {
   return {
     idp: readIdp_(),
     portfolio: readPortfolio_(),
+    grades: readGrades_(),
     olympiads: readWide_("olympiads"),
     exams: readWide_("exams"),
     tests: readWide_("tests"),
@@ -345,6 +364,7 @@ function publicStudent_(s, ctx) {
     photo: s.photo,
     idp: { mentor: s.mentor, strengths: s.strengths, comment: s.comment, goals: ctx.idp[s.id] || [] },
     portfolio: ctx.portfolio[s.id] || [],
+    grades: ctx.grades[s.id] || [],
     olympiads: ctx.olympiads[s.id] || [],
     exams: ctx.exams[s.id] || [],
     tests: ctx.tests[s.id] || [],
@@ -545,6 +565,13 @@ function seedRows_(key) {
     }
     case "calendar":
       return (SEED.calendar || []).map((x) => [d(x.start), x.end && x.end !== x.start ? d(x.end) : "", x.title]);
+    case "grades": {
+      const rows = [];
+      SEED.students.forEach((s) =>
+        (s.grades || []).forEach((g) => rows.push([s.id, g.period, g.subject, g.q1, g.q2, g.q3, g.q4, g.year, g.exam, g.final]))
+      );
+      return rows;
+    }
     case "resources":
       return (SEED.resources || []).map((x) => [x.section, x.text, x.where === "Ресурсы" ? "" : x.where]);
     case "olympiads":
