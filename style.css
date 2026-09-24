@@ -383,3 +383,14 @@ table.grades tr.info-row td { background: var(--accent-soft); }
 @media (max-width: 600px) { .book-fields { grid-template-columns: 1fr; } }
 .book-del { margin-left: 6px; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 6px; }
 .book-del:hover { background: var(--red-soft); color: var(--red); }
+
+/* ---------- Редактирование IDP ---------- */
+.idp-check { width: 17px; height: 17px; accent-color: var(--green); vertical-align: -3px; cursor: pointer; }
+.steps li label, .goal-done { cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.goal-done { margin-top: 8px; }
+#goal-steps { width: 100%; margin-top: 8px; font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; }
+.idp-info { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-bottom: 16px; padding: 12px; border-radius: 10px; background: var(--accent-soft); }
+.idp-info label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.idp-info .wide, .idp-info .save-bar { grid-column: 1 / -1; }
+.idp-info textarea { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; }
+@media (max-width: 600px) { .idp-info { grid-template-columns: 1fr; } }

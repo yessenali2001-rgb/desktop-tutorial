@@ -97,6 +97,23 @@ function handle_(req) {
       const id = targetId_(user, req.id, "Книги добавляет сам ученик или учитель");
       return { ok: true, id: id, books: addBook_(id, req.book) };
     }
+    case "addGoal": {
+      const id = targetId_(user, req.id, "Цели добавляет сам ученик или учитель");
+      return { ok: true, id: id, goals: addGoal_(id, req.goal) };
+    }
+    case "setGoalDone": {
+      const id = targetId_(user, req.id, "Цели отмечает сам ученик или учитель");
+      return { ok: true, id: id, goals: setGoalDone_(id, req.title, req.step, req.done) };
+    }
+    case "deleteGoal": {
+      const id = targetId_(user, req.id, "Цели удаляет сам ученик или учитель");
+      return { ok: true, id: id, goals: deleteGoal_(id, req.title) };
+    }
+    case "setIdpInfo": {
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      const id = targetId_(user, req.id, "");
+      return { ok: true, id: id, info: setIdpInfo_(id, req.info) };
+    }
     case "deleteBook": {
       const id = targetId_(user, req.id, "Книги удаляет сам ученик или учитель");
       return { ok: true, id: id, books: deleteBook_(id, req.book) };
@@ -420,6 +437,99 @@ function targetId_(user, reqId, parentMsg) {
   const id = user.role === "student" ? user.id : String(reqId || "").trim().toUpperCase();
   if (!readStudents_().some((s) => s.id === id)) throw new Error("Ученик не найден");
   return id;
+}
+
+// ===================== IDP: цели ученика =====================
+// Лист «IDP»: ID | Цель | Направление | Срок | Шаг | Выполнено. Цель из нескольких шагов — строка на каждый шаг.
+
+function goalsOf_(id) {
+  return readIdp_()[id] || [];
+}
+
+function addGoal_(id, goal) {
+  goal = goal || {};
+  const title = safeText_(goal.title, 150);
+  if (!title) throw new Error("Введите цель");
+  const area = safeText_(goal.area, 60);
+  const deadline = safeText_(goal.deadline, 40);
+  const steps = (Array.isArray(goal.steps) ? goal.steps : [])
+    .map((x) => safeText_(x, 150))
+    .filter(Boolean)
+    .slice(0, 15);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const existing = goalsOf_(id);
+    if (existing.length >= 30) throw new Error("Слишком много целей");
+    if (existing.some((g) => g.title === title.replace(/^'/, ""))) throw new Error("Такая цель уже есть");
+    const sh = sheet_("idp");
+    if (!steps.length) sh.appendRow([id, title, area, deadline, "", false]);
+    else steps.forEach((st) => sh.appendRow([id, title, area, deadline, st, false]));
+  } finally {
+    lock.releaseLock();
+  }
+  return goalsOf_(id);
+}
+
+// Строки листа «IDP» этого ученика с этой целью (номера строк считаются с 1)
+function goalRows_(sh, id, title) {
+  const values = sh.getDataRange().getValues();
+  const rows = [];
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][0]).trim().toUpperCase() === id && String(values[i][1]).trim() === String(title || "").trim()) {
+      rows.push({ row: i + 1, step: String(values[i][4]).trim() });
+    }
+  }
+  return rows;
+}
+
+function setGoalDone_(id, title, step, done) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_("idp");
+    const target = goalRows_(sh, id, title).find((x) => x.step === String(step || "").trim());
+    if (!target) throw new Error("Цель не найдена. Обновите страницу.");
+    sh.getRange(target.row, 6, 1, 1).setValues([[!!done]]);
+  } finally {
+    lock.releaseLock();
+  }
+  return goalsOf_(id);
+}
+
+function deleteGoal_(id, title) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_("idp");
+    const rows = goalRows_(sh, id, title);
+    if (!rows.length) throw new Error("Цель не найдена. Обновите страницу.");
+    rows.reverse().forEach((x) => sh.deleteRow(x.row)); // снизу вверх, чтобы номера строк не съезжали
+  } finally {
+    lock.releaseLock();
+  }
+  return goalsOf_(id);
+}
+
+// Наставник, сильные стороны и комментарий учителя — колонки D, E, F листа «Ученики»
+function setIdpInfo_(id, info) {
+  info = info || {};
+  const row = [safeText_(info.mentor, 80), safeText_(info.strengths, 300), safeText_(info.comment, 500)];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_("students");
+    const values = sh.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (String(values[i][0]).trim().toUpperCase() === id) {
+        sh.getRange(i + 1, 4, 1, 3).setValues([row]);
+        return { mentor: row[0].replace(/^'/, ""), strengths: row[1].replace(/^'/, ""), comment: row[2].replace(/^'/, "") };
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  throw new Error("Ученик не найден");
 }
 
 // ===================== Прочитанные книги =====================

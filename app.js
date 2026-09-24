@@ -166,6 +166,34 @@ async function demoApi(action, payload) {
     };
   }
   if (action === "saveLesson" && isTeacher) return { ok: true, lesson: payload.lesson };
+  if (["addGoal", "setGoalDone", "deleteGoal", "setIdpInfo"].includes(action) && !parent) {
+    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    if (!target) throw new Error("Ученик не найден");
+    const goals = target.idp.goals;
+    if (action === "setIdpInfo") {
+      if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
+      Object.assign(target.idp, payload.info);
+      return { ok: true, id: target.id, info: payload.info };
+    }
+    if (action === "addGoal") {
+      const g = payload.goal;
+      if (!g.title) throw new Error("Введите цель");
+      if (goals.some((x) => x.title === g.title)) throw new Error("Такая цель уже есть");
+      goals.push({ title: g.title, area: g.area || "", deadline: g.deadline || "", done: false, steps: (g.steps || []).map((t) => ({ text: t, done: false })) });
+    }
+    const gi = goals.findIndex((x) => x.title === payload.title);
+    if (action === "setGoalDone") {
+      if (gi < 0) throw new Error("Цель не найдена. Обновите страницу.");
+      const g = goals[gi];
+      if (payload.step) g.steps.find((x) => x.text === payload.step).done = payload.done;
+      else g.done = payload.done;
+    }
+    if (action === "deleteGoal") {
+      if (gi < 0) throw new Error("Цель не найдена. Обновите страницу.");
+      goals.splice(gi, 1);
+    }
+    return { ok: true, id: target.id, goals: JSON.parse(JSON.stringify(goals)) };
+  }
   if ((action === "addBook" || action === "deleteBook") && !parent) {
     const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
     if (!target) throw new Error("Ученик не найден");
@@ -459,6 +487,7 @@ function renderStudent(s, byTeacher) {
   bindPeriods();
   if (!isParent) bindPhoto(s);
   if (state.tab === "books") bindBooks(s);
+  if (state.tab === "idp") bindIdp(s);
 }
 
 // ---------- фото ученика ----------
@@ -607,41 +636,146 @@ function scheduleHtml(schedule) {
 function idpHtml(s) {
   const idp = s.idp || {};
   const goals = idp.goals || [];
+  const canEdit = state.user.role !== "parent"; // ученик — свои цели, учитель — любому ученику
+  const isStaff = state.user.role === "teacher";
+  const check = (checked, attrs) =>
+    canEdit
+      ? `<input type="checkbox" class="idp-check" ${checked ? "checked" : ""} ${attrs}>`
+      : `<span>${checked ? "☑" : "☐"}</span>`;
   return `
     <div class="card">
       <h2>Цели и план развития (IDP)</h2>
-      <div class="info-grid" style="margin-bottom:16px">
-        <div><div class="muted small">Наставник</div><div>${esc(idp.mentor || "—")}</div></div>
-        <div><div class="muted small">Сильные стороны</div><div>${esc(idp.strengths || "—")}</div></div>
-        <div><div class="muted small">Общий прогресс</div><div><b>${idpProgress(s)}%</b></div></div>
-      </div>
-      ${goals.length ? "" : '<p class="muted">Цели пока не добавлены.</p>'}
+      ${
+        isStaff
+          ? `<form class="idp-info" id="idp-info-form">
+              <label>Наставник<input id="idp-mentor" maxlength="80" value="${esc(idp.mentor || "")}"></label>
+              <label>Сильные стороны<input id="idp-strengths" maxlength="300" value="${esc(idp.strengths || "")}"></label>
+              <label class="wide">Комментарий учителя<textarea id="idp-comment" maxlength="500" rows="2">${esc(idp.comment || "")}</textarea></label>
+              <div class="save-bar" style="position:static;border:none;padding:0"><button class="btn btn-ghost" type="submit">Сохранить</button><span class="small" id="idp-info-msg"></span></div>
+            </form>`
+          : `<div class="info-grid" style="margin-bottom:16px">
+              <div><div class="muted small">Наставник</div><div>${esc(idp.mentor || "—")}</div></div>
+              <div><div class="muted small">Сильные стороны</div><div>${esc(idp.strengths || "—")}</div></div>
+              <div><div class="muted small">Общий прогресс</div><div><b>${idpProgress(s)}%</b></div></div>
+            </div>`
+      }
+      ${goals.length ? "" : `<p class="muted">${canEdit ? "Целей пока нет. Добавьте первую цель ниже." : "Цели пока не добавлены."}</p>`}
       ${goals
-        .map((g) => {
+        .map((g, gi) => {
           const p = goalProgress(g);
+          const steps = g.steps || [];
           return `<div class="goal">
             <div class="goal-head">
               <div>
                 <div class="goal-title">${esc(g.title)}</div>
                 <div class="muted small">${esc(g.area || "")}</div>
               </div>
-              <div class="small">${g.deadline ? `Срок: <b>${fmtDate(g.deadline)}</b>` : ""}</div>
+              <div class="small">${g.deadline ? `Срок: <b>${esc(fmtDate(g.deadline))}</b>` : ""}${
+                canEdit ? ` <button class="book-del" data-goal-del="${gi}" title="Удалить цель">✕</button>` : ""
+              }</div>
             </div>
             ${
-              (g.steps || []).length
-                ? `<div class="progress ${p === 100 ? "done" : ""}"><span style="width:${p}%"></span></div><div class="small muted">Выполнено: ${p}%</div>`
-                : ""
-            }
-            ${
-              (g.steps || []).length
-                ? `<ul class="steps">${g.steps.map((st) => `<li class="${st.done ? "done" : ""}">${st.done ? "☑" : "☐"} ${esc(st.text)}</li>`).join("")}</ul>`
+              steps.length
+                ? `<div class="progress ${p === 100 ? "done" : ""}"><span style="width:${p}%"></span></div><div class="small muted">Выполнено: ${p}%</div>
+                   <ul class="steps">${steps
+                     .map((st, si) => `<li class="${st.done ? "done" : ""}"><label>${check(st.done, `data-goal="${gi}" data-step="${si}"`)} ${esc(st.text)}</label></li>`)
+                     .join("")}</ul>`
+                : canEdit
+                ? `<label class="small goal-done">${check(g.done, `data-goal="${gi}"`)} ${g.done ? "Выполнено" : "Отметить как выполненную"}</label>`
                 : `<div class="small" style="margin-top:6px">${g.done ? '<span class="pill present">☑ Выполнено</span>' : '<span class="pill neutral">☐ В процессе</span>'}</div>`
             }
           </div>`;
         })
         .join("")}
-      ${idp.comment ? `<div class="card" style="background:var(--accent-soft);border:none;margin:0"><b>Комментарий учителя:</b> ${esc(idp.comment)}</div>` : ""}
+      ${
+        canEdit
+          ? `<form class="book-form" id="goal-form">
+              <h3>➕ Новая цель</h3>
+              <div class="book-fields">
+                <input id="goal-title" maxlength="150" placeholder="Цель, например: Английский B2" required>
+                <input id="goal-area" maxlength="60" placeholder="Направление (предмет, спорт…)">
+                <input id="goal-deadline" maxlength="40" placeholder="Срок, например: до конца 9 класса">
+              </div>
+              <textarea id="goal-steps" rows="3" maxlength="1500" placeholder="Шаги к цели — каждый с новой строки (можно оставить пустым)"></textarea>
+              <div class="save-bar" style="position:static;border:none;padding:6px 0 0">
+                <button class="btn" type="submit" id="goal-save">Добавить цель</button>
+                <span class="small" id="goal-msg"></span>
+              </div>
+            </form>`
+          : ""
+      }
+      ${!isStaff && idp.comment ? `<div class="card" style="background:var(--accent-soft);border:none;margin:14px 0 0"><b>Комментарий учителя:</b> ${esc(idp.comment)}</div>` : ""}
     </div>`;
+}
+
+function bindIdp(s) {
+  if (state.user.role === "parent") return;
+  const msgEl = () => document.getElementById("goal-msg");
+  const show = (text, ok) => {
+    const m = msgEl();
+    if (m) {
+      m.textContent = text;
+      m.style.color = ok ? "var(--green)" : "var(--red)";
+    }
+  };
+  const run = async (action, payload, okText) => {
+    show("Сохранение…", true);
+    try {
+      const res = await api(action, { id: s.id, ...payload });
+      s.idp = { ...(s.idp || {}), goals: res.goals };
+      render();
+      if (okText) show(okText, true);
+    } catch (ex) {
+      render();
+      show("Ошибка: " + ex.message, false);
+    }
+  };
+  const goals = (s.idp && s.idp.goals) || [];
+  app.querySelectorAll(".idp-check").forEach((c) =>
+    c.addEventListener("change", () => {
+      const g = goals[Number(c.dataset.goal)];
+      const step = c.dataset.step !== undefined ? g.steps[Number(c.dataset.step)].text : "";
+      run("setGoalDone", { title: g.title, step, done: c.checked });
+    })
+  );
+  app.querySelectorAll("[data-goal-del]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const g = goals[Number(b.dataset.goalDel)];
+      if (g && confirm(`Удалить цель «${g.title}»?`)) run("deleteGoal", { title: g.title }, "Цель удалена");
+    })
+  );
+  document.getElementById("goal-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const goal = {
+      title: document.getElementById("goal-title").value.trim(),
+      area: document.getElementById("goal-area").value.trim(),
+      deadline: document.getElementById("goal-deadline").value.trim(),
+      steps: document.getElementById("goal-steps").value.split("\n").map((x) => x.trim()).filter(Boolean),
+    };
+    if (!goal.title) return;
+    document.getElementById("goal-save").disabled = true;
+    run("addGoal", { goal }, "Цель добавлена ✓");
+  });
+  document.getElementById("idp-info-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("idp-info-msg");
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    try {
+      const info = {
+        mentor: document.getElementById("idp-mentor").value.trim(),
+        strengths: document.getElementById("idp-strengths").value.trim(),
+        comment: document.getElementById("idp-comment").value.trim(),
+      };
+      const res = await api("setIdpInfo", { id: s.id, info });
+      s.idp = { ...(s.idp || {}), ...res.info };
+      msg.textContent = "Сохранено ✓";
+      msg.style.color = "var(--green)";
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+    }
+  });
 }
 
 // ---------- портфолио, олимпиады, тесты, мероприятия, ресурсы ----------
