@@ -376,3 +376,10 @@ table.grades tr.info-row td { background: var(--accent-soft); }
 @media (max-width: 420px) {
   #user-name { display: none; }
 }
+
+/* ---------- Добавление книг ---------- */
+.book-form { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.book-fields { display: grid; grid-template-columns: 2fr 1.5fr 1fr; gap: 8px; }
+@media (max-width: 600px) { .book-fields { grid-template-columns: 1fr; } }
+.book-del { margin-left: 6px; border: none; background: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 6px; border-radius: 6px; }
+.book-del:hover { background: var(--red-soft); color: var(--red); }

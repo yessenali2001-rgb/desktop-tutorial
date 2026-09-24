@@ -90,10 +90,16 @@ function handle_(req) {
       if (user.role !== "teacher") throw new Error("Доступно только учителю");
       return { ok: true, lesson: saveLesson_(req.lesson) };
     case "setPhoto": {
-      // Ученик меняет только своё фото, учитель и воспитатель — любое
-      if (user.role === "parent") throw new Error("Фото загружает сам ученик или учитель");
-      const id = user.role === "student" ? user.id : String(req.id || "").toUpperCase();
+      const id = targetId_(user, req.id, "Фото загружает сам ученик или учитель");
       return { ok: true, id: id, photo: setPhoto_(id, req.photo) };
+    }
+    case "addBook": {
+      const id = targetId_(user, req.id, "Книги добавляет сам ученик или учитель");
+      return { ok: true, id: id, books: addBook_(id, req.book) };
+    }
+    case "deleteBook": {
+      const id = targetId_(user, req.id, "Книги удаляет сам ученик или учитель");
+      return { ok: true, id: id, books: deleteBook_(id, req.book) };
     }
     default:
       throw new Error("Неизвестное действие: " + req.action);
@@ -407,6 +413,72 @@ function studentData_(id) {
 }
 
 // ===================== Запись посещаемости =====================
+
+// Чьи данные меняем: ученик — только свои, учитель и воспитатель — любого ученика, родитель — ничьи
+function targetId_(user, reqId, parentMsg) {
+  if (user.role === "parent") throw new Error(parentMsg);
+  const id = user.role === "student" ? user.id : String(reqId || "").trim().toUpperCase();
+  if (!readStudents_().some((s) => s.id === id)) throw new Error("Ученик не найден");
+  return id;
+}
+
+// ===================== Прочитанные книги =====================
+
+const BOOKS_SECTION = "Прочитанные книги";
+
+// Текст от ученика: обрезаем длину и не даём начать с «=», «+», «-», «@», чтобы таблица не приняла его за формулу
+function safeText_(v, max) {
+  const t = String(v || "").replace(/\s+/g, " ").trim().slice(0, max);
+  return /^[=+\-@]/.test(t) ? "'" + t : t;
+}
+
+function booksOf_(id) {
+  return (readPortfolio_()[id] || []).filter((p) => p.section === BOOKS_SECTION);
+}
+
+function addBook_(id, book) {
+  book = book || {};
+  const title = safeText_(book.title, 150);
+  if (!title) throw new Error("Введите название книги");
+  const row = [id, BOOKS_SECTION, title, safeText_(book.details, 100), safeText_(book.date, 40)];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if (booksOf_(id).length >= 300) throw new Error("Слишком много книг в списке");
+    sheet_("portfolio").appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return booksOf_(id);
+}
+
+// Удаляет одну книгу ученика — ту, у которой совпадают название, автор и дата
+function deleteBook_(id, book) {
+  book = book || {};
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = sheet_("portfolio");
+    const values = sh.getDataRange().getValues();
+    const same = (a, b) => cellText_(a).replace(/^'/, "") === String(b || "").trim();
+    for (let i = values.length - 1; i >= 1; i--) {
+      const r = values[i];
+      if (
+        String(r[0]).trim().toUpperCase() === id &&
+        String(r[1]).trim() === BOOKS_SECTION &&
+        same(r[2], book.title) &&
+        same(r[3], book.details) &&
+        same(r[4], book.date)
+      ) {
+        sh.deleteRow(i + 1);
+        return booksOf_(id);
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  throw new Error("Книга не найдена. Обновите страницу.");
+}
 
 // ===================== Фото ученика =====================
 

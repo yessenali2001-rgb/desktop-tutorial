@@ -160,6 +160,20 @@ async function demoApi(action, payload) {
     };
   }
   if (action === "saveLesson" && isTeacher) return { ok: true, lesson: payload.lesson };
+  if ((action === "addBook" || action === "deleteBook") && !parent) {
+    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    if (!target) throw new Error("Ученик не найден");
+    const b = payload.book || {};
+    if (action === "addBook") {
+      if (!String(b.title || "").trim()) throw new Error("Введите название книги");
+      target.portfolio.push({ section: BOOKS_SECTION, title: b.title, details: b.details || "", date: b.date || "" });
+    } else {
+      const i = target.portfolio.findIndex((x) => x.section === BOOKS_SECTION && x.title === b.title && (x.details || "") === (b.details || "") && (x.date || "") === (b.date || ""));
+      if (i < 0) throw new Error("Книга не найдена. Обновите страницу.");
+      target.portfolio.splice(i, 1);
+    }
+    return { ok: true, id: target.id, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
+  }
   if (action === "setPhoto" && !parent) {
     const id = isTeacher ? payload.id : s.id;
     const target = D.students.find((x) => x.id === id);
@@ -438,6 +452,7 @@ function renderStudent(s, byTeacher) {
   bindSubjectFilter();
   bindPeriods();
   if (!isParent) bindPhoto(s);
+  if (state.tab === "books") bindBooks(s);
 }
 
 // ---------- фото ученика ----------
@@ -759,8 +774,11 @@ const BOOKS_SECTION = "Прочитанные книги";
 function booksOf(s) {
   return (s.portfolio || []).filter((x) => x.section === BOOKS_SECTION);
 }
+const MONTHS_FULL = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 function booksHtml(s) {
   const books = booksOf(s);
+  const canEdit = state.user.role !== "parent"; // ученик — свои книги, учитель — любому ученику
+  const now = new Date();
   return `<div class="card">
     <div class="eyebrow">Оқылған кітаптар</div>
     <h2>Прочитанные книги</h2>
@@ -771,14 +789,73 @@ function booksHtml(s) {
       books.length
         ? `<ol class="books">${books
             .map(
-              (b) => `<li><span class="book-title">${esc(b.title)}</span>${b.details ? ` <span class="muted">— ${esc(b.details)}</span>` : ""}${
+              (b, i) => `<li><span class="book-title">${esc(b.title)}</span>${b.details ? ` <span class="muted">— ${esc(b.details)}</span>` : ""}${
                 b.date ? ` <span class="badge">${esc(b.date)}</span>` : ""
-              }</li>`
+              }${canEdit ? ` <button class="book-del" data-book-del="${i}" title="Удалить">✕</button>` : ""}</li>`
             )
             .join("")}</ol>`
-        : '<p class="muted">Список пока пуст.</p>'
+        : `<p class="muted">${canEdit ? "Список пока пуст. Добавьте первую прочитанную книгу." : "Список пока пуст."}</p>`
+    }
+    ${
+      canEdit
+        ? `<form class="book-form" id="book-form">
+            <h3>➕ Добавить прочитанную книгу</h3>
+            <div class="book-fields">
+              <input id="book-title" maxlength="150" placeholder="Название книги" required>
+              <input id="book-author" maxlength="100" placeholder="Автор">
+              <input id="book-date" maxlength="40" placeholder="Когда прочитал" value="${MONTHS_FULL[now.getMonth()]} ${now.getFullYear()}">
+            </div>
+            <div class="save-bar" style="position:static;border:none;padding:6px 0 0">
+              <button class="btn" type="submit" id="book-save">Добавить</button>
+              <span class="small" id="book-msg"></span>
+            </div>
+          </form>`
+        : ""
     }
   </div>`;
+}
+
+function bindBooks(s) {
+  const form = document.getElementById("book-form");
+  if (!form) return;
+  const msg = document.getElementById("book-msg");
+  const run = async (action, book, okText) => {
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    try {
+      const res = await api(action, { id: s.id, book });
+      // обновляем только раздел книг в портфолио ученика
+      s.portfolio = (s.portfolio || []).filter((x) => x.section !== BOOKS_SECTION).concat(res.books);
+      render();
+      const m = document.getElementById("book-msg");
+      if (m) {
+        m.textContent = okText;
+        m.style.color = "var(--green)";
+      }
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+    }
+  };
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const book = {
+      title: document.getElementById("book-title").value.trim(),
+      details: document.getElementById("book-author").value.trim(),
+      date: document.getElementById("book-date").value.trim(),
+    };
+    if (!book.title) return;
+    document.getElementById("book-save").disabled = true;
+    run("addBook", book, "Книга добавлена ✓");
+  });
+  app.querySelectorAll("[data-book-del]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const book = booksOf(s)[Number(b.dataset.bookDel)];
+      if (book && confirm(`Удалить «${book.title}» из списка?`)) {
+        run("deleteBook", { title: book.title, details: book.details, date: book.date }, "Книга удалена");
+      }
+    })
+  );
 }
 function plural(n, one, few, many) {
   const m10 = n % 10, m100 = n % 100;
