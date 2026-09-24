@@ -282,6 +282,11 @@ function renderLogin() {
         ${options.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join("")}
       </select>`;
   app.innerHTML = `
+    <div class="login-banner">
+      <div class="kicker">Білім-инновация лицей-интернаты</div>
+      <div class="slogan">Сапалы білім —<br>саналы тәрбие</div>
+      <img src="logo.png" alt="" onerror="this.remove()">
+    </div>
     <div class="login-wrap card">
       <h2>Вход</h2>
       <div class="seg seg-wide" style="margin-bottom:12px">${Object.keys(LOGIN_ROLES)
