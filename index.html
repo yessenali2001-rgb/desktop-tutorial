@@ -9,6 +9,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" href="favicon.png">
   <link rel="stylesheet" href="style.css">
+  <script>
+    // Сохранённая тема (белая / чёрная) применяется до отрисовки, чтобы экран не мигал
+    try {
+      var t = localStorage.getItem("theme");
+      if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <header class="topbar">
@@ -20,9 +27,12 @@
         <div class="brand-sub" id="class-name"></div>
       </div>
     </div>
-    <div class="user-box" id="user-box" hidden>
-      <span id="user-name"></span>
-      <button class="btn btn-ghost" id="logout-btn">Выйти</button>
+    <div class="topbar-right">
+      <div class="user-box" id="user-box" hidden>
+        <span id="user-name"></span>
+        <button class="btn btn-ghost" id="logout-btn">Выйти</button>
+      </div>
+      <button class="theme-btn" id="theme-btn" type="button" title="Белый / чёрный фон"></button>
     </div>
   </header>
 

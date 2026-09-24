@@ -4,7 +4,7 @@
   --gold: #f8df83;
   --gold-deep: #c9a93f;
   --brand-grey: #404465;
-  --bg: #f5f3ee;
+  --bg: #ffffff;
   --card: #ffffff;
   --text: #111233;
   --muted: #6e6a7c;
@@ -27,15 +27,16 @@
   --radius: 12px;
 }
 
+/* Тёмная (чёрная) тема: по кнопке 🌙 или по настройке устройства, если кнопку не нажимали */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d0d1a;
-    --card: #17172b;
+  :root:not([data-theme="light"]) {
+    --bg: #000000;
+    --card: #111117;
     --text: #efeadf;
     --muted: #a39fb0;
-    --border: #2a2a42;
+    --border: #2a2a36;
     --accent: #f8df83;
-    --accent-soft: #24233a;
+    --accent-soft: #1c1c26;
     --btn-bg: #f8df83;
     --btn-text: #111233;
     --link: #f8df83;
@@ -48,6 +49,26 @@
     --blue-soft: #1c2b3d;
     --blue: #4dabf7;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --card: #111117;
+  --text: #efeadf;
+  --muted: #a39fb0;
+  --border: #2a2a36;
+  --accent: #f8df83;
+  --accent-soft: #1c1c26;
+  --btn-bg: #f8df83;
+  --btn-text: #111233;
+  --link: #f8df83;
+  --green: #51cf66;
+  --green-soft: #1d3326;
+  --red: #ff6b6b;
+  --red-soft: #3a2025;
+  --orange: #ff922b;
+  --orange-soft: #3a2a1c;
+  --blue-soft: #1c2b3d;
+  --blue: #4dabf7;
 }
 
 * { box-sizing: border-box; }
@@ -265,11 +286,6 @@ td.wrap { white-space: normal; min-width: 120px; }
 .pill.gold { background: #fff3bf; color: #946800; }
 .pill.silver { background: #e9ecef; color: #495057; }
 .pill.bronze { background: #ffe8cc; color: #a0522d; }
-@media (prefers-color-scheme: dark) {
-  .pill.gold { background: #3d3414; color: #ffd43b; }
-  .pill.silver { background: #2b3036; color: #ced4da; }
-  .pill.bronze { background: #3b2a1c; color: #ffa94d; }
-}
 
 /* ---------- Календарь событий ---------- */
 .events { display: flex; flex-direction: column; gap: 8px; }
@@ -282,9 +298,6 @@ td.wrap { white-space: normal; min-width: 120px; }
 @media (max-width: 600px) {
   .event { grid-template-columns: 100px 1fr; }
   .event .badge { grid-column: 2; justify-self: start; margin: -6px 0 10px; }
-}
-@media (prefers-color-scheme: dark) {
-  .event-date { background: var(--gold); color: var(--navy); }
 }
 
 /* ---------- Главный экран: день рождения и олимпиада ---------- */
@@ -334,3 +347,32 @@ table.grades tr.info-row td { background: var(--accent-soft); }
 .login-banner .kicker { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; opacity: .85; }
 .login-banner .slogan { font-size: 22px; font-weight: 800; line-height: 1.15; margin-top: 10px; text-transform: uppercase; color: var(--gold); }
 .login-banner img { position: absolute; right: -18px; bottom: -18px; width: 110px; opacity: .18; }
+
+/* ---------- Отдельные элементы в тёмной теме ---------- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pill.gold { background: #3d3414; color: #ffd43b; }
+  :root:not([data-theme="light"]) .pill.silver { background: #2b3036; color: #ced4da; }
+  :root:not([data-theme="light"]) .pill.bronze { background: #3b2a1c; color: #ffa94d; }
+  :root:not([data-theme="light"]) .event-date { background: var(--gold); color: var(--navy); }
+}
+:root[data-theme="dark"] .pill.gold { background: #3d3414; color: #ffd43b; }
+:root[data-theme="dark"] .pill.silver { background: #2b3036; color: #ced4da; }
+:root[data-theme="dark"] .pill.bronze { background: #3b2a1c; color: #ffa94d; }
+:root[data-theme="dark"] .event-date { background: var(--gold); color: var(--navy); }
+
+/* ---------- Кнопка темы ---------- */
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.theme-btn { background: transparent; border: 1px solid rgba(248, 223, 131, .45); color: var(--gold); border-radius: 8px; width: 38px; height: 34px; font-size: 17px; cursor: pointer; line-height: 1; }
+.theme-btn:hover { background: rgba(248, 223, 131, .12); }
+/* На белом фоне карточкам нужна лёгкая тень, чтобы не сливаться с фоном */
+.card, .stat, .day { box-shadow: 0 1px 3px rgba(17, 18, 51, .06); }
+/* Системные элементы (выпадающие списки, поля) в цвет темы */
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { color-scheme: dark; }
+}
+/* На узком экране имя в шапке скрываем — оно есть в карточке ученика */
+@media (max-width: 420px) {
+  #user-name { display: none; }
+}

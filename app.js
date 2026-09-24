@@ -1316,6 +1316,28 @@ function bindMark() {
   });
 }
 
+// ---------- тема: белый / чёрный фон ----------
+function currentTheme() {
+  const t = document.documentElement.dataset.theme;
+  if (t === "light" || t === "dark") return t;
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function updateThemeButton() {
+  const dark = currentTheme() === "dark";
+  const btn = document.getElementById("theme-btn");
+  btn.textContent = dark ? "☀️" : "🌙";
+  btn.title = dark ? "Белый фон" : "Чёрный фон";
+}
+document.getElementById("theme-btn").addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try {
+    localStorage.setItem("theme", next);
+  } catch (e) {}
+  updateThemeButton();
+});
+updateThemeButton();
+
 // ---------- start ----------
 document.getElementById("logout-btn").addEventListener("click", logout);
 
