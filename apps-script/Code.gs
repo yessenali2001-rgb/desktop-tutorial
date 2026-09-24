@@ -90,7 +90,9 @@ function handle_(req) {
       if (user.role !== "teacher") throw new Error("Доступно только учителю");
       return { ok: true, lesson: saveLesson_(req.lesson) };
     case "setPhoto": {
-      const id = targetId_(user, req.id, "Фото загружает сам ученик или учитель");
+      // Фото меняют только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Фото меняет только учитель или воспитатель");
+      const id = targetId_(user, req.id, "");
       return { ok: true, id: id, photo: setPhoto_(id, req.photo) };
     }
     case "addBook": {

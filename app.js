@@ -208,8 +208,9 @@ async function demoApi(action, payload) {
     }
     return { ok: true, id: target.id, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
   }
-  if (action === "setPhoto" && !parent) {
-    const id = isTeacher ? payload.id : s.id;
+  if (action === "setPhoto") {
+    if (!isTeacher) throw new Error("Фото меняет только учитель или воспитатель");
+    const id = payload.id;
     const target = D.students.find((x) => x.id === id);
     if (target) target.photo = payload.photo;
     return { ok: true, id, photo: payload.photo };
@@ -409,7 +410,6 @@ function renderStudent(s, byTeacher) {
     ["books", "📖 Книги"],
     ["tests", "🧠 Тесты"],
   ];
-  if (isParent || byTeacher) tabs.push(["events", "👪 Мероприятия родителей"]);
   tabs.push(["resources", "📚 Ресурсы"]);
   if (!tabs.some(([k]) => k === state.tab)) state.tab = "schedule";
   const st = attendanceStats(s.id);
@@ -424,7 +424,6 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "books") body = booksHtml(s);
   if (state.tab === "grades") body = gradesHtml(s);
   if (state.tab === "tests") body = testsHtml(s);
-  if (state.tab === "events") body = parentEventsHtml(s);
   if (state.tab === "resources") body = resourcesHtml();
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
@@ -438,8 +437,8 @@ function renderStudent(s, byTeacher) {
           <h2>${esc(s.name)}</h2>
           ${s.idp?.mentor ? `<div class="muted small">Наставник: ${esc(s.idp.mentor)}</div>` : ""}
           ${
-            isParent
-              ? ""
+            !byTeacher
+              ? "" // фото меняют только учитель и воспитатель
               : `<div class="photo-actions">
                   <label class="btn btn-ghost">📷 ${s.photo ? "Изменить фото" : "Загрузить фото"}
                     <input type="file" id="photo-input" accept="image/*" hidden>
@@ -485,7 +484,7 @@ function renderStudent(s, byTeacher) {
     });
   bindSubjectFilter();
   bindPeriods();
-  if (!isParent) bindPhoto(s);
+  if (byTeacher) bindPhoto(s); // фото меняют только учитель и воспитатель
   if (state.tab === "books") bindBooks(s);
   if (state.tab === "idp") bindIdp(s);
 }
@@ -1080,19 +1079,6 @@ function testsHtml(s) {
   return kvCardHtml("Результаты тестов", s.tests, extra);
 }
 
-function parentEventsHtml(s) {
-  const list = s.parentEvents || [];
-  const done = list.filter((x) => x.value).length;
-  return `<div class="card"><h2>Мероприятия для родителей</h2>${
-    list.length
-      ? `<p class="small muted">Посещено: <b>${done} из ${list.length}</b></p>
-         <div class="table-wrap"><table class="kv">${list
-           .map((x) => `<tr><th>${esc(x.name)}</th><td>${x.value ? '<span class="pill present">✓ Был</span>' : '<span class="pill absent">✗ Не был</span>'}</td></tr>`)
-           .join("")}</table></div>`
-      : '<p class="muted">Данных пока нет.</p>'
-  }</div>`;
-}
-
 function resourcesHtml() {
   const list = (DATA.resources || []).filter((x) => x.where !== "Тесты");
   if (!list.length) return '<div class="card"><h2>Ресурсы</h2><p class="muted">Ресурсы пока не добавлены.</p></div>';
@@ -1172,7 +1158,6 @@ function renderTeacher() {
     ["olympiads-all", "🏅 Олимпиады"],
     ["exams-all", "📝 Экзамены"],
     ["books-all", "📖 Книги"],
-    ["events-all", "👪 Родители"],
     ["tests-all", "🧠 Тесты"],
     ["schedule", "📅 Расписание"],
     ["resources", "📚 Ресурсы"],
@@ -1194,7 +1179,6 @@ function renderTeacher() {
   if (state.tab === "exams-all") body = wideTableHtml("Экзамены", "exams");
   if (state.tab === "books-all") body = booksTableHtml();
   if (state.tab === "grades-all") body = gradesTableHtml();
-  if (state.tab === "events-all") body = eventsTableHtml();
   if (state.tab === "tests-all") body = wideTableHtml("Результаты тестов", "tests");
   if (state.tab === "resources") body = resourcesHtml();
 
@@ -1244,35 +1228,6 @@ function wideTableHtml(title, key) {
       })
       .join("")}
   </table></div></div>`;
-}
-
-function eventsTableHtml() {
-  const cols = [...new Set(DATA.students.flatMap((s) => (s.parentEvents || []).map((x) => x.name)))];
-  if (!cols.length) return '<div class="card"><h2>Мероприятия для родителей</h2><p class="muted">Данных пока нет.</p></div>';
-  const rows = DATA.students
-    .map((s) => {
-      const map = Object.fromEntries((s.parentEvents || []).map((x) => [x.name, x.value]));
-      return { s, map, total: cols.filter((c) => map[c]).length };
-    })
-    .sort((a, b) => b.total - a.total || a.s.name.localeCompare(b.s.name, "ru"));
-  const perEvent = cols.map((c) => rows.filter((r) => r.map[c]).length);
-  const phones = (s) =>
-    [s.momPhone, s.dadPhone]
-      .filter(Boolean)
-      .map((p) => `<a href="tel:${esc(p.replace(/[^\d+]/g, ""))}">${esc(p)}</a>`)
-      .join("<br>") || '<span class="muted">—</span>';
-  return `<div class="card"><h2>Участие родителей в мероприятиях</h2>
-    <div class="table-wrap"><table class="journal">
-      <tr><th class="name">Ученик</th><th>Итого</th>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}<th>Телефоны</th></tr>
-      ${rows
-        .map(
-          ({ s, map, total }) => `<tr><td class="name">${studentLink(s)}</td><td><b>${total}/${cols.length}</b></td>${cols
-            .map((c) => `<td>${map[c] ? '<span class="mark present">✓</span>' : '<span class="mark absent">✗</span>'}</td>`)
-            .join("")}<td class="small" style="text-align:left">${phones(s)}</td></tr>`
-        )
-        .join("")}
-      <tr><td class="name muted">Пришли</td><td></td>${perEvent.map((n) => `<td class="muted">${n}</td>`).join("")}<td></td></tr>
-    </table></div></div>`;
 }
 
 // Ближайшие дни рождения (из портфолио: Личное → Дата рождения)
