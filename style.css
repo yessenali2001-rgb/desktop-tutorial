@@ -79,7 +79,8 @@ body {
   border: 1.5px solid var(--gold); color: var(--gold);
   font-family: var(--serif); font-weight: 700; font-size: 14px; letter-spacing: .04em;
 }
-.logo img { width: 100%; height: 100%; object-fit: contain; background: #fff; }
+.logo img { width: 100%; height: 100%; object-fit: contain; }
+.logo:has(img) { border: none; border-radius: 50%; } /* эмблема BIL уже круглая */
 .logo img + .logo-text { display: none; }
 .brand-title { font-family: var(--serif); font-weight: 700; font-size: 18px; }
 .brand-sub { font-size: 13px; color: var(--gold); opacity: .75; }

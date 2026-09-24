@@ -7,13 +7,14 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Noto+Serif:wght@700&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <!-- Логотип: положите файл logo.png рядом с index.html, и он появится вместо «BIL» -->
-      <span class="logo"><img src="logo.png" alt="" onerror="this.remove()"><span class="logo-text">BIL</span></span>
+      <!-- Логотип: эмблема BIL (logo.png). Если файла нет, показывается надпись «BIL» -->
+      <span class="logo"><img src="logo.png" alt="BIL" onerror="this.remove()"><span class="logo-text">BIL</span></span>
       <div>
         <div class="brand-title">Кабинет ученика</div>
         <div class="brand-sub" id="class-name"></div>
