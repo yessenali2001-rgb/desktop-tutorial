@@ -101,7 +101,13 @@ async function api(action, payload = {}) {
     // Google вернул страницу вместо данных — обычно доступ к веб-приложению не «Все»
     throw new Error("Сервер не отвечает данными. В развертывании Apps Script должен быть доступ «Все».");
   }
-  if (!res.ok) throw new Error(res.error || "Ошибка сервера");
+  if (!res.ok) {
+    // Сайт новее, чем код в Apps Script: нужно вставить новый Code.gs и выпустить новую версию
+    if (/^Неизвестное действие/.test(res.error || "")) {
+      throw new Error("Сервер ещё не обновлён. Учителю: вставьте новый Code.gs в Apps Script и выпустите новую версию развертывания.");
+    }
+    throw new Error(res.error || "Ошибка сервера");
+  }
   return res;
 }
 
