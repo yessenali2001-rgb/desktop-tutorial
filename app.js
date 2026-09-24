@@ -83,12 +83,24 @@ function subjects() {
 async function api(action, payload = {}) {
   if (DEMO) return demoApi(action, payload);
   // Тело отправляется как text/plain, чтобы Apps Script принимал запрос без CORS-preflight
-  const r = await fetch(CONFIG.API_URL, {
-    method: "POST",
-    body: JSON.stringify({ action, ...(creds || {}), ...payload }),
-  });
-  if (!r.ok) throw new Error("Сервер недоступен (" + r.status + ")");
-  const res = await r.json();
+  const ACCESS_HINT = "Проверьте интернет. Если ошибка повторяется, в развертывании Apps Script должен быть доступ «Все».";
+  let r;
+  try {
+    r = await fetch(CONFIG.API_URL, {
+      method: "POST",
+      body: JSON.stringify({ action, ...(creds || {}), ...payload }),
+    });
+  } catch (e) {
+    throw new Error("Не удалось связаться с сервером. " + ACCESS_HINT);
+  }
+  if (!r.ok) throw new Error("Сервер недоступен (" + r.status + "). " + ACCESS_HINT);
+  let res;
+  try {
+    res = await r.json();
+  } catch (e) {
+    // Google вернул страницу вместо данных — обычно доступ к веб-приложению не «Все»
+    throw new Error("Сервер не отвечает данными. В развертывании Apps Script должен быть доступ «Все».");
+  }
   if (!res.ok) throw new Error(res.error || "Ошибка сервера");
   return res;
 }
