@@ -161,6 +161,7 @@ async function demoApi(action, payload) {
         calendar: D.calendar,
         resources: D.resources,
         students: [strip(s)],
+        universities: D.universities,
         duties: (D.duties || [])
           .filter((d) => d.students.includes(s.id) || d.date >= todayIso())
           .map((d) => ({ date: d.date, duty: d.duty, students: d.students, names: d.students.map((id) => D.students.find((x) => x.id === id)?.name || id) })),
@@ -210,6 +211,15 @@ async function demoApi(action, payload) {
       target.portfolio.splice(i, 1);
     }
     return { ok: true, id: target.id, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
+  }
+  if (action === "savePlan") {
+    if (parent) throw new Error("Анкету заполняет сам ученик или учитель");
+    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    if (!target) throw new Error("Ученик не найден");
+    const plan = { ...(payload.plan || {}), updated: todayIso() };
+    if (plan.target && !(/^\d{1,3}$/.test(plan.target) && Number(plan.target) <= 140)) throw new Error("Цель ЕНТ — число от 0 до 140");
+    target.plan = plan;
+    return { ok: true, id: target.id, plan };
   }
   if (action === "saveDuty") {
     if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
@@ -437,6 +447,7 @@ function renderStudent(s, byTeacher) {
   const tabs = [
     ["schedule", "📅 Расписание"],
     ["idp", "🎯 Цели (IDP)"],
+    ["admission", "🎓 Поступление"],
     ["attendance", "✅ Посещаемость"],
     ["grades", "📊 Оценки"],
     ["portfolio", "📁 Портфолио"],
@@ -464,6 +475,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "resources") body = resourcesHtml();
   if (state.tab === "meetings" && byTeacher) body = meetingsHtml(s);
   if (state.tab === "duty") body = studentDutyHtml(s);
+  if (state.tab === "admission") body = admissionHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
@@ -527,6 +539,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "books") bindBooks(s);
   if (state.tab === "idp") bindIdp(s);
   if (state.tab === "meetings" && byTeacher) bindMeetings(s);
+  if (state.tab === "admission") bindAdmission(s);
 }
 
 // ---------- фото ученика ----------
@@ -1195,6 +1208,7 @@ function renderTeacher() {
     ["journal", "📋 Журнал"],
     ["meetings", "🤝 Встречи"],
     ["duty", "🧹 Кезекшілік"],
+    ["admission-all", "🎓 Поступление"],
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
@@ -1217,6 +1231,7 @@ function renderTeacher() {
   if (state.tab === "journal") body = journalHtml();
   if (state.tab === "meetings") body = meetingsHtml();
   if (state.tab === "duty") body = dutyHtml();
+  if (state.tab === "admission-all") body = admissionAllHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
@@ -1244,7 +1259,7 @@ function renderTeacher() {
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
-      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings", duty: "duty" }[state.tab] || "attendance";
+      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings", duty: "duty", "admission-all": "admission" }[state.tab] || "attendance";
       state.subjectFilter = "";
       render();
     })
@@ -1961,6 +1976,282 @@ function studentDutyHtml(s) {
         ? `<ul class="duty-mine">${mine.map((d) => `<li>${fmtDate(d.date)} — ${esc(d.duty)}</li>`).join("")}</ul>`
         : '<p class="muted">Дежурств ещё не было.</p>'
     }
+  </div>`;
+}
+
+// ---------- поступление: анкета ученика и подбор университетов (без ИИ, по листу «Университеты») ----------
+// Названия направлений должны совпадать с колонкой «Направления» листа «Университеты»
+const DIRECTIONS = [
+  { name: "IT и программирование", ent: "Математика + Информатика" },
+  { name: "Инженерия и технологии", ent: "Математика + Физика" },
+  { name: "Архитектура и дизайн", ent: "творческий экзамен + предмет по специальности (уточните в вузе)" },
+  { name: "Экономика, финансы, бизнес", ent: "Математика + География" },
+  { name: "Медицина", ent: "Биология + Химия" },
+  { name: "Биология, химия, экология", ent: "Биология + Химия (для экологии бывает Биология + География)" },
+  { name: "Агро и ветеринария", ent: "Биология + Химия" },
+  { name: "Право", ent: "Всемирная история + Основы права" },
+  { name: "Международные отношения", ent: "Иностранный язык + Всемирная история" },
+  { name: "Филология и языки", ent: "Язык + Литература (казахский или русский) или Иностранный язык + Всемирная история" },
+  { name: "Журналистика и медиа", ent: "творческий экзамен + предмет по специальности (уточните в вузе)" },
+  { name: "Педагогика", ent: "два предмета по будущей специальности учителя" },
+  { name: "Психология", ent: "Биология + География (уточните в вузе)" },
+  { name: "Туризм и сервис", ent: "География + Иностранный язык" },
+];
+const ANY_DIRECTION = "Все направления";
+
+// Тест Гарднера: тип интеллекта → подходящие направления
+const GARDNER = [
+  { re: /логи|математ/, label: "логико-математический", dirs: ["IT и программирование", "Инженерия и технологии", "Экономика, финансы, бизнес"] },
+  { re: /визуал|простран/, label: "визуально-пространственный", dirs: ["Архитектура и дизайн", "Инженерия и технологии"] },
+  { re: /лингв/, label: "лингвистический", dirs: ["Филология и языки", "Международные отношения", "Журналистика и медиа", "Право"] },
+  { re: /межлич/, label: "межличностный", dirs: ["Педагогика", "Психология", "Международные отношения", "Туризм и сервис"] },
+  { re: /вн[а-я]*утри[а-я]*лич/, label: "внутриличностный", dirs: ["Психология", "Право"] },
+  { re: /кинест|кинес/, label: "кинестетический", dirs: ["Медицина", "Агро и ветеринария"] },
+  { re: /музык/, label: "музыкальный", dirs: [] },
+];
+
+// Самые сильные типы интеллекта по тесту Гарднера (текст вида «Математико-логический (4), лингвистический (2)…»)
+function gardnerTop(s) {
+  const t = (s.tests || []).find((x) => /гарднер/i.test(x.name));
+  const text = String(t?.value || "").toLowerCase();
+  if (!text) return [];
+  const scored = GARDNER.map((g) => {
+    const m = text.match(g.re);
+    if (!m) return null;
+    const n = text.slice(m.index).match(/\(\s*(\d)\s*\)/);
+    return n ? { ...g, score: Number(n[1]) } : null;
+  }).filter(Boolean);
+  const max = Math.max(0, ...scored.map((g) => g.score));
+  return max >= 2 ? scored.filter((g) => g.score === max) : [];
+}
+
+// Анкета ученика; если он её ещё не заполнял — подсказки из портфолио («Будущая профессия», «Интересы»)
+function planOf(s) {
+  if (s.plan) return { ...s.plan, saved: true };
+  const personal = (key) => (s.portfolio || []).find((p) => p.section === "Личное" && p.title === key)?.details || "";
+  return { career: personal("Будущая профессия"), about: personal("Интересы"), where: "Не важно", grant: "Да", lang: "Не важно", saved: false };
+}
+
+function langMatch(uniLang, want) {
+  const stem = { Казахский: "казах", Русский: "русск", Английский: "англ" }[want];
+  return !stem || uniLang.toLowerCase().includes(stem);
+}
+
+// Подбор: у каждого вуза считаем очки и собираем плюсы (✓) и то, чего не хватает (⚠)
+function recommendUnis(plan) {
+  const dirs = [plan.dir1, plan.dir2].filter(Boolean);
+  if (!dirs.length) return [];
+  const target = Number(plan.target) || 0;
+  // Балл IELTS: «IELTS 6.0» или просто «6.5». «KET B1» баллом IELTS не считается
+  const eng = String(plan.english || "").replace(",", ".");
+  const m = eng.match(/ielts\s*(\d(?:\.\d)?)/i) || eng.trim().match(/^(\d(?:\.\d)?)$/);
+  const ielts = m && Number(m[1]) >= 1 && Number(m[1]) <= 9 ? Number(m[1]) : 0;
+  const res = [];
+  (DATA.universities || []).forEach((u) => {
+    const pros = [], cons = [];
+    let score = 0;
+    const any = u.dirs.includes(ANY_DIRECTION);
+    if (plan.dir1 && u.dirs.includes(plan.dir1)) (score += 50), pros.push(`есть направление «${plan.dir1}»`);
+    if (plan.dir2 && u.dirs.includes(plan.dir2)) (score += 30), pros.push(`есть направление «${plan.dir2}»`);
+    if (!score && any) (score += 20), pros.push("принимают на разные направления");
+    if (!score) return;
+    const kz = u.country === "Казахстан";
+    if ((plan.where === "Казахстан" && !kz) || (plan.where === "За рубежом" && kz)) (score -= 70), cons.push(kz ? "это вуз в Казахстане" : "это вуз за рубежом");
+    else if (plan.where === "Казахстан" || plan.where === "За рубежом") score += 10;
+    if (plan.city && u.city.toLowerCase().includes(plan.city.trim().toLowerCase())) (score += 10), pros.push(`в городе ${u.city}`);
+    if (plan.lang && plan.lang !== "Не важно") {
+      if (langMatch(u.lang, plan.lang)) (score += 5), pros.push(`обучение на языке: ${plan.lang.toLowerCase()}`);
+      else cons.push(`обучение: ${u.lang.toLowerCase()}`);
+    }
+    if (u.grantScore) {
+      if (!target) cons.push(`укажите цель ЕНТ, чтобы сравнить с ориентиром гранта (≈${u.grantScore})`);
+      else if (target >= u.grantScore) (score += 10), pros.push(`цель ЕНТ ${target} не ниже ориентира гранта (≈${u.grantScore})`);
+      else {
+        const d = u.grantScore - target;
+        score -= Math.min(20, Math.ceil(d / 2));
+        cons.push(`до ориентира гранта (≈${u.grantScore}) не хватает ${d} баллов ЕНТ`);
+      }
+    }
+    if (u.ielts) {
+      if (ielts >= u.ielts) (score += 5), pros.push(`IELTS ${ielts} ≥ ${u.ielts}`);
+      else cons.push(`нужен IELTS ${u.ielts}${ielts ? ` (сейчас ${ielts})` : ""}`);
+    }
+    if (plan.grant === "Да" && /платно/i.test(u.note)) (score -= 15), cons.push("в основном платно");
+    res.push({ u, score, pros, cons });
+  });
+  return res.sort((a, b) => b.score - a.score || a.u.name.localeCompare(b.u.name, "ru"));
+}
+
+function admissionTips(plan, recs) {
+  const tips = [];
+  const d1 = DIRECTIONS.find((d) => d.name === plan.dir1);
+  if (d1 && plan.where !== "За рубежом") tips.push(`Профильные предметы ЕНТ для «${d1.name}»: <b>${esc(d1.ent)}</b>. Уделяй им больше времени уже в 9 классе.`);
+  const needIelts = Math.max(0, ...recs.slice(0, 5).map((r) => r.u.ielts || 0));
+  if (needIelts) tips.push(`Английский: к 11 классу нужен IELTS <b>${needIelts}</b> или выше. Начни с KET/PET и пробных IELTS.`);
+  if (plan.target) tips.push(`Цель ЕНТ <b>${esc(plan.target)}</b> из 140. Сравнивай с ней результаты пробных тестов BTS.`);
+  tips.push("Олимпиады по профильным предметам дают преимущество при поступлении и на стипендии: участвуй каждый год.");
+  if (plan.where !== "Казахстан") tips.push("Для зарубежных вузов собирай достижения: волонтёрство, проекты, кружки. Они нужны для эссе и заявки.");
+  return tips;
+}
+
+function admissionHtml(s) {
+  const plan = planOf(s);
+  const canEdit = state.user.role !== "parent";
+  const dis = canEdit ? "" : "disabled";
+  const opt = (list, v) => list.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
+  const dirOpt = (v) => `<option value="">— выберите —</option>` + DIRECTIONS.map((d) => `<option ${d.name === v ? "selected" : ""}>${esc(d.name)}</option>`).join("");
+  const ent = DIRECTIONS.find((d) => d.name === plan.dir1)?.ent;
+  const cities = [...new Set((DATA.universities || []).map((u) => u.city).filter((c) => !/разные/i.test(c)))];
+  const gard = gardnerTop(s);
+
+  const form = `<div class="card">
+    <div class="eyebrow">Түлек · поступление</div>
+    <h2>🎓 Моя цель поступления</h2>
+    ${plan.saved ? `<p class="small muted">Обновлено: ${fmtDate(plan.updated)}</p>` : `<p class="small muted">${canEdit ? "Заполни анкету: сайт подберёт университеты. Её можно менять в любое время." : "Ученик ещё не заполнил анкету."}</p>`}
+    <form id="plan-form" class="plan-form">
+      <label class="wide">Кем хочу стать<input id="pl-career" maxlength="100" value="${esc(plan.career || "")}" placeholder="например, программист, врач, дипломат" ${dis}></label>
+      <label>Главное направление<select id="pl-dir1" ${dis}>${dirOpt(plan.dir1)}</select></label>
+      <label>Запасное направление<select id="pl-dir2" ${dis}>${dirOpt(plan.dir2)}</select></label>
+      ${ent ? `<div class="wide small plan-ent">📘 Предметы ЕНТ: <b>${esc(ent)}</b></div>` : ""}
+      <label>Где хочу учиться<select id="pl-where" ${dis}>${opt(["Не важно", "Казахстан", "За рубежом"], plan.where)}</select></label>
+      <label>Город (если важно)<input id="pl-city" list="pl-cities" maxlength="60" value="${esc(plan.city || "")}" placeholder="любой" ${dis}></label>
+      <datalist id="pl-cities">${cities.map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
+      <label>Нужен грант<select id="pl-grant" ${dis}>${opt(["Да", "Желательно", "Нет"], plan.grant)}</select></label>
+      <label>Язык обучения<select id="pl-lang" ${dis}>${opt(["Не важно", "Казахский", "Русский", "Английский"], plan.lang)}</select></label>
+      <label>Английский сейчас<input id="pl-english" maxlength="40" value="${esc(plan.english || "")}" placeholder="например, IELTS 6.0 или KET B1" ${dis}></label>
+      <label>Цель ЕНТ (из 140)<input id="pl-target" type="number" min="0" max="140" value="${esc(plan.target || "")}" placeholder="например, 115" ${dis}></label>
+      <label class="wide">О себе, интересы<textarea id="pl-about" maxlength="500" rows="2" ${dis}>${esc(plan.about || "")}</textarea></label>
+      ${
+        canEdit
+          ? `<div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="plan-save">Сохранить и подобрать</button><span class="small" id="plan-msg"></span></div>`
+          : ""
+      }
+    </form>
+  </div>`;
+
+  const gardHtml = gard.length
+    ? `<div class="card"><h3>🧠 Подсказка по тесту Гарднера</h3><p>Сильнее всего: <b>${gard.map((g) => esc(g.label)).join(", ")}</b>.${
+        [...new Set(gard.flatMap((g) => g.dirs))].length ? ` Могут подойти: ${[...new Set(gard.flatMap((g) => g.dirs))].map((d) => `<span class="badge">${esc(d)}</span>`).join(" ")}` : ""
+      }</p><p class="small muted">Это только подсказка. Главное — интересы и то, что получается лучше всего.</p></div>`
+    : "";
+
+  if (!plan.dir1)
+    return form + gardHtml + `<div class="card"><h2>🏛 Подходящие университеты</h2><p class="muted">Выберите главное направление в анкете, и здесь появятся подходящие вузы.</p></div>`;
+
+  const recs = recommendUnis(plan);
+  const shown = state.admAll ? recs : recs.slice(0, 8);
+  const recHtml = `<div class="card">
+    <h2>🏛 Подходящие университеты</h2>
+    <p class="small muted">Подбор по анкете и списку университетов. Баллы на грант — примерный ориентир, проверяйте на сайте вуза каждый год.</p>
+    ${
+      shown.length
+        ? `<div class="uni-list">${shown
+            .map(
+              (r, i) => `<div class="uni-item">
+                <div class="uni-head"><span class="uni-rank">${i + 1}</span><div><div class="uni-name">${esc(r.u.name)}</div><div class="small muted">${esc(r.u.city)} · ${esc(r.u.country)}${
+                r.u.site ? ` · <a href="https://${esc(r.u.site.replace(/^https?:\/\//, ""))}" target="_blank" rel="noopener">${esc(r.u.site)}</a>` : ""
+              }</div></div></div>
+                <div class="uni-tags">${r.pros.map((x) => `<span class="uni-pro">✓ ${esc(x)}</span>`).join("")}${r.cons.map((x) => `<span class="uni-con">⚠ ${esc(x)}</span>`).join("")}</div>
+                <div class="small"><b>Как поступать:</b> ${esc(r.u.how)}${r.u.note ? ` · <span class="muted">${esc(r.u.note)}</span>` : ""}</div>
+              </div>`
+            )
+            .join("")}</div>
+          ${recs.length > 8 ? `<button class="btn btn-ghost" id="adm-all" style="margin-top:10px">${state.admAll ? "Показать меньше" : `Показать все (${recs.length})`}</button>` : ""}`
+        : '<p class="muted">По этим направлениям в списке пока нет вузов. Учитель может добавить их в лист «Университеты».</p>'
+    }
+  </div>`;
+  const tips = admissionTips(plan, recs);
+  const tipsHtml = `<div class="card"><h3>📌 Что делать уже сейчас</h3><ul class="tips">${tips.map((t) => `<li>${t}</li>`).join("")}</ul></div>`;
+  return form + recHtml + tipsHtml + gardHtml;
+}
+
+function bindAdmission(s) {
+  document.getElementById("adm-all")?.addEventListener("click", () => {
+    state.admAll = !state.admAll;
+    render();
+  });
+  const form = document.getElementById("plan-form");
+  const save = document.getElementById("plan-save");
+  if (!form || !save) return;
+  const val = (id) => document.getElementById(id).value.trim();
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("plan-msg");
+    const plan = {
+      career: val("pl-career"),
+      dir1: val("pl-dir1"),
+      dir2: val("pl-dir2"),
+      where: val("pl-where"),
+      city: val("pl-city"),
+      grant: val("pl-grant"),
+      lang: val("pl-lang"),
+      english: val("pl-english"),
+      target: val("pl-target"),
+      about: val("pl-about"),
+    };
+    if (!plan.dir1) {
+      msg.textContent = "Выберите главное направление";
+      msg.style.color = "var(--red)";
+      return;
+    }
+    save.disabled = true;
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    try {
+      const res = await api("savePlan", { id: s.id, plan });
+      s.plan = res.plan;
+      render();
+      const m = document.getElementById("plan-msg");
+      m.textContent = "Сохранено ✓ Подбор обновлён";
+      m.style.color = "var(--green)";
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+      save.disabled = false;
+    }
+  });
+}
+
+// Учитель: кто куда хочет поступать и список университетов
+function admissionAllHtml() {
+  const list = sortedStudents();
+  const filled = list.filter((s) => s.plan && s.plan.dir1).length;
+  const unis = DATA.universities || [];
+  return `<div class="card">
+    <h2>🎓 Кто куда хочет поступать</h2>
+    <p class="small muted">Анкету заполнили: <b>${filled}</b> из ${list.length}. Нажмите на имя, чтобы открыть анкету и подбор ученика.</p>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th><th>Кем хочет стать</th><th>Направление</th><th>Где</th><th class="num">Цель ЕНТ</th><th>Лучший вариант</th><th>Обновлено</th></tr>
+      ${list
+        .map((s, i) => {
+          const p = s.plan;
+          if (!p || !p.dir1)
+            return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td colspan="6"><span class="pill absent">не заполнил</span>${
+              planOf(s).career ? ` <span class="small muted">в портфолио: ${esc(planOf(s).career)}</span>` : ""
+            }</td></tr>`;
+          const best = recommendUnis(p)[0];
+          return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="wrap">${esc(p.career || "—")}</td><td class="wrap">${esc(p.dir1)}${
+            p.dir2 ? `<div class="small muted">${esc(p.dir2)}</div>` : ""
+          }</td><td>${esc(p.where || "")}${p.city ? `<div class="small muted">${esc(p.city)}</div>` : ""}</td><td class="num">${esc(p.target || "—")}</td><td class="wrap">${
+            best ? esc(best.u.name) : '<span class="muted">—</span>'
+          }</td><td>${p.updated ? fmtDate(p.updated) : ""}</td></tr>`;
+        })
+        .join("")}
+    </table></div>
+  </div>
+  <div class="card">
+    <h2>🏛 Список университетов (${unis.length})</h2>
+    <p class="small muted">Список хранится в Google Таблице на листе «Университеты». Там можно добавить вуз, изменить направления или балл на грант. Баллы — примерный ориентир, проверяйте их каждый год.</p>
+    <div class="table-wrap"><table>
+      <tr><th>Университет</th><th>Где</th><th>Направления</th><th class="num">Грант ЕНТ ≈</th><th class="num">IELTS</th><th>Как поступать</th></tr>
+      ${unis
+        .map(
+          (u) => `<tr><td class="wrap"><b>${esc(u.name)}</b>${u.site ? `<div class="small"><a href="https://${esc(u.site.replace(/^https?:\/\//, ""))}" target="_blank" rel="noopener">${esc(u.site)}</a></div>` : ""}</td><td>${esc(u.city)}<div class="small muted">${esc(
+            u.country
+          )}</div></td><td class="wrap small">${esc(u.dirs.join(", "))}</td><td class="num">${u.grantScore || "—"}</td><td class="num">${u.ielts || "—"}</td><td class="wrap small">${esc(u.how)}</td></tr>`
+        )
+        .join("")}
+    </table></div>
   </div>`;
 }
 

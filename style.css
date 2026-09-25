@@ -419,3 +419,22 @@ table.grades tr.info-row td { background: var(--accent-soft); }
 tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .duty-mine { margin: 0; padding-left: 20px; columns: 2; }
 @media (max-width: 600px) { .duty-mine { columns: 1; } }
+
+/* ---------- Поступление ---------- */
+.plan-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.plan-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.plan-form .wide { grid-column: 1 / -1; }
+.plan-form textarea { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; }
+.plan-form input:disabled, .plan-form select:disabled, .plan-form textarea:disabled { opacity: 1; color: var(--text); background: var(--accent-soft); }
+.plan-ent { padding: 8px 12px; border-radius: 8px; background: var(--blue-soft); color: var(--text); }
+@media (max-width: 600px) { .plan-form { grid-template-columns: 1fr; } }
+.uni-list { display: flex; flex-direction: column; gap: 10px; }
+.uni-item { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.uni-head { display: flex; gap: 12px; align-items: center; }
+.uni-rank { flex: none; width: 30px; height: 30px; border-radius: 50%; background: var(--btn-bg); color: var(--btn-text); display: grid; place-items: center; font-weight: 700; }
+.uni-name { font-weight: 700; }
+.uni-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.uni-pro, .uni-con { font-size: 12px; padding: 3px 8px; border-radius: 999px; }
+.uni-pro { background: var(--green-soft); color: var(--green); }
+.uni-con { background: var(--orange-soft); color: var(--orange); }
+.tips { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
