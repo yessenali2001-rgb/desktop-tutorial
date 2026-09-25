@@ -208,6 +208,24 @@ async function demoApi(action, payload) {
     }
     return { ok: true, id: target.id, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
   }
+  if (action === "addMeeting" || action === "deleteMeeting") {
+    if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
+    const who = isTutor ? "Воспитатель" : "Учитель";
+    const m = payload.meeting || {};
+    D.meetings = D.meetings || [];
+    if (action === "addMeeting") {
+      if (!m.date) throw new Error("Укажите дату встречи");
+      if (!(m.students || []).length) throw new Error("Выберите учеников");
+      if (!String(m.topic || "").trim()) throw new Error("Введите тему встречи");
+      D.meetings.push({ date: m.date, who, students: m.students, topic: m.topic, notes: m.notes || "" });
+    } else {
+      if (m.who !== who) throw new Error("Удалить встречу может только тот, кто её провёл");
+      const i = D.meetings.findIndex((x) => x.date === m.date && x.who === who && x.students.join(",") === m.students.join(",") && x.topic === m.topic);
+      if (i < 0) throw new Error("Встреча не найдена. Обновите страницу.");
+      D.meetings.splice(i, 1);
+    }
+    return { ok: true, meetings: JSON.parse(JSON.stringify(D.meetings)) };
+  }
   if (action === "setPhoto") {
     if (!isTeacher) throw new Error("Фото меняет только учитель или воспитатель");
     const id = payload.id;
@@ -410,6 +428,7 @@ function renderStudent(s, byTeacher) {
     ["books", "📖 Книги"],
     ["tests", "🧠 Тесты"],
   ];
+  if (byTeacher) tabs.push(["meetings", "🤝 Встречи"]); // встречи видят только учитель и воспитатель
   tabs.push(["resources", "📚 Ресурсы"]);
   if (!tabs.some(([k]) => k === state.tab)) state.tab = "schedule";
   const st = attendanceStats(s.id);
@@ -425,6 +444,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "grades") body = gradesHtml(s);
   if (state.tab === "tests") body = testsHtml(s);
   if (state.tab === "resources") body = resourcesHtml();
+  if (state.tab === "meetings" && byTeacher) body = meetingsHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
@@ -487,6 +507,7 @@ function renderStudent(s, byTeacher) {
   if (byTeacher) bindPhoto(s); // фото меняют только учитель и воспитатель
   if (state.tab === "books") bindBooks(s);
   if (state.tab === "idp") bindIdp(s);
+  if (state.tab === "meetings" && byTeacher) bindMeetings(s);
 }
 
 // ---------- фото ученика ----------
@@ -1153,6 +1174,7 @@ function renderTeacher() {
     ["summary", "👥 Сводка"],
     ["mark", "✏️ Отметить этюд"],
     ["journal", "📋 Журнал"],
+    ["meetings", "🤝 Встречи"],
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
@@ -1173,6 +1195,7 @@ function renderTeacher() {
   if (state.tab === "summary") body = summaryHtml(all);
   if (state.tab === "mark") body = markHtml();
   if (state.tab === "journal") body = journalHtml();
+  if (state.tab === "meetings") body = meetingsHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
@@ -1195,10 +1218,11 @@ function renderTeacher() {
   bindSubjectFilter();
   bindPeriods();
   if (state.tab === "mark") bindMark();
+  if (state.tab === "meetings") bindMeetings();
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
-      state.tab = { "books-all": "books", "grades-all": "grades" }[state.tab] || "attendance";
+      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings" }[state.tab] || "attendance";
       state.subjectFilter = "";
       render();
     })
@@ -1486,6 +1510,174 @@ function bindMark() {
     }
     btn.disabled = false;
   });
+}
+
+// ---------- встречи учителя и воспитателя с учениками (ученики и родители их не видят) ----------
+const MEET_WHO = ["Учитель", "Воспитатель"];
+
+function meetingsOf(id) {
+  return (DATA.meetings || []).filter((m) => m.students.includes(id));
+}
+
+function meetingStudentsText(m) {
+  if (m.students.length === DATA.students.length) return "Весь класс";
+  return m.students.map((id) => findStudent(id)?.name || id).join(", ");
+}
+
+// Без student — вкладка учителя со всем классом; со student — встречи одного ученика на его странице
+function meetingsHtml(student) {
+  const me = state.user.staff || "Учитель";
+  if (!state.meet) state.meet = { date: todayIso(), pick: [], who: "" };
+  const f = state.meet;
+  const list = (student ? meetingsOf(student.id) : DATA.meetings || [])
+    .filter((m) => !f.who || m.who === f.who)
+    .map((m) => ({ m, i: (DATA.meetings || []).indexOf(m) })) // i — номер в общем списке, по нему удаляем
+    .sort((a, b) => (a.m.date < b.m.date ? 1 : a.m.date > b.m.date ? -1 : b.i - a.i));
+
+  const form = `<div class="card">
+    <h2>➕ Новая встреча${student ? " с " + esc(student.name) : ""}</h2>
+    <p class="small muted">Проводит: <b>${esc(me)}</b>. Встречи видят только учитель и воспитатель.</p>
+    <form id="meet-form" class="meet-form">
+      <div class="book-fields">
+        <input type="date" id="meet-date" value="${esc(f.date)}" required>
+        <input id="meet-topic" maxlength="200" placeholder="Тема встречи" required>
+      </div>
+      <textarea id="meet-notes" maxlength="1000" rows="3" placeholder="Итог, о чём договорились (необязательно)"></textarea>
+      ${
+        student
+          ? ""
+          : `<div class="meet-pick-head"><b>Ученики</b> <span class="small muted" id="meet-picked">выбрано: ${f.pick.length}</span>
+              <button type="button" class="btn btn-ghost" id="meet-all">Весь класс</button>
+              <button type="button" class="btn btn-ghost" id="meet-none">Снять выбор</button></div>
+            <div class="meet-pick">${[...DATA.students]
+              .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+              .map((s) => `<label class="meet-chip"><input type="checkbox" value="${esc(s.id)}" ${f.pick.includes(s.id) ? "checked" : ""}> ${esc(s.name)}</label>`)
+              .join("")}</div>`
+      }
+      <div class="save-bar" style="position:static;border:none;padding:6px 0 0">
+        <button class="btn" type="submit" id="meet-save">Сохранить встречу</button>
+        <span class="small" id="meet-msg"></span>
+      </div>
+    </form>
+  </div>`;
+
+  // Сколько встреч у каждого ученика: видно, с кем ещё не встречались
+  const counts = student
+    ? ""
+    : `<div class="card">
+        <h2>Встречи по ученикам</h2>
+        <div class="table-wrap"><table>
+          <tr><th>#</th><th>Ученик</th>${MEET_WHO.map((w) => `<th class="num">С ${w === "Учитель" ? "учителем" : "воспитателем"}</th>`).join("")}<th>Последняя встреча</th></tr>
+          ${[...DATA.students]
+            .sort((a, b) => a.name.localeCompare(b.name, "ru"))
+            .map((s, i) => {
+              const ms = meetingsOf(s.id);
+              const last = ms.reduce((a, m) => (m.date > a ? m.date : a), "");
+              return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td>${MEET_WHO.map((w) => {
+                const n = ms.filter((m) => m.who === w).length;
+                return `<td class="num">${n ? n : '<span class="pill absent">0</span>'}</td>`;
+              }).join("")}<td>${last ? fmtDate(last) : '<span class="muted">—</span>'}</td></tr>`;
+            })
+            .join("")}
+        </table></div>
+        <p class="muted small">Красный 0 — с этим учеником ещё не было встреч.</p>
+      </div>`;
+
+  const history = `<div class="card">
+    <h2>История встреч</h2>
+    <div class="filters">
+      <select id="meet-who">
+        <option value="">Все встречи</option>
+        ${MEET_WHO.map((w) => `<option value="${w}" ${f.who === w ? "selected" : ""}>${w === "Учитель" ? "Учитель с учениками" : "Воспитатель с учениками"}</option>`).join("")}
+      </select>
+    </div>
+    ${
+      list.length
+        ? `<div class="meet-list">${list
+            .map(
+              ({ m, i }) => `<div class="meet-item">
+                <div class="meet-top"><b>${fmtDate(m.date)}</b> <span class="badge ${m.who === "Учитель" ? "" : "badge-alt"}">${esc(m.who)}</span>
+                  ${m.who === me ? `<button class="book-del" data-meet-del="${i}" title="Удалить">✕</button>` : ""}</div>
+                <div class="meet-topic">${esc(m.topic)}</div>
+                ${student && m.students.length === 1 ? "" : `<div class="small muted">👥 ${esc(meetingStudentsText(m))}</div>`}
+                ${m.notes ? `<div class="small">${esc(m.notes)}</div>` : ""}
+              </div>`
+            )
+            .join("")}</div>`
+        : `<p class="muted">Встреч пока нет.</p>`
+    }
+  </div>`;
+  return form + history + counts;
+}
+
+function bindMeetings(student) {
+  const f = state.meet;
+  const form = document.getElementById("meet-form");
+  if (!form) return;
+  const msg = document.getElementById("meet-msg");
+  const boxes = [...app.querySelectorAll(".meet-pick input")];
+  const syncPick = () => {
+    f.pick = boxes.filter((b) => b.checked).map((b) => b.value);
+    const el = document.getElementById("meet-picked");
+    if (el) el.textContent = "выбрано: " + f.pick.length;
+  };
+  boxes.forEach((b) => b.addEventListener("change", syncPick));
+  document.getElementById("meet-all")?.addEventListener("click", () => {
+    boxes.forEach((b) => (b.checked = true));
+    syncPick();
+  });
+  document.getElementById("meet-none")?.addEventListener("click", () => {
+    boxes.forEach((b) => (b.checked = false));
+    syncPick();
+  });
+  document.getElementById("meet-date").addEventListener("change", (e) => (f.date = e.target.value));
+  document.getElementById("meet-who").addEventListener("change", (e) => {
+    f.who = e.target.value;
+    render();
+  });
+  const run = async (action, meeting, okText) => {
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    try {
+      const res = await api(action, { meeting });
+      DATA.meetings = res.meetings;
+      if (action === "addMeeting") f.pick = [];
+      render();
+      const m = document.getElementById("meet-msg");
+      if (m) {
+        m.textContent = okText;
+        m.style.color = "var(--green)";
+      }
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+      const btn = document.getElementById("meet-save");
+      if (btn) btn.disabled = false;
+    }
+  };
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const meeting = {
+      date: document.getElementById("meet-date").value,
+      topic: document.getElementById("meet-topic").value.trim(),
+      notes: document.getElementById("meet-notes").value.trim(),
+      students: student ? [student.id] : f.pick,
+    };
+    if (!meeting.students.length) {
+      msg.textContent = "Выберите учеников";
+      msg.style.color = "var(--red)";
+      return;
+    }
+    if (!meeting.date || !meeting.topic) return;
+    document.getElementById("meet-save").disabled = true;
+    run("addMeeting", meeting, "Встреча сохранена ✓");
+  });
+  app.querySelectorAll("[data-meet-del]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const m = (DATA.meetings || [])[Number(b.dataset.meetDel)];
+      if (m && confirm(`Удалить встречу «${m.topic}» от ${fmtDate(m.date)}?`)) run("deleteMeeting", m, "Встреча удалена");
+    })
+  );
 }
 
 // ---------- тема: белый / чёрный фон ----------

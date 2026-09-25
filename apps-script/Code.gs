@@ -20,6 +20,7 @@ const SHEETS = {
   parentEvents: "Мероприятия родителей",
   resources: "Ресурсы",
   calendar: "Календарь",
+  meetings: "Встречи",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -39,6 +40,7 @@ const HEADERS = {
   exams: ["ID", "ФИО", "KET", "BTS"],
   tests: ["ID", "ФИО", "Темперамент"],
   parentEvents: ["ID", "ФИО", "Родительское собрание"],
+  meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
 };
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
@@ -116,6 +118,13 @@ function handle_(req) {
       const id = targetId_(user, req.id, "");
       return { ok: true, id: id, info: setIdpInfo_(id, req.info) };
     }
+    case "addMeeting":
+      // Встречи видят и записывают только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, meetings: addMeeting_(user.staff, req.meeting) };
+    case "deleteMeeting":
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, meetings: deleteMeeting_(user.staff, req.meeting) };
     case "deleteBook": {
       const id = targetId_(user, req.id, "Книги удаляет сам ученик или учитель");
       return { ok: true, id: id, books: deleteBook_(id, req.book) };
@@ -407,6 +416,7 @@ function teacherData_() {
     resources: readResources_(),
     students: readStudents_().map((s) => Object.assign(publicStudent_(s, ctx), { momPhone: s.momPhone, dadPhone: s.dadPhone })),
     attendance: readAttendance_(),
+    meetings: readMeetings_(), // встречи — только для учителя и воспитателя
   };
 }
 
@@ -592,6 +602,90 @@ function deleteBook_(id, book) {
   throw new Error("Книга не найдена. Обновите страницу.");
 }
 
+// ===================== Встречи учителя и воспитателя с учениками =====================
+// Лист «Встречи»: Дата | Кто провёл | Ученики (ID через запятую) | Ученики (ФИО) | Тема | Итог / заметки.
+// Лист создаётся сам при первой записи. Ученики и родители встречи не получают.
+
+function readMeetings_() {
+  return rows_("meetings", true).map((r) => ({
+    date: iso_(r[0]),
+    who: String(r[1]).trim(),
+    students: ids_(r[2]),
+    topic: cellText_(r[4]).replace(/^'/, ""),
+    notes: cellText_(r[5]).replace(/^'/, ""),
+  }));
+}
+
+function meetingsSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(SHEETS.meetings);
+  if (!sh) {
+    sh = ss.insertSheet(SHEETS.meetings);
+    const h = HEADERS.meetings;
+    sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight("bold").setBackground("#e7ecff");
+    sh.setFrozenRows(1);
+    sh.getRange(2, 1, 1000, 1).setNumberFormat("dd.mm.yyyy");
+  }
+  return sh;
+}
+
+function addMeeting_(who, m) {
+  m = m || {};
+  const date = String(m.date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Укажите дату встречи");
+  const all = readStudents_();
+  const ids = (Array.isArray(m.students) ? m.students : []).map((x) => String(x).trim().toUpperCase());
+  const chosen = all.filter((s) => ids.indexOf(s.id) >= 0);
+  if (!chosen.length) throw new Error("Выберите учеников");
+  const topic = safeText_(m.topic, 200);
+  if (!topic) throw new Error("Введите тему встречи");
+  const row = [
+    Utilities.parseDate(date, tz_(), "yyyy-MM-dd"),
+    who,
+    chosen.map((s) => s.id).join(", "),
+    chosen.length === all.length ? "Весь класс" : chosen.map((s) => s.name).join(", "),
+    topic,
+    safeText_(m.notes, 1000),
+  ];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    meetingsSheet_().appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return readMeetings_();
+}
+
+// Удаляет одну встречу — ту, у которой совпадают дата, кто провёл, ученики и тема.
+// Учитель удаляет только свои встречи, воспитатель — только свои.
+function deleteMeeting_(who, m) {
+  m = m || {};
+  if (String(m.who || "") !== who) throw new Error("Удалить встречу может только тот, кто её провёл");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = meetingsSheet_();
+    const values = sh.getDataRange().getValues();
+    const want = (m.students || []).join(",");
+    for (let i = values.length - 1; i >= 1; i--) {
+      const r = values[i];
+      if (
+        iso_(r[0]) === m.date &&
+        String(r[1]).trim() === who &&
+        ids_(r[2]).join(",") === want &&
+        cellText_(r[4]).replace(/^'/, "") === String(m.topic || "")
+      ) {
+        sh.deleteRow(i + 1);
+        return readMeetings_();
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  throw new Error("Встреча не найдена. Обновите страницу.");
+}
+
 // ===================== Фото ученика =====================
 
 // Фото хранится прямо в ячейке (колонка «Фото» на листе «Ученики») как маленький JPEG в base64:
@@ -681,6 +775,7 @@ function setup() {
     }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
+    if (key === "meetings") sh.getRange(2, 1, Math.max(data.length, 1000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "calendar") sh.getRange(2, 1, Math.max(data.length, 100), 2).setNumberFormat("dd.mm.yyyy");
     if (key === "parentEvents" && headers.length > 2) sh.getRange(2, 3, Math.max(data.length, 30), headers.length - 2).insertCheckboxes();
     if (key === "idp") {
@@ -763,6 +858,18 @@ function seedRows_(key) {
     case "tests":
     case "parentEvents":
       return SEED.students.map((s) => [s.id, s.name].concat((s[key] || []).map((x) => x.value)));
+    case "meetings": {
+      const names = {};
+      SEED.students.forEach((s) => (names[s.id] = s.name));
+      return (SEED.meetings || []).map((m) => [
+        d(m.date),
+        m.who,
+        m.students.join(", "),
+        m.students.length === SEED.students.length ? "Весь класс" : m.students.map((id) => names[id]).join(", "),
+        m.topic,
+        m.notes,
+      ]);
+    }
     case "attendance":
       return SEED.attendance.map((l) => [d(l.date), l.subject, l.absent.join(", "), l.late.join(", "), l.excused.join(", ")]);
   }

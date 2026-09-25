@@ -394,3 +394,19 @@ table.grades tr.info-row td { background: var(--accent-soft); }
 .idp-info .wide, .idp-info .save-bar { grid-column: 1 / -1; }
 .idp-info textarea { font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; }
 @media (max-width: 600px) { .idp-info { grid-template-columns: 1fr; } }
+
+/* ---------- Встречи с учениками (только учитель и воспитатель) ---------- */
+.meet-form .book-fields { grid-template-columns: 1fr 3fr; }
+@media (max-width: 600px) { .meet-form .book-fields { grid-template-columns: 1fr; } }
+.meet-form textarea { width: 100%; margin-top: 8px; font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; box-sizing: border-box; }
+.meet-pick-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 8px; }
+.meet-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; }
+.meet-chip { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 14px; }
+.meet-chip:has(input:checked) { background: var(--accent-soft); border-color: var(--gold-deep); }
+.meet-chip input { accent-color: var(--gold-deep); width: 16px; height: 16px; }
+.meet-list { display: flex; flex-direction: column; gap: 10px; }
+.meet-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; gap: 4px; }
+.meet-top { display: flex; align-items: center; gap: 8px; }
+.meet-top .book-del { margin-left: auto; }
+.meet-topic { font-weight: 600; }
+.badge-alt { background: var(--gold); color: #111233; }
