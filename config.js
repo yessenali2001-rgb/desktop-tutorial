@@ -4,5 +4,5 @@
 // Как его получить, написано в README.md.
 // Если оставить пустым, сайт работает в демо-режиме на тестовых данных из data.js.
 const CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbxRDhfu5o2bKW-KBFrIllz_sryqy4oNwUTdWIvTfaBh0t4moQIlKhUy8zulYrge4uhR/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbxwHu_MMZFdk0YwU9cN-kJ2zYfoc-t0dZNageXkm3NWWZExsqoBmEjeMRu9s7TGtw1c/exec",
 };
