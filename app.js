@@ -212,6 +212,24 @@ async function demoApi(action, payload) {
     }
     return { ok: true, id: target.id, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
   }
+  if (["addActivity", "deleteActivity", "addEnglish", "deleteEnglish"].includes(action)) {
+    if (parent) throw new Error("Добавляет сам ученик или учитель");
+    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    if (!target) throw new Error("Ученик не найден");
+    const key = action.endsWith("Activity") ? "activities" : "english";
+    const list = (target[key] = target[key] || []);
+    const item = payload.activity || payload.result || {};
+    if (action.startsWith("add")) {
+      if (key === "activities" && !item.title) throw new Error("Введите название активности");
+      if (key === "english" && (!item.date || !item.score)) throw new Error("Укажите дату и балл");
+      list.push({ ...item, hours: Number(item.hours) || 0, weeks: Number(item.weeks) || 0, added: todayIso() });
+    } else {
+      const i = list.findIndex((x) => (key === "activities" ? x.type === item.type && x.title === item.title && (x.period || "") === (item.period || "") : x.date === item.date && x.exam === item.exam && x.score === item.score));
+      if (i < 0) throw new Error("Запись не найдена. Обновите страницу.");
+      list.splice(i, 1);
+    }
+    return { ok: true, id: target.id, [key]: JSON.parse(JSON.stringify(list)) };
+  }
   if (action === "savePlan") {
     if (parent) throw new Error("Анкету заполняет сам ученик или учитель");
     const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
@@ -448,6 +466,8 @@ function renderStudent(s, byTeacher) {
     ["schedule", "📅 Расписание"],
     ["idp", "🎯 Цели (IDP)"],
     ["admission", "🎓 Поступление"],
+    ["activities", "⭐ Активности"],
+    ["english", "🇬🇧 Английский"],
     ["attendance", "✅ Посещаемость"],
     ["grades", "📊 Оценки"],
     ["portfolio", "📁 Портфолио"],
@@ -476,6 +496,8 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "meetings" && byTeacher) body = meetingsHtml(s);
   if (state.tab === "duty") body = studentDutyHtml(s);
   if (state.tab === "admission") body = admissionHtml(s);
+  if (state.tab === "activities") body = activitiesHtml(s);
+  if (state.tab === "english") body = englishHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
@@ -486,6 +508,7 @@ function renderStudent(s, byTeacher) {
         <div class="profile-info">
           ${isParent ? '<div class="muted small">Страница родителя · ваш ребёнок</div>' : ""}
           <h2>${esc(s.name)}</h2>
+          <button class="btn btn-ghost resume-btn" id="resume-btn" type="button">📄 Резюме (PDF)</button>
           ${s.idp?.mentor ? `<div class="muted small">Наставник: ${esc(s.idp.mentor)}</div>` : ""}
           ${
             !byTeacher
@@ -540,6 +563,9 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "idp") bindIdp(s);
   if (state.tab === "meetings" && byTeacher) bindMeetings(s);
   if (state.tab === "admission") bindAdmission(s);
+  if (state.tab === "activities") bindActivities(s);
+  if (state.tab === "english") bindEnglish(s);
+  document.getElementById("resume-btn").addEventListener("click", () => openResume(s));
 }
 
 // ---------- фото ученика ----------
@@ -1209,6 +1235,7 @@ function renderTeacher() {
     ["meetings", "🤝 Встречи"],
     ["duty", "🧹 Кезекшілік"],
     ["admission-all", "🎓 Поступление"],
+    ["activities-all", "⭐ Активности"],
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
@@ -1232,6 +1259,7 @@ function renderTeacher() {
   if (state.tab === "meetings") body = meetingsHtml();
   if (state.tab === "duty") body = dutyHtml();
   if (state.tab === "admission-all") body = admissionAllHtml();
+  if (state.tab === "activities-all") body = activitiesAllHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
@@ -1259,7 +1287,7 @@ function renderTeacher() {
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
-      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings", duty: "duty", "admission-all": "admission" }[state.tab] || "attendance";
+      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings", duty: "duty", "admission-all": "admission", "activities-all": "activities" }[state.tab] || "attendance";
       state.subjectFilter = "";
       render();
     })
@@ -2301,6 +2329,358 @@ function admissionAllHtml() {
         .join("")}
     </table></div>
   </div>`;
+}
+
+// ---------- активности (волонтёрство, кружки, проекты…) для поступления ----------
+const ACTIVITY_TYPES = ["Волонтёрство", "Кружок", "Спорт", "Проект", "Конкурс", "Летняя школа / лагерь", "Работа / стажировка", "Другое"];
+const ACTIVITY_ICON = { "Волонтёрство": "🤝", "Кружок": "🧩", "Спорт": "⚽", "Проект": "💡", "Конкурс": "🏆", "Летняя школа / лагерь": "🏕", "Работа / стажировка": "💼", "Другое": "⭐" };
+
+// Всего часов: часов в неделю × недель (если недель нет — просто часы)
+function activityHours(a) {
+  return (Number(a.hours) || 0) * (Number(a.weeks) || 1);
+}
+function activityTotals(list) {
+  const byType = {};
+  list.forEach((a) => (byType[a.type] = (byType[a.type] || 0) + activityHours(a)));
+  return { total: list.reduce((x, a) => x + activityHours(a), 0), byType };
+}
+
+function activitiesHtml(s) {
+  const list = s.activities || [];
+  const canEdit = state.user.role !== "parent";
+  const t = activityTotals(list);
+  return `<div class="card">
+    <div class="eyebrow">Для заявки в вуз</div>
+    <h2>⭐ Активности</h2>
+    <p class="small muted">Всё, чем ученик занимается кроме уроков: волонтёрство, кружки, спорт, проекты, конкурсы, летние школы. Зарубежные вузы смотрят на это почти так же внимательно, как на оценки. Записывайте сразу, пока помните часы.</p>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl"><span class="hl-icon">⭐</span><div><div class="eyebrow">Активностей</div><div><b>${list.length}</b></div></div></div>
+      <div class="hl"><span class="hl-icon">⏱</span><div><div class="eyebrow">Всего часов</div><div><b>${t.total}</b></div></div></div>
+      ${Object.keys(t.byType).length ? `<div class="hl"><span class="hl-icon">📊</span><div><div class="eyebrow">По видам</div><div class="small">${Object.entries(t.byType).map(([k, v]) => `${esc(k)}: <b>${v} ч</b>`).join(" · ")}</div></div></div>` : ""}
+    </div>
+    ${
+      list.length
+        ? `<div class="meet-list">${list
+            .map(
+              (a, i) => `<div class="meet-item">
+                <div class="meet-top"><span>${ACTIVITY_ICON[a.type] || "⭐"}</span><b>${esc(a.title)}</b><span class="badge">${esc(a.type)}</span>${
+                canEdit ? `<button class="book-del" data-act-del="${i}" title="Удалить">✕</button>` : ""
+              }</div>
+                ${a.role ? `<div class="small">${esc(a.role)}</div>` : ""}
+                <div class="small muted">${[a.period, a.hours ? `${a.hours} ч в неделю` : "", a.weeks ? `${a.weeks} нед.` : "", activityHours(a) ? `всего ≈ ${activityHours(a)} ч` : ""].filter(Boolean).map(esc).join(" · ")}</div>
+              </div>`
+            )
+            .join("")}</div>`
+        : `<p class="muted">${canEdit ? "Пока пусто. Добавьте первую активность." : "Пока пусто."}</p>`
+    }
+    ${
+      canEdit
+        ? `<form class="book-form plan-form" id="act-form">
+            <h3 class="wide">➕ Добавить активность</h3>
+            <label>Вид<select id="act-type">${ACTIVITY_TYPES.map((x) => `<option>${esc(x)}</option>`).join("")}</select></label>
+            <label>Название<input id="act-title" maxlength="150" placeholder="например, волонтёр в приюте для животных" required></label>
+            <label class="wide">Роль, что делал<input id="act-role" maxlength="300" placeholder="например, капитан команды; организовал сбор книг"></label>
+            <label>Часов в неделю<input id="act-hours" type="number" min="0" max="60" step="0.5" placeholder="например, 2"></label>
+            <label>Сколько недель<input id="act-weeks" type="number" min="0" max="200" placeholder="1 — если один раз"></label>
+            <label class="wide">Период<input id="act-period" maxlength="60" placeholder="например, сентябрь 2025 – май 2026"></label>
+            <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="act-save">Добавить</button><span class="small" id="act-msg"></span></div>
+          </form>`
+        : ""
+    }
+  </div>`;
+}
+
+// Общий обработчик добавления/удаления записей ученика (активности, английский)
+function runStudentEdit(s, action, payload, key, msgId, okText) {
+  const msg = document.getElementById(msgId);
+  msg.textContent = "Сохранение…";
+  msg.style.color = "";
+  return api(action, { id: s.id, ...payload })
+    .then((res) => {
+      s[key] = res[key];
+      render();
+      const m = document.getElementById(msgId);
+      if (m) {
+        m.textContent = okText;
+        m.style.color = "var(--green)";
+      }
+    })
+    .catch((ex) => {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+      app.querySelectorAll("button[type=submit]").forEach((b) => (b.disabled = false));
+    });
+}
+
+function bindActivities(s) {
+  const form = document.getElementById("act-form");
+  if (!form) return;
+  const val = (id) => document.getElementById(id).value.trim();
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const activity = { type: val("act-type"), title: val("act-title"), role: val("act-role"), hours: val("act-hours"), weeks: val("act-weeks"), period: val("act-period") };
+    if (!activity.title) return;
+    document.getElementById("act-save").disabled = true;
+    runStudentEdit(s, "addActivity", { activity }, "activities", "act-msg", "Добавлено ✓");
+  });
+  app.querySelectorAll("[data-act-del]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const a = (s.activities || [])[Number(b.dataset.actDel)];
+      if (a && confirm(`Удалить «${a.title}»?`)) runStudentEdit(s, "deleteActivity", { activity: { type: a.type, title: a.title, period: a.period } }, "activities", "act-msg", "Удалено");
+    })
+  );
+}
+
+// ---------- английский: результаты экзаменов и прогресс IELTS ----------
+const ENGLISH_EXAMS = ["Пробный IELTS", "IELTS", "KET", "PET", "FCE", "TOEFL", "Duolingo", "Другое"];
+const CEFR = ["A1", "A2", "B1", "B2", "C1", "C2"];
+
+function isIelts(x) {
+  return /ielts/i.test(x.exam) && Number(String(x.score).replace(",", ".")) > 0 && Number(String(x.score).replace(",", ".")) <= 9;
+}
+function ieltsToCefr(b) {
+  return b >= 8.5 ? "C2" : b >= 7 ? "C1" : b >= 5.5 ? "B2" : b >= 4 ? "B1" : b >= 3 ? "A2" : "A1";
+}
+// Лучший уровень CEFR: из IELTS, из записей вида «B1» и из экзаменов KET/PET на вкладке «Экзамены»
+function bestCefr(s) {
+  const found = [];
+  (s.english || []).forEach((x) => {
+    if (isIelts(x)) found.push(ieltsToCefr(Number(String(x.score).replace(",", "."))));
+    const m = `${x.note} ${x.score}`.match(/\b([ABC][12])\b/);
+    if (m) found.push(m[1]);
+  });
+  (s.exams || []).forEach((x) => {
+    const m = String(x.value || "").match(/\b([ABC][12])\b/);
+    if (m && /ket|pet|fce|english|ағылшын/i.test(x.name)) found.push(m[1]);
+  });
+  return found.sort((a, b) => CEFR.indexOf(b) - CEFR.indexOf(a))[0] || "";
+}
+function ieltsTarget(s) {
+  if (!s.plan || !s.plan.dir1) return 0;
+  return Math.max(0, ...recommendUnis(s.plan).slice(0, 5).map((r) => r.u.ielts || 0));
+}
+
+// Линейный график IELTS по датам (один ряд, пунктир — цель). Наведение на точку — подсказка.
+function ieltsChart(points, target) {
+  if (points.length < 1) return "";
+  const W = 600, H = 220, L = 36, R = 16, T = 14, B = 30;
+  const ys = points.map((p) => p.v).concat(target ? [target] : []);
+  const yMin = Math.max(0, Math.floor(Math.min(...ys) - 0.5)), yMax = Math.min(9, Math.ceil(Math.max(...ys) + 0.5));
+  const t0 = new Date(points[0].date).getTime(), t1 = new Date(points[points.length - 1].date).getTime();
+  const x = (d) => (points.length === 1 ? (L + W - R) / 2 : L + ((new Date(d).getTime() - t0) / (t1 - t0 || 1)) * (W - L - R));
+  const y = (v) => T + ((yMax - v) / (yMax - yMin || 1)) * (H - T - B);
+  const grid = [];
+  for (let v = yMin; v <= yMax; v += 1) grid.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="ch-grid"/><text x="${L - 8}" y="${y(v) + 4}" class="ch-axis" text-anchor="end">${v}</text>`);
+  const path = points.map((p, i) => `${i ? "L" : "M"}${x(p.date).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  const last = points[points.length - 1];
+  return `<div class="chart-wrap" id="ielts-chart">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Прогресс IELTS по датам">
+      ${grid.join("")}
+      ${target ? `<line x1="${L}" x2="${W - R}" y1="${y(target)}" y2="${y(target)}" class="ch-target"/><text x="${W - R}" y="${y(target) - 6}" class="ch-axis" text-anchor="end">цель ${target}</text>` : ""}
+      <path d="${path}" class="ch-line"/>
+      ${points.map((p) => `<circle cx="${x(p.date)}" cy="${y(p.v)}" r="5" class="ch-dot"/>`).join("")}
+      <text x="${x(last.date)}" y="${y(last.v) - 12}" class="ch-label" text-anchor="${points.length > 1 ? "end" : "middle"}">${last.v}</text>
+      ${points.map((p) => `<text x="${x(p.date)}" y="${H - 8}" class="ch-axis" text-anchor="middle">${fmtShortDate(p.date)}</text>`).join("")}
+      ${points.map((p, i) => `<circle cx="${x(p.date)}" cy="${y(p.v)}" r="16" class="ch-hit" data-pt="${i}"/>`).join("")}
+    </svg>
+    <div class="ch-tip" hidden></div>
+  </div>`;
+}
+function fmtShortDate(iso) {
+  const [yy, mm] = iso.split("-");
+  return `${mm}.${yy.slice(2)}`;
+}
+function bindIeltsChart(points) {
+  const wrap = document.getElementById("ielts-chart");
+  if (!wrap) return;
+  const tip = wrap.querySelector(".ch-tip");
+  wrap.querySelectorAll(".ch-hit").forEach((c) => {
+    const show = () => {
+      const p = points[Number(c.dataset.pt)];
+      tip.innerHTML = `<b>${esc(String(p.v))}</b> · ${esc(p.exam)}<br><span class="muted">${fmtDate(p.date)}${p.detail ? " · " + esc(p.detail) : ""}</span>`;
+      const box = wrap.getBoundingClientRect(), r = c.getBoundingClientRect();
+      tip.hidden = false;
+      tip.style.left = Math.min(box.width - tip.offsetWidth - 4, Math.max(4, r.left - box.left + r.width / 2 - tip.offsetWidth / 2)) + "px";
+      tip.style.top = Math.max(0, r.top - box.top - tip.offsetHeight - 6) + "px";
+    };
+    c.addEventListener("mouseenter", show);
+    c.addEventListener("click", show);
+    c.addEventListener("mouseleave", () => (tip.hidden = true));
+  });
+}
+function ieltsPoints(s) {
+  return (s.english || [])
+    .filter(isIelts)
+    .map((x) => ({ date: x.date, v: Number(String(x.score).replace(",", ".")), exam: x.exam, detail: [x.l && `L ${x.l}`, x.r && `R ${x.r}`, x.w && `W ${x.w}`, x.s && `S ${x.s}`].filter(Boolean).join(" · ") }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+function englishHtml(s) {
+  const list = [...(s.english || [])].map((x, i) => ({ x, i })).sort((a, b) => (a.x.date < b.x.date ? 1 : -1));
+  const canEdit = state.user.role !== "parent";
+  const pts = ieltsPoints(s);
+  const best = pts.length ? Math.max(...pts.map((p) => p.v)) : 0;
+  const target = ieltsTarget(s);
+  const cefr = bestCefr(s);
+  const ket = (s.exams || []).filter((x) => /^(KET|PET|FCE)/i.test(x.name) && cellValue(x.value));
+  return `<div class="card">
+    <div class="eyebrow">Ағылшын тілі</div>
+    <h2>🇬🇧 Английский</h2>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl"><span class="hl-icon">🎯</span><div><div class="eyebrow">Лучший IELTS</div><div><b>${best || "—"}</b>${target ? ` <span class="small muted">цель ${target}</span>` : ""}</div></div></div>
+      <div class="hl ${target && best >= target ? "hl-today" : ""}"><span class="hl-icon">📈</span><div><div class="eyebrow">${target ? "До цели" : "Уровень CEFR"}</div><div>${
+        target ? (best >= target ? "<b>цель достигнута ✓</b>" : best ? `<b>${(target - best).toFixed(1)}</b> балла` : "сдайте пробный IELTS") : `<b>${cefr || "—"}</b>`
+      }</div></div></div>
+      <div class="cefr" title="Уровень английского по шкале CEFR">${CEFR.map((c) => `<span class="${c === cefr ? "on" : CEFR.indexOf(c) < CEFR.indexOf(cefr) ? "past" : ""}">${c}</span>`).join("")}</div>
+    </div>
+    ${target ? "" : `<p class="small muted">Цель IELTS появится, когда ученик заполнит анкету во вкладке «🎓 Поступление»: она берётся из требований подходящих вузов.</p>`}
+    ${pts.length ? `<h3>Прогресс IELTS</h3>${ieltsChart(pts, target)}` : `<p class="muted">Добавьте результаты IELTS или пробного IELTS, и здесь появится график прогресса.</p>`}
+    <h3>Все результаты</h3>
+    ${
+      list.length || ket.length
+        ? `<div class="table-wrap"><table>
+            <tr><th>Дата</th><th>Экзамен</th><th class="num">Балл</th><th class="num">L</th><th class="num">R</th><th class="num">W</th><th class="num">S</th><th>Примечание</th><th></th></tr>
+            ${list
+              .map(
+                ({ x, i }) => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.exam)}</td><td class="num"><b>${esc(x.score)}</b></td><td class="num">${esc(x.l)}</td><td class="num">${esc(x.r)}</td><td class="num">${esc(x.w)}</td><td class="num">${esc(
+                  x.s
+                )}</td><td class="small">${esc(x.note)}</td><td>${canEdit ? `<button class="book-del" data-eng-del="${i}" title="Удалить">✕</button>` : ""}</td></tr>`
+              )
+              .join("")}
+            ${ket.map((x) => `<tr><td class="muted">—</td><td>${esc(x.name)}</td><td class="num" colspan="5">${esc(x.value)}</td><td class="small muted">из вкладки «Экзамены»</td><td></td></tr>`).join("")}
+          </table></div>`
+        : '<p class="muted">Результатов пока нет.</p>'
+    }
+    ${
+      canEdit
+        ? `<form class="book-form plan-form" id="eng-form">
+            <h3 class="wide">➕ Добавить результат</h3>
+            <label>Дата<input type="date" id="eng-date" value="${todayIso()}" required></label>
+            <label>Экзамен<select id="eng-exam">${ENGLISH_EXAMS.map((x) => `<option>${esc(x)}</option>`).join("")}</select></label>
+            <label>Общий балл<input id="eng-score" maxlength="20" placeholder="например, 5.5 или 146" required></label>
+            <label>Уровень / примечание<input id="eng-note" maxlength="100" placeholder="например, B1 Pass with Merit"></label>
+            <div class="wide eng-parts">
+              <label>Listening<input id="eng-l" maxlength="10"></label><label>Reading<input id="eng-r" maxlength="10"></label>
+              <label>Writing<input id="eng-w" maxlength="10"></label><label>Speaking<input id="eng-s" maxlength="10"></label>
+            </div>
+            <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="eng-save">Добавить</button><span class="small" id="eng-msg"></span></div>
+          </form>`
+        : ""
+    }
+  </div>`;
+}
+
+function bindEnglish(s) {
+  bindIeltsChart(ieltsPoints(s));
+  const form = document.getElementById("eng-form");
+  if (!form) return;
+  const val = (id) => document.getElementById(id).value.trim();
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const result = { date: val("eng-date"), exam: val("eng-exam"), score: val("eng-score").replace(",", "."), note: val("eng-note"), l: val("eng-l"), r: val("eng-r"), w: val("eng-w"), s: val("eng-s") };
+    if (!result.date || !result.score) return;
+    document.getElementById("eng-save").disabled = true;
+    runStudentEdit(s, "addEnglish", { result }, "english", "eng-msg", "Добавлено ✓");
+  });
+  app.querySelectorAll("[data-eng-del]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const x = (s.english || [])[Number(b.dataset.engDel)];
+      if (x && confirm(`Удалить ${x.exam} от ${fmtDate(x.date)}?`)) runStudentEdit(s, "deleteEnglish", { result: { date: x.date, exam: x.exam, score: x.score } }, "english", "eng-msg", "Удалено");
+    })
+  );
+}
+
+// Учитель: активности и английский всего класса
+function activitiesAllHtml() {
+  return `<div class="card"><h2>⭐ Активности и английский</h2>
+    <p class="small muted">Нажмите на имя, чтобы открыть страницу ученика.</p>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th><th class="num">Активностей</th><th class="num">Всего часов</th><th class="num">Волонтёрство, ч</th><th class="num">Лучший IELTS</th><th>CEFR</th></tr>
+      ${sortedStudents()
+        .map((s, i) => {
+          const t = activityTotals(s.activities || []);
+          const pts = ieltsPoints(s);
+          return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="num">${(s.activities || []).length || '<span class="pill absent">0</span>'}</td><td class="num">${t.total || "—"}</td><td class="num">${
+            t.byType["Волонтёрство"] || "—"
+          }</td><td class="num">${pts.length ? Math.max(...pts.map((p) => p.v)) : "—"}</td><td>${bestCefr(s) || "—"}</td></tr>`;
+        })
+        .join("")}
+    </table></div></div>`;
+}
+
+// ---------- резюме ученика (открывается в новом окне, сохраняется как PDF через «Печать») ----------
+function resumeHtml(s) {
+  const personal = (key) => (s.portfolio || []).find((p) => p.section === "Личное" && p.title === key)?.details || "";
+  const plan = s.plan || {};
+  const periods = gradePeriods(s.grades || []);
+  const gradeRows = periods
+    .map((p) => ({ p, sum: gradeSummary((s.grades || []).filter((g) => g.period === p)) }))
+    .filter((x) => x.sum)
+    .map((x) => `<tr><td>${esc(x.p)}</td><td><b>${x.sum.avg.toFixed(2)}</b> из 5</td><td>${esc(x.sum.status)}</td></tr>`)
+    .join("");
+  const olymp = (s.olympiads || []).filter((x) => cellValue(x.value) && !/^жазбады$/i.test(cellValue(x.value))).map((x) => `<li>${esc(x.name)}: <b>${esc(x.value)}</b></li>`).join("");
+  const exams = (s.exams || []).filter((x) => cellValue(x.value) && !/по предметам/i.test(x.name)).map((x) => `<li>${esc(x.name)}: <b>${esc(x.value)}</b></li>`).join("");
+  const eng = [...(s.english || [])].sort((a, b) => (a.date < b.date ? 1 : -1)).map((x) => `<li>${esc(x.exam)} — <b>${esc(x.score)}</b>${x.note ? ` (${esc(x.note)})` : ""}, ${fmtDate(x.date)}</li>`).join("");
+  const acts = (s.activities || [])
+    .map((a) => `<li><b>${esc(a.title)}</b> <span class="m">· ${esc(a.type)}${a.period ? " · " + esc(a.period) : ""}${activityHours(a) ? ` · ≈ ${activityHours(a)} ч` : ""}</span>${a.role ? `<br>${esc(a.role)}` : ""}</li>`)
+    .join("");
+  const t = activityTotals(s.activities || []);
+  const section = (names) =>
+    (s.portfolio || []).filter((p) => names.includes(p.section)).map((p) => `<li>${esc(p.title)}${p.details ? ` — ${esc(p.details)}` : ""}${p.date && p.date !== "анкета" ? ` (${esc(p.date)})` : ""}</li>`).join("");
+  const achievements = section(["Достижения", "Сертификаты"]);
+  const hobbies = section(["Хобби", "Языки"]);
+  const books = booksOf(s);
+  const best = ieltsPoints(s).reduce((a, p) => Math.max(a, p.v), 0);
+  const cefr = bestCefr(s);
+  const block = (title, body) => (body ? `<h2>${title}</h2>${body}` : "");
+  return `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8"><title>Резюме — ${esc(s.name)}</title>
+  <style>
+    @page { size: A4; margin: 14mm; }
+    body { font-family: Inter, Arial, sans-serif; color: #111233; font-size: 12.5px; line-height: 1.45; max-width: 780px; margin: 0 auto; padding: 16px; }
+    header { display: flex; gap: 18px; align-items: center; border-bottom: 3px solid #f8df83; padding-bottom: 12px; }
+    header img { width: 92px; height: 92px; border-radius: 50%; object-fit: cover; border: 3px solid #f8df83; }
+    h1 { margin: 0; font-size: 24px; } h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: #8a6a2c; margin: 18px 0 6px; border-bottom: 1px solid #e6e2d8; padding-bottom: 3px; }
+    .sub { color: #6e6a7c; } ul { margin: 0; padding-left: 18px; } li { margin: 2px 0; } .m { color: #6e6a7c; }
+    table { border-collapse: collapse; } td { padding: 3px 14px 3px 0; }
+    .row { display: flex; gap: 24px; flex-wrap: wrap; } .kv b { font-size: 16px; }
+    .bar { position: sticky; top: 0; background: #fff; padding: 8px 0; text-align: right; } .bar button { font: inherit; padding: 8px 16px; border-radius: 8px; border: none; background: #111233; color: #f8df83; font-weight: 700; cursor: pointer; }
+    footer { margin-top: 22px; color: #6e6a7c; font-size: 11px; border-top: 1px solid #e6e2d8; padding-top: 6px; }
+    @media print { .bar { display: none; } body { padding: 0; } }
+  </style></head><body>
+  <div class="bar"><button onclick="print()">🖨 Сохранить как PDF</button></div>
+  <header>${s.photo ? `<img src="${s.photo}" alt="">` : ""}<div>
+    <h1>${esc(s.name)}</h1>
+    <div class="sub">${esc(DATA.className || "")}${personal("Дата рождения") ? " · дата рождения " + esc(personal("Дата рождения")) : ""}</div>
+    ${plan.career || plan.dir1 ? `<div>Цель: <b>${esc(plan.career || "")}</b>${plan.dir1 ? ` · ${esc(plan.dir1)}` : ""}${plan.where ? ` · ${esc(plan.where.toLowerCase())}` : ""}</div>` : ""}
+  </div></header>
+  <div class="row" style="margin-top:12px">
+    ${gradeRows ? `<div class="kv">Средний балл<br><b>${gradeSummary((s.grades || []).filter((g) => g.period === periods[0]))?.avg.toFixed(2) || "—"}</b></div>` : ""}
+    ${best ? `<div class="kv">Лучший IELTS<br><b>${best}</b></div>` : ""}
+    ${cefr ? `<div class="kv">Английский (CEFR)<br><b>${cefr}</b></div>` : ""}
+    ${t.total ? `<div class="kv">Часы активностей<br><b>${t.total}</b></div>` : ""}
+    ${books.length ? `<div class="kv">Прочитано книг<br><b>${books.length}</b></div>` : ""}
+  </div>
+  ${block("Успеваемость", gradeRows ? `<table>${gradeRows}</table>` : "")}
+  ${block("Олимпиады", olymp ? `<ul>${olymp}</ul>` : "")}
+  ${block("Английский язык", eng ? `<ul>${eng}</ul>` : "")}
+  ${block("Экзамены и тесты", exams ? `<ul>${exams}</ul>` : "")}
+  ${block("Активности", acts ? `<ul>${acts}</ul>${Object.keys(t.byType).length ? `<p class="m">Итого: ${Object.entries(t.byType).map(([k, v]) => `${esc(k)} ${v} ч`).join(" · ")}</p>` : ""}` : "")}
+  ${block("Достижения и сертификаты", achievements ? `<ul>${achievements}</ul>` : "")}
+  ${block("Интересы и языки", hobbies ? `<ul>${hobbies}</ul>` : "")}
+  ${block("Прочитанные книги", books.length ? `<p>${books.slice(0, 15).map((b) => esc(b.title)).join(" · ")}${books.length > 15 ? ` и ещё ${books.length - 15}` : ""}</p>` : "")}
+  <footer>Сформировано ${fmtDate(todayIso())} на сайте «Кабинет ученика» · ${esc(DATA.className || "")}</footer>
+  </body></html>`;
+}
+
+function openResume(s) {
+  const w = window.open("", "_blank");
+  if (!w) {
+    alert("Браузер заблокировал новое окно. Разрешите всплывающие окна для этого сайта и нажмите ещё раз.");
+    return;
+  }
+  w.document.open();
+  w.document.write(resumeHtml(s));
+  w.document.close();
 }
 
 // ---------- тема: белый / чёрный фон ----------

@@ -24,6 +24,8 @@ const SHEETS = {
   duties: "Дежурства",
   plans: "Анкета поступления",
   universities: "Университеты",
+  activities: "Активности",
+  english: "Английский",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -45,6 +47,8 @@ const HEADERS = {
   parentEvents: ["ID", "ФИО", "Родительское собрание"],
   plans: ["ID", "ФИО", "Кем хочет стать", "Направление 1", "Направление 2", "Где учиться", "Страна", "Город", "Нужен грант", "Язык обучения", "Английский (IELTS)", "Цель ЕНТ", "О себе, интересы", "Обновлено"],
   universities: ["Университет", "Город", "Страна", "Направления (через точку с запятой)", "Как поступать", "Финансирование", "Сроки подачи (обычно)", "Балл ЕНТ на грант (ориентир)", "IELTS (минимум)", "Язык обучения", "Сайт", "Примечание"],
+  activities: ["ID ученика", "Вид", "Название", "Роль, что делал", "Часов в неделю", "Недель", "Период", "Добавлено"],
+  english: ["ID ученика", "Дата", "Экзамен", "Общий балл", "Listening", "Reading", "Writing", "Speaking", "Уровень / примечание"],
   duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
 };
@@ -171,6 +175,22 @@ function handle_(req) {
       // Анкету поступления заполняет сам ученик, учитель или воспитатель; родитель только смотрит
       const id = targetId_(user, req.id, "Анкету заполняет сам ученик или учитель");
       return { ok: true, id: id, plan: savePlan_(id, req.plan) };
+    }
+    case "addActivity": {
+      const id = targetId_(user, req.id, "Активности добавляет сам ученик или учитель");
+      return { ok: true, id: id, activities: addActivity_(id, req.activity) };
+    }
+    case "deleteActivity": {
+      const id = targetId_(user, req.id, "Активности удаляет сам ученик или учитель");
+      return { ok: true, id: id, activities: deleteActivity_(id, req.activity) };
+    }
+    case "addEnglish": {
+      const id = targetId_(user, req.id, "Результаты добавляет сам ученик или учитель");
+      return { ok: true, id: id, english: addEnglish_(id, req.result) };
+    }
+    case "deleteEnglish": {
+      const id = targetId_(user, req.id, "Результаты удаляет сам ученик или учитель");
+      return { ok: true, id: id, english: deleteEnglish_(id, req.result) };
     }
     case "saveDuty":
       // Дежурных назначают только учитель и воспитатель
@@ -445,6 +465,8 @@ function context_() {
     tests: readWide_("tests"),
     parentEvents: readWide_("parentEvents"),
     plans: readPlans_(),
+    activities: readActivities_(),
+    english: readEnglish_(),
   };
 }
 
@@ -461,6 +483,8 @@ function publicStudent_(s, ctx) {
     tests: ctx.tests[s.id] || [],
     parentEvents: ctx.parentEvents[s.id] || [],
     plan: ctx.plans[s.id] || null,
+    activities: ctx.activities[s.id] || [],
+    english: ctx.english[s.id] || [],
   };
 }
 
@@ -854,6 +878,164 @@ function readUniversities_() {
     }));
 }
 
+// ===================== Активности и английский (для поступления) =====================
+// Лист «Активности»: ID | Вид | Название | Роль, что делал | Часов в неделю | Недель | Период | Добавлено
+// Лист «Английский»: ID | Дата | Экзамен | Общий балл | Listening | Reading | Writing | Speaking | Уровень / примечание
+// Оба листа создаются сами при первой записи. Добавляет сам ученик или учитель, родитель только смотрит.
+
+// Создаёт лист с заголовками, если его ещё нет. dateCol — номер колонки с датами (или 0),
+// textCols — [первая колонка, сколько] для колонок, которые должны остаться текстом
+function ensureSheet_(key, dateCol, textCols) {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(SHEETS[key]);
+  if (!sh) {
+    sh = ss.insertSheet(SHEETS[key]);
+    const h = HEADERS[key];
+    sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight("bold").setBackground("#e7ecff");
+    sh.setFrozenRows(1);
+    if (dateCol) sh.getRange(2, dateCol, 2000, 1).setNumberFormat("dd.mm.yyyy");
+    // Баллы как текст: иначе таблица с русскими настройками превратит «5.5» в дату 5 мая
+    if (textCols) sh.getRange(2, textCols[0], 2000, textCols[1]).setNumberFormat("@");
+  }
+  return sh;
+}
+
+const clean_ = (v) => cellText_(v).replace(/^'/, "");
+
+function numOrEmpty_(v, max, label) {
+  const t = String(v === null || v === undefined ? "" : v).trim().replace(",", ".");
+  if (!t) return "";
+  const n = Number(t);
+  if (isNaN(n) || n < 0 || n > max) throw new Error(label + ": число от 0 до " + max);
+  return n;
+}
+
+// { "S01": [ {type, title, role, hours, weeks, period, added} ] }
+function readActivities_() {
+  const res = {};
+  rows_("activities", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    if (!id) return;
+    (res[id] = res[id] || []).push({
+      type: clean_(r[1]),
+      title: clean_(r[2]),
+      role: clean_(r[3]),
+      hours: Number(r[4]) || 0,
+      weeks: Number(r[5]) || 0,
+      period: clean_(r[6]),
+      added: iso_(r[7]),
+    });
+  });
+  return res;
+}
+
+function addActivity_(id, a) {
+  a = a || {};
+  const title = safeText_(a.title, 150);
+  if (!title) throw new Error("Введите название активности");
+  const row = [
+    id,
+    safeText_(a.type, 40) || "Другое",
+    title,
+    safeText_(a.role, 300),
+    numOrEmpty_(a.hours, 60, "Часов в неделю"),
+    numOrEmpty_(a.weeks, 200, "Недель"),
+    safeText_(a.period, 60),
+    Utilities.parseDate(Utilities.formatDate(new Date(), tz_(), "yyyy-MM-dd"), tz_(), "yyyy-MM-dd"),
+  ];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if ((readActivities_()[id] || []).length >= 100) throw new Error("Слишком много активностей");
+    ensureSheet_("activities", 8).appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return readActivities_()[id] || [];
+}
+
+// Удаляет одну активность ученика — ту, у которой совпадают вид, название и период
+function deleteActivity_(id, a) {
+  a = a || {};
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("activities", 8);
+    const values = sh.getDataRange().getValues();
+    for (let i = values.length - 1; i >= 1; i--) {
+      const r = values[i];
+      if (String(r[0]).trim().toUpperCase() === id && clean_(r[1]) === String(a.type || "") && clean_(r[2]) === String(a.title || "") && clean_(r[6]) === String(a.period || "")) {
+        sh.deleteRow(i + 1);
+        return readActivities_()[id] || [];
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  throw new Error("Активность не найдена. Обновите страницу.");
+}
+
+// { "S01": [ {date, exam, score, l, r, w, s, note} ] }
+function readEnglish_() {
+  const res = {};
+  rows_("english", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    if (!id) return;
+    (res[id] = res[id] || []).push({
+      date: iso_(r[1]),
+      exam: clean_(r[2]),
+      score: clean_(r[3]),
+      l: clean_(r[4]),
+      r: clean_(r[5]),
+      w: clean_(r[6]),
+      s: clean_(r[7]),
+      note: clean_(r[8]),
+    });
+  });
+  return res;
+}
+
+function addEnglish_(id, x) {
+  x = x || {};
+  const date = String(x.date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Укажите дату экзамена");
+  const exam = safeText_(x.exam, 40);
+  if (!exam) throw new Error("Укажите экзамен");
+  const score = safeText_(x.score, 20);
+  if (!score) throw new Error("Укажите общий балл");
+  const row = [id, Utilities.parseDate(date, tz_(), "yyyy-MM-dd"), exam, score, safeText_(x.l, 10), safeText_(x.r, 10), safeText_(x.w, 10), safeText_(x.s, 10), safeText_(x.note, 100)];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    if ((readEnglish_()[id] || []).length >= 100) throw new Error("Слишком много результатов");
+    ensureSheet_("english", 2, [4, 5]).appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return readEnglish_()[id] || [];
+}
+
+// Удаляет один результат — тот, у которого совпадают дата, экзамен и общий балл
+function deleteEnglish_(id, x) {
+  x = x || {};
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("english", 2, [4, 5]);
+    const values = sh.getDataRange().getValues();
+    for (let i = values.length - 1; i >= 1; i--) {
+      const r = values[i];
+      if (String(r[0]).trim().toUpperCase() === id && iso_(r[1]) === x.date && clean_(r[2]) === String(x.exam || "") && clean_(r[3]) === String(x.score || "")) {
+        sh.deleteRow(i + 1);
+        return readEnglish_()[id] || [];
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  throw new Error("Результат не найден. Обновите страницу.");
+}
+
 // ===================== Дежурства (кезекшілік) =====================
 // Лист «Дежурства»: Дата | Дежурство | Ученики (ID через запятую) | Ученики (ФИО) | Кто назначил.
 // Одна строка — одно дежурство в один день. Лист создаётся сам при первой записи.
@@ -1014,6 +1196,11 @@ function setup() {
     }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
+    if (key === "english") {
+      sh.getRange(2, 2, Math.max(data.length, 2000), 1).setNumberFormat("dd.mm.yyyy");
+      sh.getRange(2, 4, Math.max(data.length, 2000), 5).setNumberFormat("@"); // баллы — текстом
+    }
+    if (key === "activities") sh.getRange(2, 8, Math.max(data.length, 2000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "duties") sh.getRange(2, 1, Math.max(data.length, 1000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "meetings") sh.getRange(2, 1, Math.max(data.length, 1000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "calendar") sh.getRange(2, 1, Math.max(data.length, 100), 2).setNumberFormat("dd.mm.yyyy");
@@ -1102,6 +1289,16 @@ function seedRows_(key) {
       return SEED.students.map((s) => [s.id, s.name].concat((s[key] || []).map((x) => x.value)));
     case "universities":
       return DEFAULT_UNIVERSITIES;
+    case "activities": {
+      const rows = [];
+      SEED.students.forEach((s) => (s.activities || []).forEach((a) => rows.push([s.id, a.type, a.title, a.role, a.hours || "", a.weeks || "", a.period, d(a.added)])));
+      return rows;
+    }
+    case "english": {
+      const rows = [];
+      SEED.students.forEach((s) => (s.english || []).forEach((x) => rows.push([s.id, d(x.date), x.exam, x.score, x.l, x.r, x.w, x.s, x.note])));
+      return rows;
+    }
     case "plans":
       return SEED.students
         .filter((s) => s.plan)

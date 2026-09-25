@@ -439,3 +439,26 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .uni-con { background: var(--orange-soft); color: var(--orange); }
 .tips { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
 .uni-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+
+/* ---------- Активности, английский, резюме ---------- */
+.resume-btn { margin-top: 6px; }
+.eng-parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.eng-parts label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+@media (max-width: 600px) { .eng-parts { grid-template-columns: 1fr 1fr; } }
+.cefr { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.cefr span { font-size: 12px; font-weight: 700; padding: 6px 9px; border-radius: 8px; background: var(--accent-soft); color: var(--muted); }
+.cefr span.past { color: var(--text); }
+.cefr span.on { background: var(--btn-bg); color: var(--btn-text); }
+.chart-wrap { position: relative; margin: 6px 0 12px; }
+.chart-wrap svg { width: 100%; height: auto; display: block; }
+.ch-grid { stroke: var(--border); stroke-width: 1; }
+.ch-axis { fill: var(--muted); font-size: 11px; }
+.ch-label { fill: var(--text); font-size: 13px; font-weight: 700; }
+.ch-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ch-dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
+.ch-target { stroke: var(--gold-deep); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.ch-hit { fill: transparent; cursor: pointer; }
+.ch-tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); white-space: nowrap; }
+/* Поля форм не должны раздвигать экран на телефоне */
+.plan-form > *, .eng-parts > * { min-width: 0; }
+.plan-form input, .plan-form select, .plan-form textarea, .eng-parts input { width: 100%; box-sizing: border-box; min-width: 0; }
