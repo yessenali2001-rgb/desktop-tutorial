@@ -438,3 +438,4 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .uni-pro { background: var(--green-soft); color: var(--green); }
 .uni-con { background: var(--orange-soft); color: var(--orange); }
 .tips { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.uni-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; }

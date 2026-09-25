@@ -2029,7 +2029,17 @@ function gardnerTop(s) {
 function planOf(s) {
   if (s.plan) return { ...s.plan, saved: true };
   const personal = (key) => (s.portfolio || []).find((p) => p.section === "Личное" && p.title === key)?.details || "";
-  return { career: personal("Будущая профессия"), about: personal("Интересы"), where: "Не важно", grant: "Да", lang: "Не важно", saved: false };
+  return { career: personal("Будущая профессия"), about: personal("Интересы"), where: "За рубежом", grant: "Да", lang: "Английский", saved: false };
+}
+
+// Вид финансирования по тексту колонки «Финансирование»
+function fundKind(text) {
+  const t = String(text || "").toLowerCase();
+  if (/полная|госгрант/.test(t)) return "full";
+  if (/бесплат|низкая плата|квота/.test(t)) return "free";
+  if (/частичн|по доходу/.test(t)) return "partial";
+  if (/платно/.test(t)) return "paid";
+  return "";
 }
 
 function langMatch(uniLang, want) {
@@ -2058,6 +2068,10 @@ function recommendUnis(plan) {
     const kz = u.country === "Казахстан";
     if ((plan.where === "Казахстан" && !kz) || (plan.where === "За рубежом" && kz)) (score -= 70), cons.push(kz ? "это вуз в Казахстане" : "это вуз за рубежом");
     else if (plan.where === "Казахстан" || plan.where === "За рубежом") score += 10;
+    if (plan.country && plan.country !== "Любая") {
+      if (u.country === plan.country) (score += 30), pros.push(`страна: ${u.country}`);
+      else score -= 40; // выбранная страна важнее совпадения второго направления
+    }
     if (plan.city && u.city.toLowerCase().includes(plan.city.trim().toLowerCase())) (score += 10), pros.push(`в городе ${u.city}`);
     if (plan.lang && plan.lang !== "Не важно") {
       if (langMatch(u.lang, plan.lang)) (score += 5), pros.push(`обучение на языке: ${plan.lang.toLowerCase()}`);
@@ -2076,7 +2090,17 @@ function recommendUnis(plan) {
       if (ielts >= u.ielts) (score += 5), pros.push(`IELTS ${ielts} ≥ ${u.ielts}`);
       else cons.push(`нужен IELTS ${u.ielts}${ielts ? ` (сейчас ${ielts})` : ""}`);
     }
-    if (plan.grant === "Да" && /платно/i.test(u.note)) (score -= 15), cons.push("в основном платно");
+    // Финансирование: нужна ли семье полная стипендия
+    const f = fundKind(u.fund);
+    if (plan.grant === "Да") {
+      if (f === "full") (score += 10), pros.push("полная стипендия или грант");
+      else if (f === "free") (score += 5), pros.push("учёба бесплатная или недорогая (нужны деньги на жизнь)");
+      else if (f === "partial") (score -= 10), cons.push("стипендия частичная, часть оплаты на семье");
+      else if (f === "paid") (score -= 25), cons.push("в основном платно");
+    } else if (plan.grant === "Желательно") {
+      if (f === "full" || f === "free") (score += 5), pros.push(f === "full" ? "полная стипендия или грант" : "учёба бесплатная или недорогая");
+      else if (f === "paid") (score -= 10), cons.push("в основном платно");
+    }
     res.push({ u, score, pros, cons });
   });
   return res.sort((a, b) => b.score - a.score || a.u.name.localeCompare(b.u.name, "ru"));
@@ -2084,13 +2108,24 @@ function recommendUnis(plan) {
 
 function admissionTips(plan, recs) {
   const tips = [];
+  if (plan.where !== "Казахстан") {
+    const needIelts = Math.max(0, ...recs.slice(0, 5).map((r) => r.u.ielts || 0));
+    const usa = recs.slice(0, 8).some((r) => /США|ОАЭ|Турция/.test(r.u.country));
+    tips.push(
+      `<b>9 класс (сейчас):</b> английский до уровня B1–B2 (KET → PET), хорошие оценки во всех четвертях (зарубежные вузы смотрят оценки 9–11 классов), олимпиады, 1–2 постоянных занятия: волонтёрство, проект, кружок, спорт.`
+    );
+    tips.push(
+      `<b>10 класс:</b> первая попытка IELTS${needIelts ? ` (цель ${needIelts}+)` : ""}${usa ? ", подготовка к SAT" : ""}, летние школы и конкурсы, начать список вузов и узнать сроки. Записывай все достижения и часы волонтёрства.`
+    );
+    tips.push(`<b>11 класс:</b> финальный IELTS${usa ? " и SAT" : ""} до осени, эссе и мотивационные письма, рекомендации учителей, подача заявок (многие сроки — с ноября по февраль).`);
+  }
   const d1 = DIRECTIONS.find((d) => d.name === plan.dir1);
-  if (d1 && plan.where !== "За рубежом") tips.push(`Профильные предметы ЕНТ для «${d1.name}»: <b>${esc(d1.ent)}</b>. Уделяй им больше времени уже в 9 классе.`);
+  if (d1 && plan.where === "Казахстан") tips.push(`Профильные предметы ЕНТ для «${d1.name}»: <b>${esc(d1.ent)}</b>. Уделяй им больше времени уже в 9 классе.`);
   const needIelts = Math.max(0, ...recs.slice(0, 5).map((r) => r.u.ielts || 0));
-  if (needIelts) tips.push(`Английский: к 11 классу нужен IELTS <b>${needIelts}</b> или выше. Начни с KET/PET и пробных IELTS.`);
-  if (plan.target) tips.push(`Цель ЕНТ <b>${esc(plan.target)}</b> из 140. Сравнивай с ней результаты пробных тестов BTS.`);
-  tips.push("Олимпиады по профильным предметам дают преимущество при поступлении и на стипендии: участвуй каждый год.");
-  if (plan.where !== "Казахстан") tips.push("Для зарубежных вузов собирай достижения: волонтёрство, проекты, кружки. Они нужны для эссе и заявки.");
+  if (needIelts && plan.where === "Казахстан") tips.push(`Английский: к 11 классу нужен IELTS <b>${needIelts}</b> или выше. Начни с KET/PET и пробных IELTS.`);
+  if (plan.target && plan.where !== "За рубежом") tips.push(`Цель ЕНТ <b>${esc(plan.target)}</b> из 140. Сравнивай с ней результаты пробных тестов BTS.`);
+  tips.push("Олимпиады (особенно международные и республиканские) — сильный плюс и для зарубежных стипендий: участвуй каждый год.");
+  if (plan.where !== "Казахстан") tips.push("Запасной вариант: подготовься и к ЕНТ или NUET, чтобы при отказе за рубежом поступить в сильный вуз Казахстана.");
   return tips;
 }
 
@@ -2101,6 +2136,9 @@ function admissionHtml(s) {
   const opt = (list, v) => list.map((x) => `<option ${x === v ? "selected" : ""}>${esc(x)}</option>`).join("");
   const dirOpt = (v) => `<option value="">— выберите —</option>` + DIRECTIONS.map((d) => `<option ${d.name === v ? "selected" : ""}>${esc(d.name)}</option>`).join("");
   const ent = DIRECTIONS.find((d) => d.name === plan.dir1)?.ent;
+  const countries = [...new Set((DATA.universities || []).map((u) => u.country).filter(Boolean))].sort((a, b) =>
+    a === "Казахстан" ? 1 : b === "Казахстан" ? -1 : a.localeCompare(b, "ru")
+  );
   const cities = [...new Set((DATA.universities || []).map((u) => u.city).filter((c) => !/разные/i.test(c)))];
   const gard = gardnerTop(s);
 
@@ -2112,15 +2150,22 @@ function admissionHtml(s) {
       <label class="wide">Кем хочу стать<input id="pl-career" maxlength="100" value="${esc(plan.career || "")}" placeholder="например, программист, врач, дипломат" ${dis}></label>
       <label>Главное направление<select id="pl-dir1" ${dis}>${dirOpt(plan.dir1)}</select></label>
       <label>Запасное направление<select id="pl-dir2" ${dis}>${dirOpt(plan.dir2)}</select></label>
-      ${ent ? `<div class="wide small plan-ent">📘 Предметы ЕНТ: <b>${esc(ent)}</b></div>` : ""}
+      ${ent && plan.where !== "За рубежом" ? `<div class="wide small plan-ent">📘 Предметы ЕНТ: <b>${esc(ent)}</b></div>` : ""}
       <label>Где хочу учиться<select id="pl-where" ${dis}>${opt(["Не важно", "Казахстан", "За рубежом"], plan.where)}</select></label>
+      <label>Страна (если важно)<select id="pl-country" ${dis}>${["Любая", ...countries].map((c) => `<option ${c === (plan.country || "Любая") ? "selected" : ""}>${esc(c)}</option>`).join("")}</select></label>
       <label>Город (если важно)<input id="pl-city" list="pl-cities" maxlength="60" value="${esc(plan.city || "")}" placeholder="любой" ${dis}></label>
       <datalist id="pl-cities">${cities.map((c) => `<option value="${esc(c)}">`).join("")}</datalist>
-      <label>Нужен грант<select id="pl-grant" ${dis}>${opt(["Да", "Желательно", "Нет"], plan.grant)}</select></label>
+      <label>Финансирование<select id="pl-grant" ${dis}>${[
+        ["Да", "Нужна полная стипендия или грант"],
+        ["Желательно", "Подойдёт и частичная стипендия"],
+        ["Нет", "Семья может оплатить"],
+      ]
+        .map(([v, l]) => `<option value="${v}" ${v === plan.grant ? "selected" : ""}>${l}</option>`)
+        .join("")}</select></label>
       <label>Язык обучения<select id="pl-lang" ${dis}>${opt(["Не важно", "Казахский", "Русский", "Английский"], plan.lang)}</select></label>
       <label>Английский сейчас<input id="pl-english" maxlength="40" value="${esc(plan.english || "")}" placeholder="например, IELTS 6.0 или KET B1" ${dis}></label>
-      <label>Цель ЕНТ (из 140)<input id="pl-target" type="number" min="0" max="140" value="${esc(plan.target || "")}" placeholder="например, 115" ${dis}></label>
-      <label class="wide">О себе, интересы<textarea id="pl-about" maxlength="500" rows="2" ${dis}>${esc(plan.about || "")}</textarea></label>
+      <label>Цель ЕНТ (из 140, для вузов Казахстана)<input id="pl-target" type="number" min="0" max="140" value="${esc(plan.target || "")}" placeholder="например, 115" ${dis}></label>
+      <label class="wide">О себе: интересы, достижения, чем занимаешься<textarea id="pl-about" maxlength="500" rows="2" ${dis}>${esc(plan.about || "")}</textarea></label>
       ${
         canEdit
           ? `<div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="plan-save">Сохранить и подобрать</button><span class="small" id="plan-msg"></span></div>`
@@ -2142,7 +2187,7 @@ function admissionHtml(s) {
   const shown = state.admAll ? recs : recs.slice(0, 8);
   const recHtml = `<div class="card">
     <h2>🏛 Подходящие университеты</h2>
-    <p class="small muted">Подбор по анкете и списку университетов. Баллы на грант — примерный ориентир, проверяйте на сайте вуза каждый год.</p>
+    <p class="small muted">Подбор по анкете и списку университетов. Условия, сроки и баллы — примерный ориентир: проверяйте на сайте вуза или программы каждый год.</p>
     ${
       shown.length
         ? `<div class="uni-list">${shown
@@ -2152,7 +2197,9 @@ function admissionHtml(s) {
                 r.u.site ? ` · <a href="https://${esc(r.u.site.replace(/^https?:\/\//, ""))}" target="_blank" rel="noopener">${esc(r.u.site)}</a>` : ""
               }</div></div></div>
                 <div class="uni-tags">${r.pros.map((x) => `<span class="uni-pro">✓ ${esc(x)}</span>`).join("")}${r.cons.map((x) => `<span class="uni-con">⚠ ${esc(x)}</span>`).join("")}</div>
-                <div class="small"><b>Как поступать:</b> ${esc(r.u.how)}${r.u.note ? ` · <span class="muted">${esc(r.u.note)}</span>` : ""}</div>
+                <div class="small"><b>Как поступать:</b> ${esc(r.u.how)}</div>
+                ${r.u.fund || r.u.deadline ? `<div class="small uni-meta">${r.u.fund ? `<span>💰 ${esc(r.u.fund)}</span>` : ""}${r.u.deadline ? `<span>📅 ${esc(r.u.deadline)}</span>` : ""}</div>` : ""}
+                ${r.u.note ? `<div class="small muted">${esc(r.u.note)}</div>` : ""}
               </div>`
             )
             .join("")}</div>
@@ -2182,6 +2229,7 @@ function bindAdmission(s) {
       dir1: val("pl-dir1"),
       dir2: val("pl-dir2"),
       where: val("pl-where"),
+      country: val("pl-country") === "Любая" ? "" : val("pl-country"),
       city: val("pl-city"),
       grant: val("pl-grant"),
       lang: val("pl-lang"),
@@ -2232,7 +2280,7 @@ function admissionAllHtml() {
           const best = recommendUnis(p)[0];
           return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="wrap">${esc(p.career || "—")}</td><td class="wrap">${esc(p.dir1)}${
             p.dir2 ? `<div class="small muted">${esc(p.dir2)}</div>` : ""
-          }</td><td>${esc(p.where || "")}${p.city ? `<div class="small muted">${esc(p.city)}</div>` : ""}</td><td class="num">${esc(p.target || "—")}</td><td class="wrap">${
+          }</td><td>${esc(p.where || "")}${p.country || p.city ? `<div class="small muted">${esc([p.country, p.city].filter(Boolean).join(", "))}</div>` : ""}</td><td class="num">${esc(p.target || "—")}</td><td class="wrap">${
             best ? esc(best.u.name) : '<span class="muted">—</span>'
           }</td><td>${p.updated ? fmtDate(p.updated) : ""}</td></tr>`;
         })
@@ -2241,14 +2289,14 @@ function admissionAllHtml() {
   </div>
   <div class="card">
     <h2>🏛 Список университетов (${unis.length})</h2>
-    <p class="small muted">Список хранится в Google Таблице на листе «Университеты». Там можно добавить вуз, изменить направления или балл на грант. Баллы — примерный ориентир, проверяйте их каждый год.</p>
+    <p class="small muted">Список хранится в Google Таблице на листе «Университеты»: сначала зарубежные вузы и стипендии, потом вузы Казахстана как запасной вариант. Там можно добавить вуз, изменить условия, сроки и баллы. Это примерный ориентир: сверяйте с сайтами программ каждый год.</p>
     <div class="table-wrap"><table>
-      <tr><th>Университет</th><th>Где</th><th>Направления</th><th class="num">Грант ЕНТ ≈</th><th class="num">IELTS</th><th>Как поступать</th></tr>
+      <tr><th>Университет</th><th>Где</th><th>Направления</th><th>Финансирование</th><th>Сроки подачи</th><th class="num">IELTS</th><th class="num">ЕНТ ≈</th></tr>
       ${unis
         .map(
           (u) => `<tr><td class="wrap"><b>${esc(u.name)}</b>${u.site ? `<div class="small"><a href="https://${esc(u.site.replace(/^https?:\/\//, ""))}" target="_blank" rel="noopener">${esc(u.site)}</a></div>` : ""}</td><td>${esc(u.city)}<div class="small muted">${esc(
             u.country
-          )}</div></td><td class="wrap small">${esc(u.dirs.join(", "))}</td><td class="num">${u.grantScore || "—"}</td><td class="num">${u.ielts || "—"}</td><td class="wrap small">${esc(u.how)}</td></tr>`
+          )}</div></td><td class="wrap small">${esc(u.dirs.join(", "))}</td><td class="wrap small">${esc(u.fund || "—")}</td><td class="wrap small">${esc(u.deadline || "—")}</td><td class="num">${u.ielts || "—"}</td><td class="num">${u.grantScore || "—"}</td></tr>`
         )
         .join("")}
     </table></div>
