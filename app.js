@@ -563,6 +563,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "idp") bindIdp(s);
   if (state.tab === "meetings" && byTeacher) bindMeetings(s);
   if (state.tab === "admission") bindAdmission(s);
+  if (state.tab === "schedule") bindSchedule();
   if (state.tab === "activities") bindActivities(s);
   if (state.tab === "english") bindEnglish(s);
   document.getElementById("resume-btn").addEventListener("click", () => openResume(s));
@@ -688,27 +689,138 @@ function calendarHtml(all = false) {
     .join("")}</div></div>`;
 }
 
+// Значок предмета по названию (казахский, русский, английский)
+const SUBJECT_ICONS = [
+  [/алгебр|математ|mathem/i, "➗"],
+  [/геометр/i, "📐"],
+  [/физик|physic/i, "⚛️"],
+  [/хими|chem/i, "🧪"],
+  [/биолог|biolog/i, "🧬"],
+  [/географ/i, "🌍"],
+  [/тарих|истор|history/i, "📜"],
+  [/информат|computer|prog|IT\b/i, "💻"],
+  [/ағылшын|англ|english|(^|\s)ағ\.\s*тіл/i, "🇬🇧"],
+  [/түрік|турец|turk|(^|\s)т\.\s*тіл/i, "🇹🇷"],
+  [/орыс|русск|о\. тілі/i, "📘"],
+  [/қазақ|казах|әдебиет|литерат|қ\. тілі/i, "📗"],
+  [/дене|физкульт|спорт|sport|^дш(\s|$)/i, "⚽"],
+  [/сынып сағаты|классный|\(cc\)/i, "🏫"],
+  [/құқық|право|law/i, "⚖️"],
+  [/робот/i, "🤖"],
+  [/музык|өнер|искусств|сурет|art/i, "🎨"],
+  [/технолог|еңбек/i, "🛠"],
+];
+function subjectIcon(subject) {
+  return (SUBJECT_ICONS.find(([re]) => re.test(subject)) || [0, "📚"])[1];
+}
+const DAY_SHORT = { "Понедельник": "Пн", "Вторник": "Вт", "Среда": "Ср", "Четверг": "Чт", "Пятница": "Пт", "Суббота": "Сб", "Воскресенье": "Вс" };
+
+// "08:30–09:15" → [510, 555] (минуты от полуночи)
+function lessonMinutes(time) {
+  const m = String(time || "").match(/(\d{1,2}):(\d{2})\s*[–—-]\s*(\d{1,2}):(\d{2})/);
+  return m ? [Number(m[1]) * 60 + Number(m[2]), Number(m[3]) * 60 + Number(m[4])] : null;
+}
+// «гр.1: … · гр.2: …» → по строке на группу
+function groupLines(text) {
+  const t = String(text || "");
+  return /гр\.\s*\d/i.test(t) ? t.split(/\s*·\s*/).map((x) => esc(x)).join("<br>") : esc(t);
+}
+
 function scheduleHtml(schedule) {
   if (!schedule || !schedule.length) return '<div class="card"><h2>Расписание на неделю</h2><p class="muted">Расписание пока не добавлено.</p></div>';
-  const today = new Date().getDay();
-  return `<div class="card"><h2>Расписание на неделю</h2><div class="week">${schedule
-    .map((d) => {
-      const isToday = DAY_INDEX[d.day] === today;
-      return `<div class="day ${isToday ? "today" : ""}">
-        <div class="day-name">${esc(d.day)} ${isToday ? '<span class="badge">Сегодня</span>' : ""}</div>
-        ${d.lessons
-          .map(
-            (l, i) => `<div class="lesson">
-              <div class="lesson-time">${esc(l.num || i + 1)} урок · ${esc(l.time)}</div>
-              <div class="lesson-subj">${esc(l.subject)}</div>
-              ${l.room ? `<div class="muted small">Кабинет: ${esc(l.room)}</div>` : ""}
-              ${l.teacher ? `<div class="muted small">👤 ${esc(l.teacher)}</div>` : ""}
-            </div>`
-          )
-          .join("")}
-      </div>`;
+  const todayIdx = new Date().getDay();
+  const todayDay = schedule.find((d) => DAY_INDEX[d.day] === todayIdx);
+  // Открыт сегодняшний день; в выходные — понедельник
+  if (!state.schedDay || !schedule.some((d) => d.day === state.schedDay)) state.schedDay = (todayDay || schedule[0]).day;
+  const view = state.schedView || "day";
+  const switcher = `<div class="sched-head">
+      <h2>📅 Расписание</h2>
+      <div class="seg sched-view">
+        <button class="seg-btn ${view === "day" ? "active" : ""}" data-sched-view="day">По дням</button>
+        <button class="seg-btn ${view === "week" ? "active" : ""}" data-sched-view="week">Вся неделя</button>
+      </div>
+    </div>`;
+  if (view === "week") return `<div class="card">${switcher}${weekTableHtml(schedule, todayIdx)}</div>`;
+
+  const day = schedule.find((d) => d.day === state.schedDay);
+  const isToday = DAY_INDEX[day.day] === todayIdx;
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const lessons = day.lessons.map((l, i) => ({ ...l, num: l.num || i + 1, mins: lessonMinutes(l.time) }));
+  const current = isToday ? lessons.findIndex((l) => l.mins && nowMin >= l.mins[0] && nowMin < l.mins[1]) : -1;
+  const next = isToday ? lessons.findIndex((l) => l.mins && nowMin < l.mins[0]) : -1;
+  const first = lessons.find((l) => l.mins), last = [...lessons].reverse().find((l) => l.mins);
+  const fmt = (m) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
+
+  const items = [];
+  lessons.forEach((l, i) => {
+    const prev = lessons[i - 1];
+    if (prev && prev.mins && l.mins) {
+      const gap = l.mins[0] - prev.mins[1];
+      if (gap >= 15) items.push(`<div class="tl-break">${gap >= 40 ? "🍽 Обед" : "☕ Перемена"} · ${gap} мин</div>`);
+    }
+    const state_ = i === current ? "now" : i === next && current < 0 ? "next" : isToday && l.mins && nowMin >= l.mins[1] ? "done" : "";
+    const progress = i === current ? Math.round(((nowMin - l.mins[0]) / (l.mins[1] - l.mins[0])) * 100) : 0;
+    items.push(`<div class="tl-item ${state_}">
+      <div class="tl-num">${esc(l.num)}</div>
+      <div class="tl-card">
+        <div class="tl-top"><span class="tl-time">${esc(l.time)}</span>${state_ === "now" ? '<span class="tl-tag now">Сейчас</span>' : state_ === "next" ? '<span class="tl-tag">Далее</span>' : ""}</div>
+        <div class="tl-subj"><span class="tl-icon">${subjectIcon(l.subject)}</span>${esc(l.subject)}</div>
+        ${l.room || l.teacher ? `<div class="tl-meta">${l.room ? `<span>🚪 ${groupLines(l.room)}</span>` : ""}${l.teacher ? `<span>👤 ${groupLines(l.teacher)}</span>` : ""}</div>` : ""}
+        ${state_ === "now" ? `<div class="tl-progress"><span style="width:${progress}%"></span></div>` : ""}
+      </div>
+    </div>`);
+  });
+
+  return `<div class="card">${switcher}
+    <div class="day-chips">${schedule
+      .map((d) => {
+        const t = DAY_INDEX[d.day] === todayIdx;
+        return `<button class="day-chip ${d.day === day.day ? "active" : ""} ${t ? "is-today" : ""}" data-sched-day="${esc(d.day)}"><b>${esc(DAY_SHORT[d.day] || d.day.slice(0, 2))}</b><span>${d.lessons.length} ур.</span></button>`;
+      })
+      .join("")}</div>
+    <div class="day-summary"><b>${esc(day.day)}</b>${isToday ? ' <span class="badge">Сегодня</span>' : ""} · ${lessons.length} ${plural(lessons.length, "урок", "урока", "уроков")}${
+      first && last ? ` · ${fmt(first.mins[0])}–${fmt(last.mins[1])}` : ""
+    }</div>
+    <div class="timeline">${items.join("")}</div>
+  </div>`;
+}
+
+// Вся неделя: строки — номер урока, колонки — дни
+function weekTableHtml(schedule, todayIdx) {
+  const maxN = Math.max(...schedule.map((d) => d.lessons.length));
+  const rows = [];
+  for (let i = 0; i < maxN; i++) {
+    const time = schedule.map((d) => d.lessons[i]?.time).find(Boolean) || "";
+    rows.push(`<tr><td class="wk-num"><b>${i + 1}</b><div class="small muted">${esc(time)}</div></td>${schedule
+      .map((d) => {
+        const l = d.lessons[i];
+        const t = DAY_INDEX[d.day] === todayIdx ? "wk-today" : "";
+        return l
+          ? `<td class="${t}"><div class="wk-subj">${subjectIcon(l.subject)} ${esc(l.subject)}</div>${l.room ? `<div class="small muted">${groupLines(l.room)}</div>` : ""}</td>`
+          : `<td class="${t}"></td>`;
+      })
+      .join("")}</tr>`);
+  }
+  return `<div class="table-wrap"><table class="week-table">
+    <tr><th></th>${schedule.map((d) => `<th class="${DAY_INDEX[d.day] === todayIdx ? "wk-today" : ""}">${esc(d.day)}${DAY_INDEX[d.day] === todayIdx ? " ·&nbsp;сегодня" : ""}</th>`).join("")}</tr>
+    ${rows.join("")}
+  </table></div>`;
+}
+
+function bindSchedule() {
+  app.querySelectorAll("[data-sched-day]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.schedDay = b.dataset.schedDay;
+      render();
     })
-    .join("")}</div></div>`;
+  );
+  app.querySelectorAll("[data-sched-view]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.schedView = b.dataset.schedView;
+      render();
+    })
+  );
 }
 
 function idpHtml(s) {
@@ -1284,6 +1396,7 @@ function renderTeacher() {
   if (state.tab === "mark") bindMark();
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
+  if (state.tab === "schedule") bindSchedule();
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
