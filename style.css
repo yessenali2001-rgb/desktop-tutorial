@@ -410,3 +410,12 @@ table.grades tr.info-row td { background: var(--accent-soft); }
 .meet-top .book-del { margin-left: auto; }
 .meet-topic { font-weight: 600; }
 .badge-alt { background: var(--gold); color: #111233; }
+
+/* ---------- Кезекшілік (дежурства) ---------- */
+.duty-fields { display: grid; grid-template-columns: 1fr 1.5fr 0.8fr auto; gap: 8px; align-items: end; }
+.duty-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+@media (max-width: 700px) { .duty-fields { grid-template-columns: 1fr 1fr; } }
+.chip-away { opacity: 0.5; text-decoration: line-through; }
+tr.row-me td { background: var(--accent-soft); font-weight: 600; }
+.duty-mine { margin: 0; padding-left: 20px; columns: 2; }
+@media (max-width: 600px) { .duty-mine { columns: 1; } }

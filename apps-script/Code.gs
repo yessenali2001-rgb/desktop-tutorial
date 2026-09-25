@@ -21,6 +21,7 @@ const SHEETS = {
   resources: "Ресурсы",
   calendar: "Календарь",
   meetings: "Встречи",
+  duties: "Дежурства",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -40,6 +41,7 @@ const HEADERS = {
   exams: ["ID", "ФИО", "KET", "BTS"],
   tests: ["ID", "ФИО", "Темперамент"],
   parentEvents: ["ID", "ФИО", "Родительское собрание"],
+  duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
 };
 
@@ -125,6 +127,10 @@ function handle_(req) {
     case "deleteMeeting":
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
       return { ok: true, meetings: deleteMeeting_(user.staff, req.meeting) };
+    case "saveDuty":
+      // Дежурных назначают только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, duties: saveDuty_(user.staff, req.duty) };
     case "deleteBook": {
       const id = targetId_(user, req.id, "Книги удаляет сам ученик или учитель");
       return { ok: true, id: id, books: deleteBook_(id, req.book) };
@@ -245,6 +251,11 @@ function readSettings_() {
     tutorPin: map["PIN воспитателя"] || "",
     // Этюды, которые отмечаются на сайте. Обычно один — «Этюд»; несколько — через запятую
     etudes: (map["Этюды"] || "Этюд")
+      .split(/[,;]/)
+      .map((x) => x.trim())
+      .filter(Boolean),
+    // Виды дежурства (кезекшілік), через запятую. Новые можно вписать и прямо на сайте
+    dutyTypes: (map["Дежурства"] || "Класс")
       .split(/[,;]/)
       .map((x) => x.trim())
       .filter(Boolean),
@@ -417,6 +428,8 @@ function teacherData_() {
     students: readStudents_().map((s) => Object.assign(publicStudent_(s, ctx), { momPhone: s.momPhone, dadPhone: s.dadPhone })),
     attendance: readAttendance_(),
     meetings: readMeetings_(), // встречи — только для учителя и воспитателя
+    dutyTypes: readSettings_().dutyTypes,
+    duties: readDuties_(),
   };
 }
 
@@ -431,6 +444,8 @@ function studentData_(id) {
     calendar: readCalendar_(),
     resources: readResources_(),
     students: [publicStudent_(s, ctx)],
+    // Дежурства: все свои и ближайшие дежурства класса (кто дежурит сегодня и дальше)
+    duties: dutiesForStudent_(id),
     attendance: readAttendance_().map((l) => ({
       date: l.date,
       subject: l.subject,
@@ -686,6 +701,77 @@ function deleteMeeting_(who, m) {
   throw new Error("Встреча не найдена. Обновите страницу.");
 }
 
+// ===================== Дежурства (кезекшілік) =====================
+// Лист «Дежурства»: Дата | Дежурство | Ученики (ID через запятую) | Ученики (ФИО) | Кто назначил.
+// Одна строка — одно дежурство в один день. Лист создаётся сам при первой записи.
+
+function readDuties_() {
+  return rows_("duties", true).map((r) => ({
+    date: iso_(r[0]),
+    duty: String(r[1]).trim(),
+    students: ids_(r[2]),
+    by: String(r[4]).trim(),
+  }));
+}
+
+function dutiesForStudent_(id) {
+  const today = Utilities.formatDate(new Date(), tz_(), "yyyy-MM-dd");
+  const names = {};
+  readStudents_().forEach((s) => (names[s.id] = s.name));
+  return readDuties_()
+    .filter((d) => d.students.indexOf(id) >= 0 || d.date >= today)
+    .map((d) => ({ date: d.date, duty: d.duty, students: d.students, names: d.students.map((x) => names[x] || x) }));
+}
+
+function dutiesSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(SHEETS.duties);
+  if (!sh) {
+    sh = ss.insertSheet(SHEETS.duties);
+    const h = HEADERS.duties;
+    sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight("bold").setBackground("#e7ecff");
+    sh.setFrozenRows(1);
+    sh.getRange(2, 1, 1000, 1).setNumberFormat("dd.mm.yyyy");
+  }
+  return sh;
+}
+
+// Сохраняет дежурных на дату. Если на эту дату это дежурство уже есть — заменяет учеников.
+// Пустой список учеников — удаляет дежурство.
+function saveDuty_(who, d) {
+  d = d || {};
+  const date = String(d.date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Укажите дату дежурства");
+  const duty = safeText_(d.duty, 60);
+  if (!duty) throw new Error("Укажите дежурство");
+  const all = readStudents_();
+  const ids = (Array.isArray(d.students) ? d.students : []).map((x) => String(x).trim().toUpperCase());
+  const chosen = all.filter((s) => ids.indexOf(s.id) >= 0);
+  const row = [Utilities.parseDate(date, tz_(), "yyyy-MM-dd"), duty, chosen.map((s) => s.id).join(", "), chosen.map((s) => s.name).join(", "), who];
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = dutiesSheet_();
+    const values = sh.getDataRange().getValues();
+    let rowIndex = -1;
+    for (let i = 1; i < values.length; i++) {
+      if (iso_(values[i][0]) === date && cellText_(values[i][1]).replace(/^'/, "") === duty.replace(/^'/, "")) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+    if (!chosen.length) {
+      if (rowIndex < 0) throw new Error("Выберите дежурных");
+      sh.deleteRow(rowIndex);
+    } else if (rowIndex > 0) sh.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+    else sh.appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return readDuties_();
+}
+
 // ===================== Фото ученика =====================
 
 // Фото хранится прямо в ячейке (колонка «Фото» на листе «Ученики») как маленький JPEG в base64:
@@ -775,6 +861,7 @@ function setup() {
     }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
+    if (key === "duties") sh.getRange(2, 1, Math.max(data.length, 1000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "meetings") sh.getRange(2, 1, Math.max(data.length, 1000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "calendar") sh.getRange(2, 1, Math.max(data.length, 100), 2).setNumberFormat("dd.mm.yyyy");
     if (key === "parentEvents" && headers.length > 2) sh.getRange(2, 3, Math.max(data.length, 30), headers.length - 2).insertCheckboxes();
@@ -803,7 +890,7 @@ function headersFor_(key) {
 function seedRows_(key) {
   if (typeof SEED === "undefined") {
     return key === "settings"
-      ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"], ["Логин воспитателя", "vospitatel"], ["PIN воспитателя", ""], ["Этюды", "Этюд"]]
+      ? [["Название класса", "Мой класс"], ["Логин учителя", "teacher"], ["PIN учителя", "0000"], ["Логин воспитателя", "vospitatel"], ["PIN воспитателя", ""], ["Этюды", "Этюд"], ["Дежурства", "Класс"]]
       : [];
   }
   const tz = tz_();
@@ -818,6 +905,7 @@ function seedRows_(key) {
         ["Логин воспитателя", SEED.tutor.login],
         ["PIN воспитателя", SEED.tutor.pin],
         ["Этюды", (SEED.etudes || ["Этюд"]).join(", ")],
+        ["Дежурства", (SEED.dutyTypes || ["Класс"]).join(", ")],
       ];
     case "students":
       return SEED.students.map((s) => [s.id, s.name, s.pin, s.idp.mentor, s.idp.strengths, s.idp.comment, s.momPhone || "", s.dadPhone || "", s.photo || ""]);
@@ -858,6 +946,11 @@ function seedRows_(key) {
     case "tests":
     case "parentEvents":
       return SEED.students.map((s) => [s.id, s.name].concat((s[key] || []).map((x) => x.value)));
+    case "duties": {
+      const names = {};
+      SEED.students.forEach((s) => (names[s.id] = s.name));
+      return (SEED.duties || []).map((x) => [d(x.date), x.duty, x.students.join(", "), x.students.map((id) => names[id]).join(", "), x.by]);
+    }
     case "meetings": {
       const names = {};
       SEED.students.forEach((s) => (names[s.id] = s.name));

@@ -161,6 +161,9 @@ async function demoApi(action, payload) {
         calendar: D.calendar,
         resources: D.resources,
         students: [strip(s)],
+        duties: (D.duties || [])
+          .filter((d) => d.students.includes(s.id) || d.date >= todayIso())
+          .map((d) => ({ date: d.date, duty: d.duty, students: d.students, names: d.students.map((id) => D.students.find((x) => x.id === id)?.name || id) })),
         attendance: D.attendance.map((l) => ({ date: l.date, subject: l.subject, absent: only(l.absent), late: only(l.late), excused: only(l.excused) })),
       },
     };
@@ -207,6 +210,20 @@ async function demoApi(action, payload) {
       target.portfolio.splice(i, 1);
     }
     return { ok: true, id: target.id, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
+  }
+  if (action === "saveDuty") {
+    if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
+    const d = payload.duty || {};
+    if (!d.date) throw new Error("Укажите дату дежурства");
+    if (!String(d.duty || "").trim()) throw new Error("Укажите дежурство");
+    D.duties = D.duties || [];
+    const i = D.duties.findIndex((x) => x.date === d.date && x.duty === d.duty);
+    if (!(d.students || []).length) {
+      if (i < 0) throw new Error("Выберите дежурных");
+      D.duties.splice(i, 1);
+    } else if (i >= 0) D.duties[i] = { date: d.date, duty: d.duty, students: d.students, by: isTutor ? "Воспитатель" : "Учитель" };
+    else D.duties.push({ date: d.date, duty: d.duty, students: d.students, by: isTutor ? "Воспитатель" : "Учитель" });
+    return { ok: true, duties: JSON.parse(JSON.stringify(D.duties)) };
   }
   if (action === "addMeeting" || action === "deleteMeeting") {
     if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
@@ -426,6 +443,7 @@ function renderStudent(s, byTeacher) {
     ["olympiads", "🏅 Олимпиады"],
     ["exams", "📝 Экзамены"],
     ["books", "📖 Книги"],
+    ["duty", "🧹 Кезекшілік"],
     ["tests", "🧠 Тесты"],
   ];
   if (byTeacher) tabs.push(["meetings", "🤝 Встречи"]); // встречи видят только учитель и воспитатель
@@ -445,6 +463,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "tests") body = testsHtml(s);
   if (state.tab === "resources") body = resourcesHtml();
   if (state.tab === "meetings" && byTeacher) body = meetingsHtml(s);
+  if (state.tab === "duty") body = studentDutyHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
@@ -1175,6 +1194,7 @@ function renderTeacher() {
     ["mark", "✏️ Отметить этюд"],
     ["journal", "📋 Журнал"],
     ["meetings", "🤝 Встречи"],
+    ["duty", "🧹 Кезекшілік"],
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
@@ -1196,6 +1216,7 @@ function renderTeacher() {
   if (state.tab === "mark") body = markHtml();
   if (state.tab === "journal") body = journalHtml();
   if (state.tab === "meetings") body = meetingsHtml();
+  if (state.tab === "duty") body = dutyHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
@@ -1219,10 +1240,11 @@ function renderTeacher() {
   bindPeriods();
   if (state.tab === "mark") bindMark();
   if (state.tab === "meetings") bindMeetings();
+  if (state.tab === "duty") bindDuty();
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
-      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings" }[state.tab] || "attendance";
+      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings", duty: "duty" }[state.tab] || "attendance";
       state.subjectFilter = "";
       render();
     })
@@ -1678,6 +1700,268 @@ function bindMeetings(student) {
       if (m && confirm(`Удалить встречу «${m.topic}» от ${fmtDate(m.date)}?`)) run("deleteMeeting", m, "Встреча удалена");
     })
   );
+}
+
+// ---------- кезекшілік: дежурства ----------
+// Учитель и воспитатель назначают дежурных; «Подобрать честно» выбирает тех, кто дежурил меньше всех.
+// Ученик и родитель видят свои дежурства и ближайшие дежурства класса.
+
+function dutyNames(d) {
+  return d.names || d.students.map((id) => findStudent(id)?.name || id);
+}
+function dutyTypes() {
+  return [...new Set([...(DATA.dutyTypes && DATA.dutyTypes.length ? DATA.dutyTypes : ["Класс"]), ...(DATA.duties || []).map((d) => d.duty)])];
+}
+function sortedStudents() {
+  return [...DATA.students].sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+// Сколько раз ученик дежурил: всего, по видам дежурства и когда в последний раз (до выбранной даты включительно не важно — считаем все)
+function dutyStats(id) {
+  const mine = (DATA.duties || []).filter((d) => d.students.includes(id));
+  const byType = {};
+  mine.forEach((d) => (byType[d.duty] = (byType[d.duty] || 0) + 1));
+  const last = mine.reduce((a, d) => (d.date > a ? d.date : a), "");
+  return { total: mine.length, byType, last };
+}
+function loadDutyForm(date, duty) {
+  const existing = (DATA.duties || []).find((d) => d.date === date && d.duty === duty);
+  state.duty = { ...state.duty, date, duty, pick: existing ? [...existing.students] : [], existing: !!existing };
+}
+
+function dutyHtml() {
+  if (!state.duty) {
+    state.duty = { count: 2, sort: "name", filter: "", month: "" };
+    loadDutyForm(todayIso(), dutyTypes()[0]);
+  }
+  const f = state.duty;
+  const types = dutyTypes();
+  const absentThatDay = new Set(DATA.attendance.filter((l) => l.date === f.date).flatMap((l) => [...l.absent, ...l.excused]));
+
+  const form = `<div class="card">
+    <h2>🧹 Назначить дежурных</h2>
+    <form id="duty-form" class="meet-form">
+      <div class="duty-fields">
+        <label>Дата<input type="date" id="duty-date" value="${esc(f.date)}" required></label>
+        <label>Дежурство<input id="duty-name" list="duty-types" maxlength="60" value="${esc(f.duty)}" required></label>
+        <datalist id="duty-types">${types.map((t) => `<option value="${esc(t)}">`).join("")}</datalist>
+        <label>Сколько человек<input type="number" id="duty-count" min="1" max="25" value="${f.count}"></label>
+        <button type="button" class="btn btn-ghost" id="duty-fair">⚖️ Подобрать честно</button>
+      </div>
+      <p class="small muted">${
+        f.existing ? "На эту дату дежурные уже назначены: они отмечены ниже. При сохранении список обновится." : "«Подобрать честно» выбирает тех, кто дежурил меньше всех (и давно не дежурил). Отсутствующие в этот день не выбираются."
+      } Число в скобках — сколько раз ученик уже был на этом дежурстве.</p>
+      <div class="meet-pick-head"><b>Дежурные</b> <span class="small muted" id="duty-picked">выбрано: ${f.pick.length}</span>
+        <button type="button" class="btn btn-ghost" id="duty-none">Снять выбор</button></div>
+      <div class="meet-pick">${sortedStudents()
+        .map((s) => {
+          const n = dutyStats(s.id).byType[f.duty] || 0;
+          const away = absentThatDay.has(s.id);
+          return `<label class="meet-chip ${away ? "chip-away" : ""}" ${away ? 'title="Отсутствует в этот день"' : ""}><input type="checkbox" value="${esc(s.id)}" ${f.pick.includes(s.id) ? "checked" : ""}> ${esc(s.name)} <span class="muted small">(${n})</span></label>`;
+        })
+        .join("")}</div>
+      <div class="save-bar" style="position:static;border:none;padding:6px 0 0">
+        <button class="btn" type="submit" id="duty-save">Сохранить</button>
+        ${f.existing ? '<button type="button" class="btn btn-ghost" id="duty-delete">Удалить дежурство</button>' : ""}
+        <span class="small" id="duty-msg"></span>
+      </div>
+    </form>
+  </div>`;
+
+  // Счёт: кто сколько дежурил
+  const rows = sortedStudents().map((s) => ({ s, st: dutyStats(s.id) }));
+  if (f.sort === "few") rows.sort((a, b) => a.st.total - b.st.total || (a.st.last < b.st.last ? -1 : 1));
+  if (f.sort === "many") rows.sort((a, b) => b.st.total - a.st.total);
+  const totals = rows.map((x) => x.st.total);
+  const min = Math.min(...totals), max = Math.max(...totals);
+  const score = `<div class="card">
+    <h2>⚖️ Кто сколько дежурил</h2>
+    <div class="filters">
+      <select id="duty-sort">
+        <option value="name" ${f.sort === "name" ? "selected" : ""}>По алфавиту</option>
+        <option value="few" ${f.sort === "few" ? "selected" : ""}>Меньше всего дежурств</option>
+        <option value="many" ${f.sort === "many" ? "selected" : ""}>Больше всего дежурств</option>
+      </select>
+      <span class="small muted">Меньше всех: ${min} · больше всех: ${max}${max - min > 1 ? ' · <b style="color:var(--red)">разница больше 1 — назначайте тех, у кого меньше</b>' : ' · <b style="color:var(--green)">всё честно ✓</b>'}</span>
+    </div>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th>${types.map((t) => `<th class="num">${esc(t)}</th>`).join("")}<th class="num">Всего</th><th>Последний раз</th></tr>
+      ${rows
+        .map(
+          ({ s, st }, i) => `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td>${types
+            .map((t) => `<td class="num">${st.byType[t] || 0}</td>`)
+            .join("")}<td class="num">${st.total === min && max > min ? `<span class="pill late">${st.total}</span>` : `<b>${st.total}</b>`}</td><td>${st.last ? fmtDate(st.last) : '<span class="muted">—</span>'}</td></tr>`
+        )
+        .join("")}
+    </table></div>
+    <p class="muted small">Оранжевым отмечены те, кто дежурил меньше всех: их очередь.</p>
+  </div>`;
+
+  // Архив
+  const months = [...new Set((DATA.duties || []).map((d) => d.date.slice(0, 7)))].sort().reverse();
+  const list = (DATA.duties || [])
+    .filter((d) => (!f.filter || d.duty === f.filter) && (!f.month || d.date.startsWith(f.month)))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.duty.localeCompare(b.duty)));
+  const archive = `<div class="card">
+    <h2>🗂 Архив дежурств</h2>
+    <div class="filters">
+      <select id="duty-filter"><option value="">Все дежурства</option>${types.map((t) => `<option ${f.filter === t ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>
+      <select id="duty-month"><option value="">Все месяцы</option>${months
+        .map((m) => `<option value="${m}" ${f.month === m ? "selected" : ""}>${MONTHS_FULL[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</option>`)
+        .join("")}</select>
+    </div>
+    ${
+      list.length
+        ? `<div class="table-wrap"><table>
+            <tr><th>Дата</th><th>Дежурство</th><th>Дежурные</th><th>Назначил</th><th></th></tr>
+            ${list
+              .map(
+                (d) => `<tr><td>${fmtDate(d.date)}${d.date === todayIso() ? ' <span class="badge">сегодня</span>' : ""}</td><td>${esc(d.duty)}</td><td class="wrap">${esc(
+                  dutyNames(d).join(", ")
+                )}</td><td class="muted small">${esc(d.by || "")}</td><td><button class="btn-link" data-duty-edit="${esc(d.date)}|${esc(d.duty)}">Изменить</button></td></tr>`
+              )
+              .join("")}
+          </table></div>`
+        : '<p class="muted">Дежурств пока нет.</p>'
+    }
+  </div>`;
+  return form + score + archive;
+}
+
+function bindDuty() {
+  const f = state.duty;
+  const msg = document.getElementById("duty-msg");
+  const boxes = [...app.querySelectorAll("#duty-form .meet-pick input")];
+  const syncPick = () => {
+    f.pick = boxes.filter((b) => b.checked).map((b) => b.value);
+    document.getElementById("duty-picked").textContent = "выбрано: " + f.pick.length;
+  };
+  boxes.forEach((b) => b.addEventListener("change", syncPick));
+  document.getElementById("duty-none").addEventListener("click", () => {
+    boxes.forEach((b) => (b.checked = false));
+    syncPick();
+  });
+  document.getElementById("duty-date").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    loadDutyForm(e.target.value, f.duty);
+    render();
+  });
+  document.getElementById("duty-name").addEventListener("change", (e) => {
+    const v = e.target.value.trim();
+    if (!v) return;
+    loadDutyForm(f.date, v);
+    render();
+  });
+  document.getElementById("duty-count").addEventListener("change", (e) => (f.count = Math.max(1, Math.min(25, Number(e.target.value) || 1))));
+  // Честный выбор: меньше всего дежурств этого вида → меньше всего дежурств всего → дольше всех не дежурил
+  document.getElementById("duty-fair").addEventListener("click", () => {
+    const away = new Set(DATA.attendance.filter((l) => l.date === f.date).flatMap((l) => [...l.absent, ...l.excused]));
+    const others = (DATA.duties || []).filter((d) => !(d.date === f.date && d.duty === f.duty)); // текущую запись не считаем
+    const stat = (id) => {
+      const mine = others.filter((d) => d.students.includes(id));
+      return { type: mine.filter((d) => d.duty === f.duty).length, total: mine.length, last: mine.reduce((a, d) => (d.date > a ? d.date : a), "") };
+    };
+    const busy = new Set(others.filter((d) => d.date === f.date).flatMap((d) => d.students)); // уже дежурят в этот день на другом дежурстве
+    const pool = sortedStudents()
+      .filter((s) => !away.has(s.id))
+      .map((s) => ({ id: s.id, st: stat(s.id), busy: busy.has(s.id) ? 1 : 0 }))
+      .sort((a, b) => a.busy - b.busy || a.st.type - b.st.type || a.st.total - b.st.total || (a.st.last < b.st.last ? -1 : a.st.last > b.st.last ? 1 : 0));
+    f.pick = pool.slice(0, f.count).map((x) => x.id);
+    render();
+    const m = document.getElementById("duty-msg");
+    m.textContent = "Подобрано: " + f.pick.map((id) => findStudent(id).name).join(", ") + ". Проверьте и нажмите «Сохранить».";
+  });
+  const run = async (students, okText) => {
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    try {
+      const res = await api("saveDuty", { duty: { date: f.date, duty: f.duty, students } });
+      DATA.duties = res.duties;
+      loadDutyForm(f.date, f.duty);
+      render();
+      const m = document.getElementById("duty-msg");
+      m.textContent = okText;
+      m.style.color = "var(--green)";
+    } catch (ex) {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+    }
+  };
+  document.getElementById("duty-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    f.duty = document.getElementById("duty-name").value.trim();
+    if (!f.duty) return;
+    if (!f.pick.length) {
+      msg.textContent = "Выберите дежурных";
+      msg.style.color = "var(--red)";
+      return;
+    }
+    run(f.pick, DEMO ? "Сохранено ✓ (демо-режим)" : "Сохранено в Google Таблицу ✓");
+  });
+  document.getElementById("duty-delete")?.addEventListener("click", () => {
+    if (confirm(`Удалить дежурство «${f.duty}» на ${fmtDate(f.date)}?`)) run([], "Дежурство удалено");
+  });
+  document.getElementById("duty-sort").addEventListener("change", (e) => {
+    f.sort = e.target.value;
+    render();
+  });
+  document.getElementById("duty-filter").addEventListener("change", (e) => {
+    f.filter = e.target.value;
+    render();
+  });
+  document.getElementById("duty-month").addEventListener("change", (e) => {
+    f.month = e.target.value;
+    render();
+  });
+  app.querySelectorAll("[data-duty-edit]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const [date, duty] = b.dataset.dutyEdit.split("|");
+      loadDutyForm(date, duty);
+      render();
+      document.getElementById("duty-form").scrollIntoView({ behavior: "smooth" });
+    })
+  );
+}
+
+// Страница ученика: свои дежурства и ближайшие дежурства класса
+function studentDutyHtml(s) {
+  const today = todayIso();
+  const all = DATA.duties || [];
+  const mine = all.filter((d) => d.students.includes(s.id)).sort((a, b) => (a.date < b.date ? 1 : -1));
+  const upcoming = all.filter((d) => d.date >= today).sort((a, b) => (a.date > b.date ? 1 : a.date < b.date ? -1 : a.duty.localeCompare(b.duty)));
+  const byType = {};
+  mine.filter((d) => d.date <= today).forEach((d) => (byType[d.duty] = (byType[d.duty] || 0) + 1));
+  const done = mine.filter((d) => d.date <= today).length;
+  const next = mine.filter((d) => d.date >= today).sort((a, b) => (a.date > b.date ? 1 : -1))[0];
+  return `<div class="card">
+    <div class="eyebrow">Кезекшілік</div>
+    <h2>Дежурства</h2>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl"><span class="hl-icon">🧹</span><div><div class="eyebrow">Дежурил</div><div><b>${done}</b> ${plural(done, "раз", "раза", "раз")}${
+        Object.keys(byType).length ? ` <span class="muted small">(${Object.entries(byType).map(([t, n]) => `${esc(t)}: ${n}`).join(", ")})</span>` : ""
+      }</div></div></div>
+      <div class="hl ${next && next.date === today ? "hl-today" : ""}"><span class="hl-icon">📅</span><div><div class="eyebrow">Следующее дежурство</div><div>${
+        next ? `${next.date === today ? "<b>сегодня</b>" : fmtDate(next.date)} · ${esc(next.duty)}` : '<span class="muted">не назначено</span>'
+      }</div></div></div>
+    </div>
+    <h3>Ближайшие дежурства класса</h3>
+    ${
+      upcoming.length
+        ? `<div class="table-wrap"><table><tr><th>Дата</th><th>Дежурство</th><th>Дежурные</th></tr>${upcoming
+            .map(
+              (d) => `<tr ${d.students.includes(s.id) ? 'class="row-me"' : ""}><td>${d.date === today ? "<b>Сегодня</b>" : fmtDate(d.date)}</td><td>${esc(d.duty)}</td><td class="wrap">${esc(
+                dutyNames(d).join(", ")
+              )}</td></tr>`
+            )
+            .join("")}</table></div>`
+        : '<p class="muted">Пока не назначены.</p>'
+    }
+    <h3>Мои дежурства</h3>
+    ${
+      mine.length
+        ? `<ul class="duty-mine">${mine.map((d) => `<li>${fmtDate(d.date)} — ${esc(d.duty)}</li>`).join("")}</ul>`
+        : '<p class="muted">Дежурств ещё не было.</p>'
+    }
+  </div>`;
 }
 
 // ---------- тема: белый / чёрный фон ----------
