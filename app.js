@@ -6,6 +6,7 @@ const DEFAULT_STATE = {
   expenseCategories: ['Продукты', 'Жильё и ЖКХ', 'Транспорт', 'Дети', 'Здоровье', 'Одежда', 'Развлечения', 'Прочее'],
   incomeCategories: ['Зарплата', 'Подработка', 'Подарки', 'Прочее'],
   limits: {},
+  sheet: 'all', // 'all' — вся семья, иначе имя члена семьи
   transactions: [],
 };
 
@@ -66,7 +67,11 @@ function render({ settings = true } = {}) {
   const [y, m] = currentMonth.split('-').map(Number);
   $('monthLabel').textContent = new Date(y, m - 1, 1).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
-  const monthTx = state.transactions.filter((t) => t.date.startsWith(currentMonth));
+  if (state.sheet !== 'all' && !state.members.includes(state.sheet)) state.sheet = 'all';
+  const onMemberSheet = state.sheet !== 'all';
+  const monthTx = state.transactions.filter(
+    (t) => t.date.startsWith(currentMonth) && (!onMemberSheet || t.member === state.sheet)
+  );
   const income = monthTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
   const expense = monthTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
   const balance = income - expense;
@@ -76,6 +81,11 @@ function render({ settings = true } = {}) {
   $('balance').textContent = fmt(balance);
   $('balance').className = 'card-value ' + (balance >= 0 ? 'income' : 'expense');
 
+  $('memberPanel').hidden = onMemberSheet;
+  $('filterMember').hidden = onMemberSheet;
+  $('member').hidden = onMemberSheet;
+
+  renderTabs();
   renderFormSelects();
   renderCategoryChart(monthTx);
   renderMemberChart(monthTx);
@@ -83,11 +93,24 @@ function render({ settings = true } = {}) {
   if (settings) renderSettings();
 }
 
+function renderTabs() {
+  const sheets = [['all', '👨‍👩‍👧 Вся семья'], ...state.members.map((m) => [m, m])];
+  $('tabs').replaceChildren(...sheets.map(([value, label]) => {
+    const tab = el('button', { className: 'tab' + (state.sheet === value ? ' active' : ''), textContent: label });
+    tab.addEventListener('click', () => {
+      state.sheet = value;
+      save();
+      render();
+    });
+    return tab;
+  }));
+}
+
 function renderFormSelects() {
   const type = document.querySelector('input[name="type"]:checked').value;
   const cats = type === 'income' ? state.incomeCategories : state.expenseCategories;
   fillSelect($('category'), cats.map((c) => [c, c]), $('category').value);
-  fillSelect($('member'), state.members.map((m) => [m, m]), $('member').value);
+  fillSelect($('member'), state.members.map((m) => [m, m]), state.sheet !== 'all' ? state.sheet : $('member').value);
   fillSelect(
     $('filterMember'),
     [['all', 'Все члены семьи'], ...state.members.map((m) => [m, m])],
@@ -111,14 +134,16 @@ function sumBy(txs, key) {
 
 function renderCategoryChart(monthTx) {
   const byCat = sumBy(monthTx.filter((t) => t.type === 'expense'), 'category');
-  const cats = [...new Set([...Object.keys(byCat), ...Object.keys(state.limits).filter((c) => state.limits[c] > 0)])];
-  const max = Math.max(1, ...cats.map((c) => Math.max(byCat[c] || 0, state.limits[c] || 0)));
+  // лимиты общие на семью, поэтому показываем их только на листе «Вся семья»
+  const limits = state.sheet === 'all' ? state.limits : {};
+  const cats = [...new Set([...Object.keys(byCat), ...Object.keys(limits).filter((c) => limits[c] > 0)])];
+  const max = Math.max(1, ...cats.map((c) => Math.max(byCat[c] || 0, limits[c] || 0)));
 
   const rows = cats
     .sort((a, b) => (byCat[b] || 0) - (byCat[a] || 0))
     .map((c) => {
       const spent = byCat[c] || 0;
-      const limit = state.limits[c];
+      const limit = limits[c];
       if (limit > 0) {
         const r = spent / limit;
         const cls = r > 1 ? 'over' : r >= 0.8 ? 'near' : '';
@@ -184,7 +209,7 @@ function renderSettings() {
 
   $('limitList').replaceChildren(...state.expenseCategories.map((c) => {
     const input = el('input', { type: 'number', min: '0', step: '100', placeholder: 'Без лимита', value: state.limits[c] || '' });
-    input.addEventListener('change', () => {
+    input.addEventListener('input', () => {
       const v = parseFloat(input.value);
       if (v > 0) state.limits[c] = v;
       else delete state.limits[c];

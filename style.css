@@ -45,6 +45,16 @@ h3 { font-size: .95rem; margin: 0 0 8px; color: var(--muted); font-weight: 600; 
 .month-nav { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 #monthLabel { min-width: 140px; text-align: center; text-transform: capitalize; }
 
+.tabs {
+  display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px 0;
+  max-width: 1000px; margin: 0 auto; scrollbar-width: thin;
+}
+.tab {
+  flex: none; border-radius: 18px; padding: 6px 14px; white-space: nowrap;
+}
+.tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+[hidden] { display: none !important; }
+
 main { max-width: 1000px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
