@@ -111,12 +111,53 @@ function beep() {
 
 // ---------- Кіру / шығу ----------
 
+// Соңғы таңдалған рөл мен сынып осы құрылғыда есте қалады.
+const prefs = {
+  get(k) { try { return localStorage.getItem('shygu-' + k) || ''; } catch { return ''; } },
+  set(k, v) { try { localStorage.setItem('shygu-' + k, v); } catch {} },
+};
+
+function loginRole() {
+  return document.querySelector('input[name=role]:checked').value;
+}
+
+function updateLoginForm() {
+  const teacher = loginRole() === 'teacher';
+  $('class-field').hidden = !teacher;
+  $('login-class').required = teacher;
+  $('secret-label').textContent = teacher ? 'PIN-код' : 'Құпия сөз';
+  $('login-secret').inputMode = teacher ? 'numeric' : 'text';
+  $('login-secret').maxLength = teacher ? 6 : 100;
+  $('login-secret').value = '';
+  $('login-error').hidden = true;
+}
+
+async function loadClasses() {
+  const select = $('login-class');
+  try {
+    const { classes } = await new Promise((resolve, reject) =>
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).apiLoginOptions());
+    const saved = prefs.get('class');
+    select.replaceChildren(
+      h('option', { value: '' }, classes.length ? 'Сыныпты таңдаңыз' : 'Сыныптар әлі қосылмаған'),
+      ...classes.map((c) => h('option', { value: c, selected: c === saved }, c)));
+  } catch {
+    select.replaceChildren(h('option', { value: '' }, 'Жүктелмеді. Бетті жаңартыңыз.'));
+  }
+}
+
+document.querySelectorAll('input[name=role]').forEach((r) => r.addEventListener('change', updateLoginForm));
+
 function showLogin() {
   clearInterval(timer);
   state.user = null;
   $('app-view').hidden = true;
   $('login-view').hidden = false;
-  $('login-login').focus();
+  const savedRole = prefs.get('role');
+  if (savedRole && $('role-' + savedRole)) $('role-' + savedRole).checked = true;
+  updateLoginForm();
+  loadClasses();
+  $('login-secret').focus();
 }
 
 $('login-form').addEventListener('submit', async (e) => {
@@ -128,10 +169,12 @@ $('login-form').addEventListener('submit', async (e) => {
     btn.disabled = true;
     const res = await new Promise((resolve, reject) =>
       google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)
-        .apiLogin($('login-login').value, $('login-password').value)
+        .apiLogin(loginRole(), $('login-class').value, $('login-secret').value)
     ).finally(() => (btn.disabled = false));
     store.set(res.token);
-    $('login-password').value = '';
+    prefs.set('role', loginRole());
+    if (loginRole() === 'teacher') prefs.set('class', $('login-class').value);
+    $('login-secret').value = '';
     await start();
   } catch (ex) {
     err.textContent = String(ex.message || ex).replace(/^Error:\s*/, '');
@@ -146,7 +189,12 @@ $('btn-logout').addEventListener('click', async () => {
 });
 
 $('btn-password').addEventListener('click', () => {
+  const pin = state.user.role === 'teacher';
   $('password-form').reset();
+  $('pw-title').textContent = pin ? 'PIN-кодты ауыстыру' : 'Құпия сөзді ауыстыру';
+  $('pw-old-label').textContent = pin ? 'Ескі PIN-код' : 'Ескі құпия сөз';
+  $('pw-new-label').textContent = pin ? 'Жаңа PIN-код (4–6 сан)' : 'Жаңа құпия сөз (кемінде 6 таңба)';
+  $('pw-old').inputMode = $('pw-new').inputMode = pin ? 'numeric' : 'text';
   $('pw-error').hidden = true;
   $('password-dialog').showModal();
 });
@@ -156,7 +204,7 @@ $('password-form').addEventListener('submit', async (e) => {
   try {
     await call('apiChangePassword', $('pw-old').value, $('pw-new').value);
     $('password-dialog').close();
-    toast('Құпия сөз ауыстырылды');
+    toast(state.user.role === 'teacher' ? 'PIN-код ауыстырылды' : 'Құпия сөз ауыстырылды');
   } catch (ex) {
     $('pw-error').textContent = ex.message;
     $('pw-error').hidden = false;
@@ -173,7 +221,8 @@ async function start() {
   state.lastPending = null;
   $('login-view').hidden = true;
   $('app-view').hidden = false;
-  $('who-name').textContent = me.user.name;
+  $('who-name').textContent = me.user.className ? `${me.user.className} · ${me.user.name}` : me.user.name;
+  $('btn-password').textContent = me.user.role === 'teacher' ? 'PIN-код' : 'Құпия сөз';
   $('who-role').textContent = ROLE_NAMES[me.user.role];
   renderTabs();
   await renderPage();
@@ -270,7 +319,7 @@ function teacherPage() {
         h('input', { id: 'f-student', name: 'student', required: true, placeholder: 'Мысалы: Асанов Нұрлан' })),
       h('div', {},
         h('label', { for: 'f-class' }, 'Сыныбы'),
-        h('input', { id: 'f-class', name: 'className', required: true, value: state.user.className || '', placeholder: '10А' })),
+        h('input', { id: 'f-class', name: 'className', required: true, value: state.user.className || '', readonly: !!state.user.className, placeholder: '10А' })),
       h('div', {},
         h('label', { for: 'f-phone' }, 'Ата-анасының телефоны'),
         h('input', { id: 'f-phone', name: 'pickupPhone', type: 'tel', placeholder: '+7 7__ ___ __ __' })),
@@ -446,45 +495,46 @@ function usersPage() {
     h('h2', {}, 'Жаңа қолданушы қосу'),
     h('div', { class: 'form-grid' },
       h('div', { class: 'full' },
-        h('label', { for: 'u-name' }, 'Аты-жөні'),
-        h('input', { id: 'u-name', name: 'name', required: true, placeholder: 'Мысалы: Серікова Айгүл Қанатқызы' })),
-      h('div', {},
         h('label', { for: 'u-role' }, 'Рөлі'),
-        h('select', { id: 'u-role', name: 'role', onchange: (e) => ($('u-class-wrap').hidden = e.target.value !== 'teacher') },
+        h('select', { id: 'u-role', name: 'role', onchange: updateUserForm },
           Object.entries(ROLE_NAMES).map(([v, l]) => h('option', { value: v }, l)))),
       h('div', { id: 'u-class-wrap' },
         h('label', { for: 'u-class' }, 'Сыныбы'),
-        h('input', { id: 'u-class', name: 'className', placeholder: '10А' })),
-      h('div', {},
-        h('label', { for: 'u-login' }, 'Логин (латынша)'),
-        h('input', { id: 'u-login', name: 'login', required: true, autocapitalize: 'none', placeholder: '10a' })),
-      h('div', {},
-        h('label', { for: 'u-password' }, 'Құпия сөз'),
-        h('input', { id: 'u-password', name: 'password', required: true, minlength: '6' }))),
+        h('input', { id: 'u-class', name: 'className', required: true, placeholder: '10А' })),
+      h('div', { id: 'u-name-wrap' },
+        h('label', { for: 'u-name', id: 'u-name-label' }, 'Жетекшінің аты-жөні'),
+        h('input', { id: 'u-name', name: 'name', required: true, placeholder: 'Серікова Айгүл' })),
+      h('div', { id: 'u-secret-wrap' },
+        h('label', { for: 'u-password', id: 'u-password-label' }, 'PIN-код (4–6 сан)'),
+        h('input', { id: 'u-password', name: 'password', required: true, inputmode: 'numeric', pattern: '\\d{4,6}', maxlength: '6', placeholder: '1234' }))),
     h('p', { class: 'error', id: 'u-error', hidden: true }),
     h('div', {}, h('button', { class: 'btn btn-primary', type: 'submit' }, 'Қосу')));
+
+  const byClass = (a, b) => (parseInt(a.className, 10) - parseInt(b.className, 10)) || a.className.localeCompare(b.className, 'kk');
+  const order = { zavuch: 0, guard: 1, teacher: 2 };
+  const users = state.users.slice().sort((a, b) => (order[a.role] - order[b.role]) || (a.role === 'teacher' ? byClass(a, b) : 0));
 
   const table = h('div', { class: 'panel stack' },
     h('h2', {}, 'Барлық қолданушылар'),
     h('div', { class: 'table-wrap' },
       h('table', {},
-        h('thead', {}, h('tr', {}, ['Аты-жөні', 'Рөлі', 'Сынып', 'Логин', ''].map((t) => h('th', {}, t)))),
-        h('tbody', {}, state.users.map((u) => h('tr', {},
-          h('td', {}, u.name),
+        h('thead', {}, h('tr', {}, ['Рөлі', 'Сынып', 'Аты-жөні', ''].map((t) => h('th', {}, t)))),
+        h('tbody', {}, users.map((u) => h('tr', {},
           h('td', {}, ROLE_NAMES[u.role]),
           h('td', { class: 'mono' }, u.className || '—'),
-          h('td', { class: 'mono' }, u.login),
+          h('td', {}, u.name),
           h('td', {}, u.id === state.user.id ? h('span', { class: 'muted' }, 'сіз') : userActions(u))))))));
 
   return h('div', { class: 'stack', style: 'gap:1.25rem' },
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Қолданушылар'),
-      h('p', { class: 'muted' }, 'Сынып жетекшілері мен күзетшілерге логин беріңіз.'))),
+      h('p', { class: 'muted' }, 'Әр сыныпқа PIN-код, күзетшіге өз құпия сөзін беріңіз.'))),
     form, table);
 }
 
 function userActions(u) {
-  const pw = h('input', { placeholder: 'Жаңа құпия сөз', minlength: '6', style: 'width:10rem' });
+  const pin = u.role === 'teacher';
+  const pw = h('input', { placeholder: pin ? 'Жаңа PIN' : 'Жаңа құпия сөз', inputmode: pin ? 'numeric' : null, maxlength: pin ? '6' : null, style: 'width:10rem' });
   return h('div', { class: 'slip-actions' },
     pw,
     h('button', {
@@ -493,7 +543,7 @@ function userActions(u) {
         try {
           await call('apiResetPassword', u.id, pw.value);
           pw.value = '';
-          toast('Құпия сөз ауыстырылды');
+          toast(pin ? 'PIN-код ауыстырылды' : 'Құпия сөз ауыстырылды');
         } catch (ex) { toast(ex.message); }
       },
     }, 'Ауыстыру'),
@@ -514,6 +564,23 @@ function userActions(u) {
         } catch (ex) { toast(ex.message); }
       },
     }, 'Өшіру'));
+}
+
+function updateUserForm() {
+  const role = $('u-role').value;
+  const pin = role === 'teacher';
+  $('u-class-wrap').hidden = !pin;
+  $('u-class').required = pin;
+  $('u-name-label').textContent = pin ? 'Жетекшінің аты-жөні' : 'Аты-жөні';
+  $('u-name').placeholder = pin ? 'Серікова Айгүл' : role === 'guard' ? 'Бекжанов Ерлан' : 'Аты-жөні';
+  const pw = $('u-password');
+  $('u-password-label').textContent = pin ? 'PIN-код (4–6 сан)' : 'Құпия сөз (кемінде 6 таңба)';
+  pw.value = '';
+  pw.inputMode = pin ? 'numeric' : 'text';
+  pin ? pw.setAttribute('pattern', '\\d{4,6}') : pw.removeAttribute('pattern');
+  pw.maxLength = pin ? 6 : 100;
+  pw.minLength = pin ? 4 : 6;
+  pw.placeholder = pin ? '1234' : '';
 }
 
 async function addUser(e) {

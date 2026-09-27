@@ -19,10 +19,23 @@
           <p class="muted">Оқушыны сабақтан босату жүйесі</p>
         </div>
       </div>
-      <label for="login-login">Логин</label>
-      <input id="login-login" name="login" autocomplete="username" required autocapitalize="none">
-      <label for="login-password">Құпия сөз</label>
-      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      <span class="field-label" id="role-label">Кім ретінде кіресіз?</span>
+      <div class="segmented" role="radiogroup" aria-labelledby="role-label">
+        <input type="radio" name="role" id="role-teacher" value="teacher" checked>
+        <label for="role-teacher">Сынып жетекшісі</label>
+        <input type="radio" name="role" id="role-guard" value="guard">
+        <label for="role-guard">Күзетші</label>
+        <input type="radio" name="role" id="role-zavuch" value="zavuch">
+        <label for="role-zavuch">Завуч</label>
+      </div>
+      <div id="class-field" class="stack">
+        <label for="login-class">Сынып</label>
+        <select id="login-class">
+          <option value="">Жүктелуде…</option>
+        </select>
+      </div>
+      <label for="login-secret" id="secret-label">PIN-код</label>
+      <input id="login-secret" type="password" required autocomplete="current-password">
       <p id="login-error" class="error" hidden></p>
       <button class="btn btn-primary" type="submit">Кіру</button>
     </form>
@@ -51,11 +64,11 @@
   <!-- Құпия сөзді ауыстыру -->
   <dialog id="password-dialog">
     <form id="password-form" class="stack">
-      <h2>Құпия сөзді ауыстыру</h2>
-      <label for="pw-old">Ескі құпия сөз</label>
+      <h2 id="pw-title">Құпия сөзді ауыстыру</h2>
+      <label for="pw-old" id="pw-old-label">Ескі құпия сөз</label>
       <input id="pw-old" type="password" required autocomplete="current-password">
-      <label for="pw-new">Жаңа құпия сөз (кемінде 6 таңба)</label>
-      <input id="pw-new" type="password" required minlength="6" autocomplete="new-password">
+      <label for="pw-new" id="pw-new-label">Жаңа құпия сөз (кемінде 6 таңба)</label>
+      <input id="pw-new" type="password" required autocomplete="new-password">
       <p id="pw-error" class="error" hidden></p>
       <div class="row-end">
         <button class="btn btn-ghost" type="button" data-close>Болдырмау</button>

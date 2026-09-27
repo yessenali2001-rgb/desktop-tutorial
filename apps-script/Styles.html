@@ -122,6 +122,31 @@ textarea { resize: vertical; min-height: 3.5rem; }
 .login-card .brand { margin-bottom: 0.75rem; }
 .login-card .btn { margin-top: 0.5rem; }
 
+.field-label { font-weight: 600; font-size: 0.85rem; color: var(--muted); }
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 0.5rem;
+}
+.segmented input { position: absolute; opacity: 0; pointer-events: none; width: 1px; }
+.segmented label {
+  color: var(--ink);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 0.55rem 0.25rem;
+  border-radius: 7px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+.segmented input:checked + label { background: var(--accent); color: var(--accent-ink); }
+.segmented input:focus-visible + label { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); }
+#login-secret { font-size: 1.1rem; letter-spacing: 0.15em; }
+
 .brand { display: flex; align-items: center; gap: 0.75rem; }
 .brand-mark {
   display: grid;

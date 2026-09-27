@@ -8,7 +8,7 @@ var SESSION_DAYS = 30;
 var DEFAULT_ZAVUCH_PASSWORD = 'zavuch123';
 
 var USER_COLS = ['id', 'login', 'name', 'role', 'className', 'password'];
-var USER_HEADERS = ['ID', 'Логин', 'Аты-жөні', 'Рөлі', 'Сыныбы', 'Құпия сөз (хэш)'];
+var USER_HEADERS = ['ID', 'Кілт', 'Аты-жөні', 'Рөлі', 'Сыныбы', 'PIN / құпия сөз (хэш)'];
 
 var REQ_COLS = ['id', 'date', 'createdAt', 'teacherId', 'teacherName', 'student', 'className', 'reason', 'reasonNote',
   'destination', 'pickup', 'pickupPhone', 'status', 'decidedBy', 'decidedAt', 'decisionNote', 'leftAt', 'guardName'];
@@ -67,7 +67,7 @@ function setup() {
       className: '',
       password: hashPassword_(DEFAULT_ZAVUCH_PASSWORD),
     });
-    message = 'Дайын! Кіру: zavuch / ' + DEFAULT_ZAVUCH_PASSWORD + '. Кіргеннен кейін құпия сөзді бірден ауыстырыңыз.';
+    message = 'Дайын! Сайтқа «Завуч» ретінде кіріңіз, құпия сөз: ' + DEFAULT_ZAVUCH_PASSWORD + '. Кіргеннен кейін оны бірден ауыстырыңыз.';
   } else {
     message = 'Парақтар тексерілді. Қолданушылар бұрыннан бар.';
   }
@@ -158,6 +158,23 @@ function checkPassword_(password, stored) {
   return hashPassword_(password, salt) === stored;
 }
 
+// "10 а" → "10А"
+function normClass_(value) {
+  return str_(value, 20).replace(/\s+/g, '').toUpperCase();
+}
+
+function isPin_(value) {
+  return /^\d{4,6}$/.test(value);
+}
+
+function checkSecret_(role, secret) {
+  if (role === 'teacher') {
+    if (!isPin_(secret)) throw new Error('PIN-код 4–6 саннан тұрсын.');
+  } else if (secret.length < 6) {
+    throw new Error('Құпия сөз кемінде 6 таңба болсын.');
+  }
+}
+
 function publicUser_(u) {
   return { id: u.id, login: u.login, name: u.name, role: u.role, className: u.className };
 }
@@ -207,17 +224,35 @@ function dropSessions_(userId, exceptToken) {
 
 // ---------- API (бет google.script.run арқылы шақырады) ----------
 
-function apiLogin(login, password) {
-  login = str_(login, 40).toLowerCase();
-  var cache = CacheService.getScriptCache();
-  var attemptsKey = 'fail:' + login;
-  var attempts = Number(cache.get(attemptsKey) || 0);
-  if (attempts >= 10) throw new Error('Тым көп әрекет. 10 минуттан кейін қайталаңыз.');
+// Кіру беті үшін: сыныптардың тізімі (құпия ақпарат жоқ).
+function apiLoginOptions() {
+  var classes = readRows_(SHEET_USERS, USER_COLS)
+    .filter(function (u) { return u.role === 'teacher' && u.className; })
+    .map(function (u) { return u.className; });
+  classes.sort(function (a, b) {
+    return (parseInt(a, 10) - parseInt(b, 10)) || a.localeCompare(b, 'kk');
+  });
+  return { classes: classes };
+}
 
-  var user = readRows_(SHEET_USERS, USER_COLS).filter(function (u) { return u.login === login; })[0];
-  if (!user || !checkPassword_(str_(password), user.password)) {
+// Сынып жетекшісі: сынып + PIN. Күзетші мен завуч: рөлі + өз құпия сөзі.
+function apiLogin(role, className, secret) {
+  if (ROLES.indexOf(role) === -1) throw new Error('Кім ретінде кіретініңізді таңдаңыз.');
+  className = role === 'teacher' ? normClass_(className) : '';
+  secret = str_(secret);
+  if (role === 'teacher' && !className) throw new Error('Сыныпты таңдаңыз.');
+
+  var cache = CacheService.getScriptCache();
+  var attemptsKey = 'fail:' + role + ':' + className;
+  var attempts = Number(cache.get(attemptsKey) || 0);
+  if (attempts >= 10) throw new Error('Тым көп қате әрекет. 10 минуттан кейін қайталаңыз.');
+
+  var user = readRows_(SHEET_USERS, USER_COLS).filter(function (u) {
+    return u.role === role && (role !== 'teacher' || u.className === className) && checkPassword_(secret, u.password);
+  })[0];
+  if (!user) {
     cache.put(attemptsKey, String(attempts + 1), 600);
-    throw new Error('Логин немесе құпия сөз қате.');
+    throw new Error(role === 'teacher' ? 'PIN-код қате.' : 'Құпия сөз қате.');
   }
   var token = Utilities.getUuid() + Utilities.getUuid();
   withLock_(function () {
@@ -242,8 +277,10 @@ function apiLogout(token) {
 
 function apiChangePassword(token, oldPassword, newPassword) {
   var user = auth_(token);
-  if (!checkPassword_(str_(oldPassword), user.password)) throw new Error('Ескі құпия сөз қате.');
-  if (str_(newPassword).length < 6) throw new Error('Жаңа құпия сөз кемінде 6 таңба болсын.');
+  if (!checkPassword_(str_(oldPassword), user.password)) {
+    throw new Error(user.role === 'teacher' ? 'Ескі PIN-код қате.' : 'Ескі құпия сөз қате.');
+  }
+  checkSecret_(user.role, str_(newPassword));
   withLock_(function () {
     user.password = hashPassword_(str_(newPassword));
     writeRow_(SHEET_USERS, USER_COLS, user);
@@ -273,7 +310,7 @@ function apiCreateRequest(token, b) {
     teacherId: user.id,
     teacherName: user.name,
     student: str_(b.student, 100),
-    className: str_(b.className, 20) || user.className,
+    className: user.className || normClass_(b.className),
     reason: str_(b.reason, 60),
     reasonNote: str_(b.reasonNote, 300),
     destination: str_(b.destination, 60),
@@ -330,21 +367,26 @@ function apiListUsers(token) {
 function apiAddUser(token, b) {
   auth_(token, ['zavuch']);
   b = b || {};
-  var login = str_(b.login, 40).toLowerCase();
   var role = ROLES.indexOf(b.role) >= 0 ? b.role : '';
-  if (!/^[a-z0-9._-]{2,40}$/.test(login)) throw new Error('Логин тек латын әріптері мен сандардан тұрсын.');
+  var className = role === 'teacher' ? normClass_(b.className) : '';
   if (!role || !str_(b.name)) throw new Error('Аты-жөні мен рөлін толтырыңыз.');
-  if (str_(b.password).length < 6) throw new Error('Құпия сөз кемінде 6 таңба болсын.');
+  if (role === 'teacher' && !className) throw new Error('Сыныбын жазыңыз, мысалы 10А.');
+  checkSecret_(role, str_(b.password));
   return withLock_(function () {
-    if (readRows_(SHEET_USERS, USER_COLS).some(function (u) { return u.login === login; })) {
-      throw new Error('Мұндай логин бар.');
+    var users = readRows_(SHEET_USERS, USER_COLS);
+    if (role === 'teacher' && users.some(function (u) { return u.role === 'teacher' && u.className === className; })) {
+      throw new Error(className + ' сыныбы бұрыннан бар.');
     }
+    var secretTaken = role !== 'teacher' && users.some(function (u) {
+      return u.role === role && checkPassword_(str_(b.password), u.password);
+    });
+    if (secretTaken) throw new Error('Бұл құпия сөз бос емес. Басқасын ойлап табыңыз.');
     var u = {
       id: Utilities.getUuid(),
-      login: login,
+      login: role === 'teacher' ? 'class:' + className : role + ':' + Utilities.getUuid().slice(0, 8),
       name: str_(b.name, 100),
       role: role,
-      className: role === 'teacher' ? str_(b.className, 20) : '',
+      className: className,
       password: hashPassword_(str_(b.password)),
     };
     appendRow_(SHEET_USERS, USER_COLS, u);
@@ -354,10 +396,10 @@ function apiAddUser(token, b) {
 
 function apiResetPassword(token, userId, password) {
   auth_(token, ['zavuch']);
-  if (str_(password).length < 6) throw new Error('Құпия сөз кемінде 6 таңба болсын.');
   withLock_(function () {
     var u = readRows_(SHEET_USERS, USER_COLS).filter(function (x) { return x.id === userId; })[0];
     if (!u) throw new Error('Қолданушы табылмады.');
+    checkSecret_(u.role, str_(password));
     u.password = hashPassword_(str_(password));
     writeRow_(SHEET_USERS, USER_COLS, u);
     dropSessions_(u.id);
