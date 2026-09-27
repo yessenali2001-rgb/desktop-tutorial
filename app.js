@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'family-budget-v1';
+const SHEET_KEY = 'family-budget-sheet';
 const CURRENCY = '₸'; // поменяйте на '₽', '$', '€' и т.д.
 
 const DEFAULT_STATE = {
@@ -7,33 +8,227 @@ const DEFAULT_STATE = {
   incomeCategories: ['Зарплата', 'Подработка', 'Подарки', 'Прочее'],
   limits: {},
   monthlyBudget: 0,
-  sheet: 'all', // 'all' — вся семья, иначе имя члена семьи
   transactions: [],
 };
 
+const SETTINGS_KEYS = ['members', 'expenseCategories', 'incomeCategories', 'limits', 'monthlyBudget'];
+
 let state = load();
+let sheet = loadSheet(); // 'all' — вся семья, иначе имя члена семьи; у каждого своя вкладка
 let currentMonth = monthKey(new Date());
 
 const $ = (id) => document.getElementById(id);
 const money = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const fmt = (n) => money.format(n) + ' ' + CURRENCY;
 
+function normalize(data) {
+  const out = structuredClone(DEFAULT_STATE);
+  for (const key of ['members', 'expenseCategories', 'incomeCategories']) {
+    if (Array.isArray(data?.[key]) && data[key].length) out[key] = data[key].filter((x) => typeof x === 'string');
+  }
+  if (data?.limits && typeof data.limits === 'object') {
+    for (const [c, v] of Object.entries(data.limits)) if (v > 0) out.limits[c] = Number(v);
+  }
+  if (data?.monthlyBudget > 0) out.monthlyBudget = Number(data.monthlyBudget);
+  if (Array.isArray(data?.transactions)) out.transactions = data.transactions.filter(isValidTx);
+  return out;
+}
+
+function isValidTx(t) {
+  return t && typeof t.id === 'string' && (t.type === 'income' || t.type === 'expense')
+    && typeof t.amount === 'number' && t.amount > 0 && /^\d{4}-\d{2}-\d{2}$/.test(t.date)
+    && typeof t.category === 'string' && typeof t.member === 'string';
+}
+
 function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...structuredClone(DEFAULT_STATE), ...JSON.parse(raw) };
+    if (raw) return normalize(JSON.parse(raw));
   } catch (e) {
     console.warn('Не удалось прочитать данные', e);
   }
   return structuredClone(DEFAULT_STATE);
 }
 
-function save() {
+function loadSheet() {
+  try {
+    return localStorage.getItem(SHEET_KEY) || JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').sheet || 'all';
+  } catch {
+    return 'all';
+  }
+}
+
+function saveSheet() {
+  try { localStorage.setItem(SHEET_KEY, sheet); } catch { /* вкладка просто не запомнится */ }
+}
+
+function saveLocal() {
+  if (db) return; // в общем режиме данные живут в общей базе
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     notify('Не удалось сохранить данные в этом браузере.');
   }
+}
+
+// ---------- Общая база ----------
+// На claude.ai страница подключается к общей базе: все, кому открыт доступ, видят одни и те же записи.
+// Операции хранятся по месяцам (months/2026-09 → items{id: операция}), настройки — в budget/settings.
+// Вне claude.ai (файл на компьютере, GitHub Pages) всё хранится в localStorage этого браузера.
+
+let db = null;
+let canWrite = true;
+let settingsExist = false;
+let knownMonths = new Set();
+let settingsLoaded = false;
+let monthsLoaded = false;
+let localCopy = null; // данные этого браузера — можно перенести в общий бюджет
+let pendingSettings = null;
+let settingsTimer;
+const writeQueues = {};
+
+function settingsOf(s) {
+  return Object.fromEntries(SETTINGS_KEYS.map((k) => [k, s[k]]));
+}
+
+function setStatus(text, kind = '') {
+  $('syncStatus').textContent = text;
+  $('syncStatus').className = 'sync ' + kind;
+  $('syncStatus').hidden = !text;
+}
+
+function onWriteError(e) {
+  const messages = {
+    invalid_argument: 'Не удалось сохранить. Похоже, у вас доступ только на просмотр: попросите владельца дать права «Contributor».',
+    quota_exceeded: 'Общая база заполнена. Удалите старые операции, чтобы добавлять новые.',
+    resource_exhausted: 'Слишком много изменений подряд. Подождите немного и повторите.',
+  };
+  notify(messages[e?.code] || 'Не удалось сохранить изменения. Проверьте интернет и повторите.');
+}
+
+// Записи в один документ идут строго по очереди.
+function enqueue(path, write) {
+  const run = () => write(db.doc(path)).catch(onWriteError);
+  writeQueues[path] = (writeQueues[path] || Promise.resolve()).then(run);
+  return writeQueues[path];
+}
+
+function applySettings(patch) {
+  for (const [k, v] of Object.entries(patch)) {
+    if (k !== 'limits') { state[k] = v; continue; }
+    for (const [c, x] of Object.entries(v)) {
+      if (x > 0) state.limits[c] = x;
+      else delete state.limits[c];
+    }
+  }
+}
+
+// Меняем только переданные поля, чтобы не затереть одновременные правки других.
+// delay склеивает быстрый ввод (бюджет, лимиты) в одну запись.
+function setSettings(patch, delay = 0) {
+  applySettings(patch);
+  if (!db) return saveLocal();
+  const merged = { ...pendingSettings, ...patch };
+  if (pendingSettings?.limits && patch.limits) merged.limits = { ...pendingSettings.limits, ...patch.limits };
+  pendingSettings = merged;
+  clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(flushSettings, delay);
+}
+
+function flushSettings() {
+  const patch = pendingSettings;
+  pendingSettings = null;
+  if (!patch) return;
+  enqueue('budget/settings', (ref) => (settingsExist ? ref.update(patch) : ref.set(settingsOf(state))));
+}
+
+function addTx(tx) {
+  state.transactions.push(tx);
+  if (!db) return saveLocal();
+  const month = tx.date.slice(0, 7);
+  enqueue('months/' + month, async (ref) => {
+    try {
+      await ref.update({ items: { [tx.id]: tx } });
+    } catch (e) {
+      // update требует существующий документ: первая операция месяца создаёт его
+      if (e?.code !== 'invalid_argument' || knownMonths.has(month)) throw e;
+      await ref.set({ items: { [tx.id]: tx } });
+    }
+  });
+}
+
+function deleteTx(tx) {
+  state.transactions = state.transactions.filter((x) => x.id !== tx.id);
+  if (!db) return saveLocal();
+  enqueue('months/' + tx.date.slice(0, 7), (ref) => ref.update({ items: { [tx.id]: null } }));
+}
+
+async function replaceAll(data) {
+  state = normalize(data);
+  render();
+  if (!db) return saveLocal();
+  const byMonth = {};
+  for (const t of state.transactions) (byMonth[t.date.slice(0, 7)] ??= {})[t.id] = t;
+  const months = new Set([...knownMonths, ...Object.keys(byMonth)]);
+  await Promise.all([
+    enqueue('budget/settings', (ref) => ref.set(settingsOf(state))),
+    ...[...months].map((m) => enqueue('months/' + m, (ref) => (byMonth[m] ? ref.set({ items: byMonth[m] }) : ref.delete()))),
+  ]);
+}
+
+function hasLocalData(s) {
+  return s && (s.transactions.length > 0 || s.members.length > 1 || s.monthlyBudget > 0);
+}
+
+function renderMigration() {
+  const show = Boolean(db && canWrite && settingsLoaded && monthsLoaded && !settingsExist
+    && knownMonths.size === 0 && hasLocalData(localCopy));
+  $('migrateBanner').hidden = !show;
+  if (show) {
+    $('migrateText').textContent = `В этом браузере сохранены ваши прежние записи (операций: ${localCopy.transactions.length}). `
+      + 'Перенести их в общий бюджет, чтобы их увидела вся семья?';
+  }
+}
+
+function onSubscribeError() {
+  setStatus('Нет связи с общим бюджетом', 'bad');
+}
+
+async function connectShared() {
+  if (!window.claude?.use) return;
+  const shared = await window.claude.use('db');
+  if (!shared) return;
+
+  db = shared;
+  localCopy = state;
+  state = structuredClone(DEFAULT_STATE);
+  setStatus('Подключаемся…');
+  render();
+
+  const user = await window.claude.use('user');
+  if (user && (await user.can('data.write')) === false) {
+    canWrite = false;
+    document.body.classList.add('read-only');
+  }
+
+  db.doc('budget/settings').onSnapshot((snap) => {
+    settingsExist = snap.exists;
+    Object.assign(state, settingsOf(normalize(snap.exists ? structuredClone(snap.data()) : {})));
+    if (pendingSettings) applySettings(pendingSettings); // ещё не отправленный ввод
+    if (!snap.metadata.fromCache) settingsLoaded = true;
+    render();
+  }, onSubscribeError);
+
+  db.collection('months').onSnapshot((snap) => {
+    knownMonths = new Set(snap.docs.map((d) => d.id));
+    state.transactions = snap.docs
+      .flatMap((d) => Object.values(d.data()?.items || {}))
+      .filter(isValidTx)
+      .map((t) => ({ ...t }));
+    if (!snap.metadata.fromCache) monthsLoaded = true;
+    setStatus(canWrite ? 'Общий бюджет семьи' : 'Только просмотр', canWrite ? 'ok' : '');
+    render();
+  }, onSubscribeError);
 }
 
 function monthKey(date) {
@@ -110,10 +305,11 @@ function render({ settings = true } = {}) {
   const [y, m] = currentMonth.split('-').map(Number);
   $('monthLabel').textContent = new Date(y, m - 1, 1).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' });
 
-  if (state.sheet !== 'all' && !state.members.includes(state.sheet)) state.sheet = 'all';
-  const onMemberSheet = state.sheet !== 'all';
+  // пока общая база не загрузилась, список членов семьи ещё неполный
+  if (sheet !== 'all' && !state.members.includes(sheet) && (!db || settingsLoaded)) sheet = 'all';
+  const onMemberSheet = sheet !== 'all';
   const monthTx = state.transactions.filter(
-    (t) => t.date.startsWith(currentMonth) && (!onMemberSheet || t.member === state.sheet)
+    (t) => t.date.startsWith(currentMonth) && (!onMemberSheet || t.member === sheet)
   );
   const income = monthTx.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
   const expense = monthTx.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
@@ -135,7 +331,9 @@ function render({ settings = true } = {}) {
   renderCategoryChart(monthTx);
   renderMemberChart(monthTx);
   renderTxList(monthTx);
-  if (settings) renderSettings();
+  // снимок из общей базы не должен пересоздавать поле, в котором сейчас печатают
+  if (settings && !$('limitList').contains(document.activeElement)) renderSettings();
+  renderMigration();
 }
 
 function renderBudget(spent) {
@@ -179,10 +377,10 @@ function renderBudget(spent) {
 function renderTabs() {
   const sheets = [['all', '👨‍👩‍👧 Вся семья'], ...state.members.map((m) => [m, m])];
   $('tabs').replaceChildren(...sheets.map(([value, label]) => {
-    const tab = el('button', { className: 'tab' + (state.sheet === value ? ' active' : ''), textContent: label });
+    const tab = el('button', { className: 'tab' + (sheet === value ? ' active' : ''), textContent: label });
     tab.addEventListener('click', () => {
-      state.sheet = value;
-      save();
+      sheet = value;
+      saveSheet();
       render();
     });
     return tab;
@@ -193,7 +391,7 @@ function renderFormSelects() {
   const type = document.querySelector('input[name="type"]:checked').value;
   const cats = type === 'income' ? state.incomeCategories : state.expenseCategories;
   fillSelect($('category'), cats.map((c) => [c, c]), $('category').value);
-  fillSelect($('member'), state.members.map((m) => [m, m]), state.sheet !== 'all' ? state.sheet : $('member').value);
+  fillSelect($('member'), state.members.map((m) => [m, m]), sheet !== 'all' ? sheet : $('member').value);
   fillSelect(
     $('filterMember'),
     [['all', 'Все члены семьи'], ...state.members.map((m) => [m, m])],
@@ -218,7 +416,7 @@ function sumBy(txs, key) {
 function renderCategoryChart(monthTx) {
   const byCat = sumBy(monthTx.filter((t) => t.type === 'expense'), 'category');
   // лимиты общие на семью, поэтому показываем их только на листе «Вся семья»
-  const limits = state.sheet === 'all' ? state.limits : {};
+  const limits = sheet === 'all' ? state.limits : {};
   const cats = [...new Set([...Object.keys(byCat), ...Object.keys(limits).filter((c) => limits[c] > 0)])];
   const max = Math.max(1, ...cats.map((c) => Math.max(byCat[c] || 0, limits[c] || 0)));
 
@@ -259,8 +457,7 @@ function renderTxList(monthTx) {
     const del = el('button', { className: 'del-btn', textContent: '✕', title: 'Удалить' });
     del.addEventListener('click', async () => {
       if (!(await ask('Удалить эту операцию?'))) return;
-      state.transactions = state.transactions.filter((x) => x.id !== t.id);
-      save();
+      deleteTx(t);
       render();
     });
     return el('li', {},
@@ -283,8 +480,7 @@ function renderSettings() {
     btn.addEventListener('click', async () => {
       if (state.members.length <= 1) return notify('Должен остаться хотя бы один член семьи.');
       if (!(await ask(`Удалить «${m}» и его лист? Операции останутся на листе «Вся семья».`))) return;
-      state.members = state.members.filter((x) => x !== m);
-      save();
+      setSettings({ members: state.members.filter((x) => x !== m) });
       render();
     });
     return el('li', {}, el('span', { textContent: m }), btn);
@@ -294,9 +490,7 @@ function renderSettings() {
     const input = el('input', { type: 'number', min: '0', step: '100', placeholder: 'Без лимита', value: state.limits[c] || '' });
     input.addEventListener('input', () => {
       const v = parseFloat(input.value);
-      if (v > 0) state.limits[c] = v;
-      else delete state.limits[c];
-      save();
+      setSettings({ limits: { [c]: v > 0 ? v : 0 } }, 800);
       // не перерисовываем настройки, иначе поле ввода удаляется, пока в фокусе
       render({ settings: false });
     });
@@ -304,9 +498,7 @@ function renderSettings() {
     del.addEventListener('click', async () => {
       if (state.expenseCategories.length <= 1) return notify('Должна остаться хотя бы одна категория.');
       if (!(await ask(`Удалить категорию «${c}»? Операции останутся.`))) return;
-      state.expenseCategories = state.expenseCategories.filter((x) => x !== c);
-      delete state.limits[c];
-      save();
+      setSettings({ expenseCategories: state.expenseCategories.filter((x) => x !== c), limits: { [c]: 0 } });
       render();
     });
     return el('div', { className: 'limit-row' }, el('span', { textContent: c }), input, del);
@@ -323,8 +515,7 @@ $('filterType').addEventListener('change', render);
 
 $('budgetInput').addEventListener('input', () => {
   const v = parseFloat($('budgetInput').value);
-  state.monthlyBudget = v > 0 ? v : 0;
-  save();
+  setSettings({ monthlyBudget: v > 0 ? v : 0 }, 800);
   render({ settings: false });
 });
 $('filterMember').addEventListener('change', render);
@@ -342,8 +533,7 @@ $('txForm').addEventListener('submit', (e) => {
     date: $('date').value,
     note: $('note').value.trim(),
   };
-  state.transactions.push(tx);
-  save();
+  addTx(tx);
   currentMonth = tx.date.slice(0, 7);
   $('amount').value = '';
   $('note').value = '';
@@ -355,8 +545,7 @@ $('memberForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const name = $('memberName').value.trim();
   if (name && !state.members.includes(name)) {
-    state.members.push(name);
-    save();
+    setSettings({ members: [...state.members, name] });
     render();
   }
   $('memberName').value = '';
@@ -366,8 +555,7 @@ $('categoryForm').addEventListener('submit', (e) => {
   e.preventDefault();
   const name = $('categoryName').value.trim();
   if (name && !state.expenseCategories.includes(name)) {
-    state.expenseCategories.push(name);
-    save();
+    setSettings({ expenseCategories: [...state.expenseCategories, name] });
     render();
   }
   $('categoryName').value = '';
@@ -391,9 +579,7 @@ async function copyText(text) {
 function importData(json) {
   const data = JSON.parse(json);
   if (!data || !Array.isArray(data.transactions)) throw new Error('bad format');
-  state = { ...structuredClone(DEFAULT_STATE), ...data };
-  save();
-  render();
+  replaceAll(data);
   notify(`Загружено операций: ${state.transactions.length}.`);
 }
 
@@ -441,10 +627,16 @@ $('importInput').addEventListener('change', async (e) => {
 
 $('resetBtn').addEventListener('click', async () => {
   if (!(await ask('Удалить все операции и настройки? Это нельзя отменить.', 'Удалить всё'))) return;
-  state = structuredClone(DEFAULT_STATE);
-  save();
-  render();
+  replaceAll(DEFAULT_STATE);
+});
+
+$('migrateBtn').addEventListener('click', async () => {
+  const data = localCopy;
+  localCopy = null;
+  await replaceAll(data);
+  notify('Записи перенесены в общий бюджет.');
 });
 
 $('date').value = todayISO();
 render();
+connectShared();

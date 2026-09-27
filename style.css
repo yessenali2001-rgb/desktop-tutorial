@@ -57,6 +57,14 @@ h3 { font-size: .95rem; margin: 0 0 8px; color: var(--muted); font-weight: 600; 
   display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
   padding: 16px; background: var(--panel); border-bottom: 1px solid var(--border);
 }
+.sync {
+  font-size: .8rem; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border); color: var(--muted);
+}
+.sync.ok { color: var(--income); border-color: currentColor; }
+.sync.bad { color: var(--expense); border-color: currentColor; }
+.banner { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-color: var(--accent); }
+.banner p { margin: 0; flex: 1 1 260px; }
+.read-only .editable, .read-only .del-btn, .read-only #budgetInput { display: none; }
 .month-nav { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 #monthLabel { min-width: 140px; text-align: center; text-transform: capitalize; }
 

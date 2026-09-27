@@ -14,11 +14,16 @@
       <span id="monthLabel"></span>
       <button id="nextMonth" class="icon-btn" aria-label="Следующий месяц">›</button>
     </div>
+    <span id="syncStatus" class="sync" hidden></span>
   </header>
 
   <nav id="tabs" class="tabs" aria-label="Листы"></nav>
 
   <main>
+    <section id="migrateBanner" class="panel banner" hidden>
+      <p id="migrateText"></p>
+      <button id="migrateBtn" class="primary">Перенести</button>
+    </section>
     <section class="cards">
       <div class="card"><div class="card-label">Доходы</div><div id="totalIncome" class="card-value income">0</div></div>
       <div class="card"><div class="card-label">Расходы</div><div id="totalExpense" class="card-value expense">0</div></div>
@@ -33,7 +38,7 @@
       <div id="budgetBody"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel editable">
       <h2>Добавить операцию</h2>
       <form id="txForm" class="tx-form">
         <div class="type-toggle">
@@ -77,7 +82,7 @@
       <p id="emptyMsg" class="muted">Операций за этот месяц пока нет.</p>
     </section>
 
-    <section class="panel">
+    <section class="panel editable">
       <h2>Настройки</h2>
       <div class="grid">
         <div>
