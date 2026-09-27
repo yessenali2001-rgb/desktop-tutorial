@@ -246,6 +246,7 @@ async function start() {
   state.date = me.today;
   state.tab = 'requests';
   state.lastPending = null;
+  state.students = null;
   $('login-view').hidden = true;
   $('app-view').hidden = false;
   $('who-name').textContent = me.user.className ? `${me.user.className} · ${me.user.name}` : me.user.name;
@@ -284,7 +285,10 @@ async function renderPage() {
   }
   await loadRequests();
   const role = state.user.role;
-  if (role === 'teacher') content.replaceChildren(teacherPage());
+  if (role === 'teacher') {
+    if (!state.students) state.students = await call('apiStudents').catch(() => []);
+    content.replaceChildren(teacherPage());
+  }
   else if (role === 'zavuch') content.replaceChildren(zavuchPage());
   else content.replaceChildren(guardPage());
   renderList();
@@ -338,14 +342,39 @@ function chipGroup(name, options, required) {
     ]));
 }
 
+const OTHER_STUDENT = '__other';
+
+// Оқушыны сынып тізімінен таңдау. Тізімде жоқ болса, қолмен жазуға болады.
+function studentField() {
+  const names = state.students || [];
+  const input = h('input', { id: 'f-student', name: 'student', required: !names.length, hidden: !!names.length, placeholder: 'Аты-жөнін жазыңыз' });
+  if (!names.length) {
+    return h('div', { class: 'full' }, h('label', { for: 'f-student' }, 'Оқушының аты-жөні'), input);
+  }
+  const select = h('select', { id: 'f-student-select', required: true, onchange: syncStudentField },
+    h('option', { value: '' }, `Оқушыны таңдаңыз (${names.length})`),
+    names.map((n) => h('option', { value: n }, n)),
+    h('option', { value: OTHER_STUDENT }, 'Тізімде жоқ оқушы…'));
+  return h('div', { class: 'full stack' }, h('label', { for: 'f-student-select' }, 'Оқушы'), select, input);
+}
+
+function syncStudentField() {
+  const select = $('f-student-select');
+  const input = $('f-student');
+  if (!select) return;
+  const other = select.value === OTHER_STUDENT;
+  input.hidden = !other;
+  input.required = other;
+  input.value = other ? '' : select.value;
+  if (other) input.focus();
+}
+
 function teacherPage() {
   const form = h('form', { class: 'panel stack', id: 'request-form', onsubmit: submitRequest },
     h('h2', {}, 'Жаңа өтінім'),
     h('p', { class: 'muted' }, 'Толтырып жіберіңіз — завуч бірден көреді.'),
     h('div', { class: 'form-grid' },
-      h('div', { class: 'full' },
-        h('label', { for: 'f-student' }, 'Оқушының аты-жөні'),
-        h('input', { id: 'f-student', name: 'student', required: true, placeholder: 'Мысалы: Асанов Нұрлан' })),
+      studentField(),
       h('div', {},
         h('label', { for: 'f-class' }, 'Сыныбы'),
         h('input', { id: 'f-class', name: 'className', required: true, value: state.user.className || '', readonly: !!state.user.className, placeholder: '10А' })),
@@ -381,6 +410,7 @@ async function submitRequest(e) {
     const cls = fd.get('className');
     form.reset();
     $('f-class').value = cls;
+    syncStudentField();
     toast('Өтінім завучқа жіберілді');
     await loadRequests();
     renderList();
@@ -547,11 +577,12 @@ function usersPage() {
     h('h2', {}, 'Барлық қолданушылар'),
     h('div', { class: 'table-wrap' },
       h('table', {},
-        h('thead', {}, h('tr', {}, ['Рөлі', 'Сынып', 'Аты-жөні', ''].map((t) => h('th', {}, t)))),
+        h('thead', {}, h('tr', {}, ['Рөлі', 'Сынып', 'Аты-жөні', 'Оқушылар', ''].map((t) => h('th', {}, t)))),
         h('tbody', {}, users.map((u) => h('tr', {},
           h('td', {}, ROLE_NAMES[u.role]),
           h('td', { class: 'mono' }, u.className || '—'),
           h('td', {}, u.name),
+          h('td', { class: 'mono' }, u.role === 'teacher' ? (u.studentCount || h('span', { class: 'error' }, 'тізім жоқ')) : '—'),
           h('td', {}, u.id === state.user.id ? h('span', { class: 'muted' }, 'сіз') : userActions(u))))))));
 
   return h('div', { class: 'stack', style: 'gap:1.25rem' },

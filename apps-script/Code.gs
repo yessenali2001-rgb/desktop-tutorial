@@ -4,6 +4,7 @@
 var SHEET_USERS = 'Қолданушылар';
 var SHEET_REQUESTS = 'Өтінімдер';
 var SHEET_SESSIONS = 'Сессиялар';
+var SHEET_STUDENTS = 'Оқушылар';
 var SESSION_DAYS = 30;
 var DEFAULT_ZAVUCH_PASSWORD = 'zavuch123';
 
@@ -23,6 +24,8 @@ var REQ_HEADERS = ['ID', 'Күні', 'Жіберілді', 'Жетекші ID', 
   'Қайда', 'Кім алып кетеді', 'Телефон', 'Күйі', 'Шешім қабылдаған', 'Шешім уақыты', 'Завуч ескертпесі', 'Шыққан уақыты', 'Күзетші'];
 
 var SESSION_COLS = ['token', 'userId', 'expires'];
+var STUDENT_COLS = ['className', 'name'];
+var STUDENT_HEADERS = ['Сынып', 'Оқушының аты-жөні'];
 
 var ROLES = ['teacher', 'zavuch', 'guard'];
 var ROLE_LABELS = { teacher: 'Сынып жетекшісі', zavuch: 'Завуч', guard: 'Күзетші' };
@@ -66,6 +69,7 @@ function setup() {
   var ss = SpreadsheetApp.getActive();
   prepareSheet_(ss, SHEET_USERS, USER_HEADERS);
   prepareSheet_(ss, SHEET_REQUESTS, REQ_HEADERS);
+  prepareSheet_(ss, SHEET_STUDENTS, STUDENT_HEADERS);
   prepareSheet_(ss, SHEET_SESSIONS, ['Токен', 'Қолданушы ID', 'Мерзімі']);
   ss.getSheetByName(SHEET_SESSIONS).hideSheet();
 
@@ -373,7 +377,35 @@ function apiRequestAction(token, id, verb, note) {
 
 function apiListUsers(token) {
   auth_(token, ['zavuch']);
-  return readRows_(SHEET_USERS, USER_COLS).map(publicUser_);
+  var counts = {};
+  readStudents_().forEach(function (s) { counts[s.className] = (counts[s.className] || 0) + 1; });
+  return readRows_(SHEET_USERS, USER_COLS).map(function (u) {
+    var out = publicUser_(u);
+    if (u.role === 'teacher') out.studentCount = counts[u.className] || 0;
+    return out;
+  });
+}
+
+// ---------- Оқушылар тізімі ----------
+
+// «Оқушылар» парағы: A бағаны — сынып (10А), B бағаны — аты-жөні.
+// Парақ жоқ болса, бос тізім қайтарамыз: сайт қолмен жазуға мүмкіндік береді.
+function readStudents_() {
+  if (!SpreadsheetApp.getActive().getSheetByName(SHEET_STUDENTS)) return [];
+  return readRows_(SHEET_STUDENTS, STUDENT_COLS)
+    .map(function (s) {
+      return { className: normClass_(s.className), name: String(s.name).replace(/\s+/g, ' ').trim() };
+    })
+    .filter(function (s) { return s.className && s.name; });
+}
+
+// Сынып жетекшісіне өз сыныбының оқушылары
+function apiStudents(token) {
+  var user = auth_(token, ['teacher']);
+  return readStudents_()
+    .filter(function (s) { return s.className === user.className; })
+    .map(function (s) { return s.name; })
+    .sort(function (a, b) { return a.localeCompare(b, 'kk'); });
 }
 
 function apiAddUser(token, b) {
