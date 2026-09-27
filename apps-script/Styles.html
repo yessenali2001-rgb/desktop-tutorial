@@ -1,14 +1,20 @@
 <style>
 :root {
-  --bg: #eef2f5;
+  /* Брендбук: қою көк #111233, құм түсті #CAB391 */
+  --navy: #111233;
+  --sand: #cab391;
+  --bg: #f3f2ef;
   --surface: #ffffff;
-  --surface-2: #f5f8fa;
-  --ink: #142634;
-  --muted: #5b6b78;
-  --line: #d6dee5;
-  --accent: #12507a;
+  --surface-2: #f7f5f1;
+  --ink: #111233;
+  --muted: #5d5e73;
+  --line: #e2ded6;
+  --accent: #111233;
   --accent-ink: #ffffff;
-  --gold: #f2b632;
+  --gold: #cab391;
+  --bar-bg: #111233;
+  --bar-ink: #ffffff;
+  --bar-muted: #cab391;
   --pending: #a86a00;
   --pending-bg: #fff3d6;
   --ok: #1d7a46;
@@ -18,21 +24,23 @@
   --left: #3d5566;
   --left-bg: #e3eaef;
   --radius: 10px;
-  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  /* Брендбук қарпі SF Pro Display: Apple құрылғыларында бар, басқаларында Inter */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI", Roboto, Arial, sans-serif;
+  --mono: var(--font);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0f1a22;
-    --surface: #16242f;
-    --surface-2: #1b2c39;
-    --ink: #e5edf3;
-    --muted: #93a5b3;
-    --line: #2a3d4c;
-    --accent: #5aa7db;
-    --accent-ink: #0b1a24;
+    --bg: #0b0c20;
+    --surface: #16173a;
+    --surface-2: #1d1e45;
+    --ink: #eeeaf2;
+    --muted: #a3a2bb;
+    --line: #2c2d57;
+    --accent: #cab391;
+    --accent-ink: #111233;
+    --bar-bg: #16173a;
     --pending: #f2c25a;
     --pending-bg: #3a2e12;
     --ok: #6fd39b;
@@ -59,7 +67,7 @@ h1 { font-size: 1.5rem; }
 h2 { font-size: 1.15rem; }
 h3 { font-size: 1rem; }
 .muted { color: var(--muted); margin: 0; }
-.mono, time { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.mono, time { font-variant-numeric: tabular-nums; }
 
 /* ---------- Кнопкалар мен өрістер ---------- */
 .btn {
@@ -162,24 +170,16 @@ textarea { resize: vertical; min-height: 3.5rem; }
 .school-short { font-size: 0.75rem; color: var(--muted); font-weight: 500; }
 
 .brand { display: flex; align-items: center; gap: 0.75rem; }
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: #12507a;
-  color: var(--gold);
-  font-weight: 700;
-  font-size: 1.4rem;
-  flex: none;
-}
-.brand.small .brand-mark { width: 32px; height: 32px; font-size: 1rem; border-radius: 8px; }
+.brand-logo { width: 56px; height: 56px; flex: none; display: block; }
+.brand.small .brand-logo { width: 38px; height: 38px; }
+.login-card .brand { flex-direction: column; text-align: center; gap: 0.6rem; }
+.login-card .brand-logo { width: 88px; height: 88px; }
 
 /* ---------- Жоғарғы жолақ ---------- */
 .topbar {
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  background: var(--bar-bg);
+  color: var(--bar-ink);
+  border-bottom: 3px solid var(--sand);
   position: sticky;
   top: 0;
   z-index: 5;
@@ -199,20 +199,28 @@ textarea { resize: vertical; min-height: 3.5rem; }
   font-weight: 600;
   border: 0;
   background: transparent;
-  color: var(--muted);
+  color: color-mix(in srgb, var(--bar-ink) 70%, transparent);
   padding: 0.45rem 0.8rem;
   border-radius: 8px;
   cursor: pointer;
 }
-.tabs button[aria-current="page"] { background: var(--surface-2); color: var(--ink); }
-.who { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.tabs button[aria-current="page"] { background: color-mix(in srgb, var(--bar-ink) 12%, transparent); color: var(--bar-ink); box-shadow: inset 0 -2px 0 var(--sand); }
+.topbar .school-short { color: var(--bar-muted); }
+.topbar .btn-ghost { color: var(--bar-ink); border-color: color-mix(in srgb, var(--bar-ink) 30%, transparent); }
+.who { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-left: auto; }
+@media (max-width: 600px) {
+  .topbar-inner { gap: 0.5rem 1rem; padding-block: 8px; }
+  .topbar .school-short { display: none; }
+  .who { margin-left: 0; width: 100%; }
+  .who #who-name { flex: 1; min-width: 0; }
+}
 .role-chip {
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--navy);
+  background: var(--sand);
   padding: 0.15rem 0.5rem;
   border-radius: 99px;
 }

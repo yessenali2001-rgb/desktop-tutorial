@@ -11,6 +11,8 @@ var DEFAULT_ZAVUCH_PASSWORD = 'zavuch123';
 var SCHOOL_FULL_NAME = '«Ақтөбе облысының білім басқармасы» мемлекеттік мекемесінің «Дарынды жасөспірімдерге арналған Ақтөбе облыстық мамандандырылған «Білім-инновация» лицей-интернаты» коммуналдық мемлекеттік мекемесі';
 var SCHOOL_SHORT_NAME = '«Білім-инновация» лицей-интернаты';
 var SITE_TITLE = 'Шығу рұқсаты · Білім-инновация';
+// Браузер қойындысындағы белгі: брендбуктағы дөңгелек логотип (Google Drive)
+var FAVICON_URL = 'https://drive.google.com/uc?export=download&id=12k6FPgzlNF3eUoy_gwOg-2cDbHFmFfsn';
 
 var USER_COLS = ['id', 'login', 'name', 'role', 'className', 'password'];
 var USER_HEADERS = ['ID', 'Кілт', 'Аты-жөні', 'Рөлі', 'Сыныбы', 'PIN / құпия сөз (хэш)'];
@@ -42,6 +44,7 @@ function doGet() {
   return template
     .evaluate()
     .setTitle(SITE_TITLE)
+    .setFaviconUrl(FAVICON_URL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 

@@ -5,7 +5,7 @@
   <meta charset="utf-8">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <?!= include('Styles'); ?>
 </head>
 <body data-title="<?= siteTitle ?>">
@@ -13,7 +13,7 @@
   <main id="login-view" class="login" hidden>
     <form id="login-form" class="login-card">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true">✓</span>
+        <img class="brand-logo" src="<?!= include('Logo'); ?>" alt="«Білім-инновация» логотипі">
         <div>
           <h1>Шығу рұқсаты</h1>
           <p class="muted">Оқушыны сабақтан босату жүйесі</p>
@@ -47,7 +47,7 @@
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand small">
-          <span class="brand-mark" aria-hidden="true">✓</span>
+          <img class="brand-logo" src="<?!= include('Logo'); ?>" alt="">
           <div class="brand-text">
             <strong>Шығу рұқсаты</strong>
             <span class="school-short"><?= schoolShortName ?></span>

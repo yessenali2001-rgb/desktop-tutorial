@@ -235,6 +235,8 @@ async function start() {
 function renderTabs() {
   const tabs = [['requests', state.user.role === 'guard' ? 'Шығатын оқушылар' : 'Өтінімдер']];
   if (state.user.role === 'zavuch') tabs.push(['users', 'Қолданушылар']);
+  // Бір ғана бет болса, қойындыларды көрсетудің қажеті жоқ
+  $('tabs').hidden = tabs.length < 2;
   $('tabs').replaceChildren(
     ...tabs.map(([id, label]) =>
       h('button', {
