@@ -1,3 +1,4 @@
+<script>
 'use strict';
 
 // ---------- Мәтіндер ----------
@@ -13,14 +14,14 @@ const STATUS_NAMES = {
 const REASONS = ['Ауырып қалды', 'Дәрігерге', 'Отбасылық жағдай', 'Жарыс / олимпиада', 'Басқа'];
 const DESTINATIONS = ['Үйге', 'Емханаға', 'Ауруханаға', 'Басқа'];
 const PICKUPS = ['Анасы', 'Әкесі', 'Туысы', 'Өзі барады'];
-const REFRESH_MS = 5000;
+const REFRESH_MS = 10000;
 
 // ---------- Күй ----------
 
 const state = {
   user: null,
   today: '',
-  tz: 'Asia/Almaty',
+  token: '',
   tab: 'requests',
   date: '',
   requests: [],
@@ -50,25 +51,33 @@ function h(tag, attrs = {}, ...children) {
 
 const $ = (id) => document.getElementById(id);
 
-async function api(path, options = {}) {
-  const res = await fetch(path, {
-    method: options.method || 'GET',
-    headers: options.body ? { 'Content-Type': 'application/json' } : {},
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    credentials: 'same-origin',
+// Кіру токені осы браузерде сақталады.
+const store = {
+  get() { try { return localStorage.getItem('shygu-token') || ''; } catch { return state.token || ''; } },
+  set(v) { state.token = v; try { v ? localStorage.setItem('shygu-token', v) : localStorage.removeItem('shygu-token'); } catch {} },
+};
+
+// Code.gs ішіндегі функцияны шақыру. Токен бірінші аргумент ретінде беріледі.
+function call(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler((err) => {
+        const msg = String((err && err.message) || err || 'Қате шықты. Қайталап көріңіз.').replace(/^Error:\s*/, '');
+        if (msg.startsWith('AUTH:')) {
+          store.set('');
+          showLogin();
+          reject(new Error(msg.slice(5)));
+        } else {
+          reject(new Error(msg));
+        }
+      })[fn](store.get(), ...args);
   });
-  const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && path !== '/api/login') {
-    showLogin();
-    throw new Error(data.error || 'Жүйеге кіріңіз.');
-  }
-  if (!res.ok) throw new Error(data.error || 'Қате шықты. Қайталап көріңіз.');
-  return data;
 }
 
-function time(iso) {
-  if (!iso) return '';
-  return new Date(iso).toLocaleTimeString('ru-RU', { timeZone: state.tz, hour: '2-digit', minute: '2-digit' });
+// Серверден келетін уақыт: "2026-09-28 14:05:31"
+function time(stamp) {
+  return stamp ? stamp.slice(11, 16) : '';
 }
 
 function prettyDate(ymd) {
@@ -115,17 +124,24 @@ $('login-form').addEventListener('submit', async (e) => {
   const err = $('login-error');
   err.hidden = true;
   try {
-    await api('/api/login', { method: 'POST', body: { login: $('login-login').value, password: $('login-password').value } });
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    const res = await new Promise((resolve, reject) =>
+      google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)
+        .apiLogin($('login-login').value, $('login-password').value)
+    ).finally(() => (btn.disabled = false));
+    store.set(res.token);
     $('login-password').value = '';
     await start();
   } catch (ex) {
-    err.textContent = ex.message;
+    err.textContent = String(ex.message || ex).replace(/^Error:\s*/, '');
     err.hidden = false;
   }
 });
 
 $('btn-logout').addEventListener('click', async () => {
-  await api('/api/logout', { method: 'POST' }).catch(() => {});
+  await call('apiLogout').catch(() => {});
+  store.set('');
   showLogin();
 });
 
@@ -138,7 +154,7 @@ $('password-dialog').querySelector('[data-close]').addEventListener('click', () 
 $('password-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
-    await api('/api/password', { method: 'POST', body: { oldPassword: $('pw-old').value, newPassword: $('pw-new').value } });
+    await call('apiChangePassword', $('pw-old').value, $('pw-new').value);
     $('password-dialog').close();
     toast('Құпия сөз ауыстырылды');
   } catch (ex) {
@@ -148,11 +164,11 @@ $('password-form').addEventListener('submit', async (e) => {
 });
 
 async function start() {
-  const me = await api('/api/me');
+  if (!store.get()) return showLogin();
+  const me = await call('apiMe');
   state.user = me.user;
   state.today = me.today;
   state.date = me.today;
-  state.tz = me.tz || state.tz;
   state.tab = 'requests';
   state.lastPending = null;
   $('login-view').hidden = true;
@@ -205,8 +221,13 @@ async function refresh() {
 }
 
 async function loadRequests() {
-  const data = await api(`/api/requests?date=${state.date}`);
+  const data = await call('apiListRequests', state.date);
   state.requests = data.requests;
+  if (data.today !== state.today) {
+    // Түн ауып, жаңа күн басталса
+    if (state.date === state.today) state.date = data.today;
+    state.today = data.today;
+  }
   const pending = state.requests.filter((r) => r.status === 'pending').length;
   const approved = state.requests.filter((r) => r.status === 'approved').length;
   const alertCount = state.user.role === 'zavuch' ? pending : state.user.role === 'guard' ? approved : 0;
@@ -278,7 +299,7 @@ async function submitRequest(e) {
   err.hidden = true;
   btn.disabled = true;
   try {
-    await api('/api/requests', { method: 'POST', body: Object.fromEntries(fd) });
+    await call('apiCreateRequest', Object.fromEntries(fd));
     const cls = fd.get('className');
     form.reset();
     $('f-class').value = cls;
@@ -404,7 +425,7 @@ function actions(r) {
 async function act(e, r, verb, body = {}) {
   e.currentTarget.disabled = true;
   try {
-    await api(`/api/requests/${r.id}/${verb}`, { method: 'POST', body });
+    await call('apiRequestAction', r.id, verb, body.note || '');
     state.rejectDrafts.delete(r.id);
     toast({ approve: 'Рұқсат берілді', reject: 'Бас тартылды', leave: 'Белгіленді: мектептен шықты', cancel: 'Өтінім қайтарылды' }[verb]);
   } catch (ex) {
@@ -417,7 +438,7 @@ async function act(e, r, verb, body = {}) {
 // --- Қолданушылар (завуч) ---
 
 async function loadUsers() {
-  state.users = (await api('/api/users')).users;
+  state.users = await call('apiListUsers');
 }
 
 function usersPage() {
@@ -470,7 +491,7 @@ function userActions(u) {
       class: 'btn btn-ghost', type: 'button',
       onclick: async () => {
         try {
-          await api(`/api/users/${u.id}/password`, { method: 'POST', body: { password: pw.value } });
+          await call('apiResetPassword', u.id, pw.value);
           pw.value = '';
           toast('Құпия сөз ауыстырылды');
         } catch (ex) { toast(ex.message); }
@@ -486,7 +507,7 @@ function userActions(u) {
           return;
         }
         try {
-          await api(`/api/users/${u.id}`, { method: 'DELETE' });
+          await call('apiDeleteUser', u.id);
           toast('Қолданушы өшірілді');
           await loadUsers();
           $('content').replaceChildren(usersPage());
@@ -500,7 +521,7 @@ async function addUser(e) {
   const err = $('u-error');
   err.hidden = true;
   try {
-    await api('/api/users', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+    await call('apiAddUser', Object.fromEntries(new FormData(e.target)));
     toast('Қолданушы қосылды');
     await loadUsers();
     $('content').replaceChildren(usersPage());
@@ -514,3 +535,4 @@ async function addUser(e) {
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 start().catch(() => showLogin());
+</script>
