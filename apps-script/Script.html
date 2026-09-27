@@ -282,7 +282,7 @@ async function loadRequests() {
   const alertCount = state.user.role === 'zavuch' ? pending : state.user.role === 'guard' ? approved : 0;
   if (state.lastPending !== null && alertCount > state.lastPending) beep();
   state.lastPending = alertCount;
-  document.title = (alertCount ? `(${alertCount}) ` : '') + 'Мектептен шығу рұқсаты';
+  document.title = (alertCount ? `(${alertCount}) ` : '') + (document.body.dataset.title || 'Шығу рұқсаты');
 }
 
 function dateHead(title, subtitle) {

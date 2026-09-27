@@ -7,6 +7,11 @@ var SHEET_SESSIONS = 'Сессиялар';
 var SESSION_DAYS = 30;
 var DEFAULT_ZAVUCH_PASSWORD = 'zavuch123';
 
+// Мектептің атауы (кіру бетінде толық, жоғарғы жолақта қысқа түрде көрінеді)
+var SCHOOL_FULL_NAME = '«Ақтөбе облысының білім басқармасы» мемлекеттік мекемесінің «Дарынды жасөспірімдерге арналған Ақтөбе облыстық мамандандырылған «Білім-инновация» лицей-интернаты» коммуналдық мемлекеттік мекемесі';
+var SCHOOL_SHORT_NAME = '«Білім-инновация» лицей-интернаты';
+var SITE_TITLE = 'Шығу рұқсаты · Білім-инновация';
+
 var USER_COLS = ['id', 'login', 'name', 'role', 'className', 'password'];
 var USER_HEADERS = ['ID', 'Кілт', 'Аты-жөні', 'Рөлі', 'Сыныбы', 'PIN / құпия сөз (хэш)'];
 
@@ -30,9 +35,13 @@ var STATUS_LABELS = {
 // ---------- Веб-бет ----------
 
 function doGet() {
-  return HtmlService.createTemplateFromFile('Index')
+  var template = HtmlService.createTemplateFromFile('Index');
+  template.schoolFullName = SCHOOL_FULL_NAME;
+  template.schoolShortName = SCHOOL_SHORT_NAME;
+  template.siteTitle = SITE_TITLE;
+  return template
     .evaluate()
-    .setTitle('Мектептен шығу рұқсаты')
+    .setTitle(SITE_TITLE)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
