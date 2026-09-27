@@ -15,6 +15,9 @@
   --bar-bg: #111233;
   --bar-ink: #ffffff;
   --bar-muted: #cab391;
+  --ok-ink: #ffffff;
+  --logo-light: block;
+  --logo-dark: none;
   --pending: #a86a00;
   --pending-bg: #fff3d6;
   --ok: #1d7a46;
@@ -30,8 +33,9 @@
   color-scheme: light;
 }
 
+/* Қараңғы режим: құрылғы параметрі бойынша немесе батырмамен */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0b0c20;
     --surface: #16173a;
     --surface-2: #1d1e45;
@@ -49,8 +53,34 @@
     --bad-bg: #3a1a18;
     --left: #b3c3cf;
     --left-bg: #243542;
+    --ok-ink: #0b1a24;
+    --logo-light: none;
+    --logo-dark: block;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0c20;
+  --surface: #16173a;
+  --surface-2: #1d1e45;
+  --ink: #eeeaf2;
+  --muted: #a3a2bb;
+  --line: #2c2d57;
+  --accent: #cab391;
+  --accent-ink: #111233;
+  --bar-bg: #16173a;
+  --pending: #f2c25a;
+  --pending-bg: #3a2e12;
+  --ok: #6fd39b;
+  --ok-bg: #143324;
+  --bad: #f28b82;
+  --bad-bg: #3a1a18;
+  --left: #b3c3cf;
+  --left-bg: #243542;
+  --ok-ink: #0b1a24;
+  --logo-light: none;
+  --logo-dark: block;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -89,10 +119,9 @@ h3 { font-size: 1rem; }
 .btn:disabled { opacity: 0.55; cursor: wait; }
 .btn-primary { background: var(--accent); color: var(--accent-ink); }
 .btn-ghost { background: transparent; border-color: var(--line); }
-.btn-ok { background: var(--ok); color: #fff; }
+.btn-ok { background: var(--ok); color: var(--ok-ink); }
 .btn-bad { background: transparent; color: var(--bad); border-color: currentColor; }
 .btn-big { font-size: 1.05rem; padding: 0.8rem 1.3rem; }
-@media (prefers-color-scheme: dark) { .btn-ok { color: #0b1a24; } }
 
 label { font-weight: 600; font-size: 0.85rem; color: var(--muted); }
 input, select, textarea {
@@ -174,6 +203,29 @@ textarea { resize: vertical; min-height: 3.5rem; }
 .brand.small .brand-logo { width: 38px; height: 38px; }
 .login-card .brand { flex-direction: column; text-align: center; gap: 0.6rem; }
 .login-card .brand-logo { width: 88px; height: 88px; }
+.login-card .brand-logo.logo-light { display: var(--logo-light); }
+.login-card .brand-logo.logo-dark { display: var(--logo-dark); }
+.login-card { position: relative; }
+
+/* Режим ауыстырғыш */
+.theme-toggle {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 99px;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.theme-toggle .icon { font-size: 1rem; line-height: 1; }
+.login-card .theme-toggle { position: absolute; top: 12px; right: 12px; }
+.topbar .theme-toggle { color: var(--bar-ink); border-color: color-mix(in srgb, var(--bar-ink) 30%, transparent); }
+.theme-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
 
 /* ---------- Жоғарғы жолақ ---------- */
 .topbar {
@@ -211,8 +263,11 @@ textarea { resize: vertical; min-height: 3.5rem; }
 @media (max-width: 600px) {
   .topbar-inner { gap: 0.5rem 1rem; padding-block: 8px; }
   .topbar .school-short { display: none; }
-  .who { margin-left: 0; width: 100%; }
-  .who #who-name { flex: 1; min-width: 0; }
+  .tabs { order: 3; width: 100%; flex: none; flex-wrap: nowrap; }
+  .who { margin-left: 0; width: 100%; flex-wrap: nowrap; }
+  .who #who-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .theme-toggle .label { display: none; }
+  .topbar .theme-toggle { padding-inline: 0.6rem; }
 }
 .role-chip {
   font-size: 0.75rem;

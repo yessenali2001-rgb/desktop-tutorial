@@ -2,6 +2,13 @@
 <html lang="kk">
 <head>
   <base target="_top">
+  <script>
+    // Таңдалған режимді бет ашылмай тұрып қоямыз, әйтпесе бет жыпылықтайды
+    try {
+      var savedTheme = localStorage.getItem('shygu-theme');
+      if (savedTheme === 'light' || savedTheme === 'dark') document.documentElement.setAttribute('data-theme', savedTheme);
+    } catch (e) {}
+  </script>
   <meta charset="utf-8">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,8 +19,10 @@
   <!-- Кіру беті -->
   <main id="login-view" class="login" hidden>
     <form id="login-form" class="login-card">
+      <button class="theme-toggle" type="button" data-theme-toggle></button>
       <div class="brand">
-        <img class="brand-logo" src="<?!= include('Logo'); ?>" alt="«Білім-инновация» логотипі">
+        <img class="brand-logo logo-light" src="<?!= include('LogoNavy'); ?>" alt="«Білім-инновация» логотипі">
+        <img class="brand-logo logo-dark" src="<?!= include('LogoSand'); ?>" alt="«Білім-инновация» логотипі">
         <div>
           <h1>Шығу рұқсаты</h1>
           <p class="muted">Оқушыны сабақтан босату жүйесі</p>
@@ -47,7 +56,7 @@
     <header class="topbar">
       <div class="topbar-inner">
         <div class="brand small">
-          <img class="brand-logo" src="<?!= include('Logo'); ?>" alt="">
+          <img class="brand-logo" src="<?!= include('LogoSand'); ?>" alt="">
           <div class="brand-text">
             <strong>Шығу рұқсаты</strong>
             <span class="school-short"><?= schoolShortName ?></span>
@@ -57,6 +66,7 @@
         <div class="who">
           <span id="who-name"></span>
           <span id="who-role" class="role-chip"></span>
+          <button class="theme-toggle" type="button" data-theme-toggle></button>
           <button id="btn-password" class="btn btn-ghost" type="button">Құпия сөз</button>
           <button id="btn-logout" class="btn btn-ghost" type="button">Шығу</button>
         </div>

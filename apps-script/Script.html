@@ -109,6 +109,33 @@ function beep() {
   } catch {}
 }
 
+// ---------- Жарық / қараңғы режим ----------
+
+function currentTheme() {
+  const set = document.documentElement.getAttribute('data-theme');
+  if (set) return set;
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function renderThemeButtons() {
+  const dark = currentTheme() === 'dark';
+  document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
+    btn.replaceChildren(
+      h('span', { class: 'icon', 'aria-hidden': 'true' }, dark ? '☀' : '☾'),
+      h('span', { class: 'label' }, dark ? 'Жарық' : 'Қараңғы'));
+    btn.title = dark ? 'Жарық режимге ауысу' : 'Қараңғы режимге ауысу';
+  });
+}
+
+document.querySelectorAll('[data-theme-toggle]').forEach((btn) => btn.addEventListener('click', () => {
+  const next = currentTheme() === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try { localStorage.setItem('shygu-theme', next); } catch {}
+  renderThemeButtons();
+}));
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', renderThemeButtons);
+renderThemeButtons();
+
 // ---------- Кіру / шығу ----------
 
 // Соңғы таңдалған рөл мен сынып осы құрылғыда есте қалады.
