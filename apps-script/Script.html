@@ -355,7 +355,10 @@ function studentField() {
     h('option', { value: '' }, `Оқушыны таңдаңыз (${names.length})`),
     names.map((n) => h('option', { value: n }, n)),
     h('option', { value: OTHER_STUDENT }, 'Тізімде жоқ оқушы…'));
-  return h('div', { class: 'full stack' }, h('label', { for: 'f-student-select' }, 'Оқушы'), select, input);
+  return h('div', { class: 'full stack' },
+    h('label', { for: 'f-student-select' }, 'Оқушы'),
+    h('div', { class: 'student-pick' }, h('div', { id: 'f-student-photo' }), select),
+    input);
 }
 
 function syncStudentField() {
@@ -367,6 +370,8 @@ function syncStudentField() {
   input.required = other;
   input.value = other ? '' : select.value;
   if (other) input.focus();
+  const holder = $('f-student-photo');
+  holder.replaceChildren(select.value && !other ? avatar(state.user.className, select.value, 'sm') : '');
 }
 
 function teacherPage() {
@@ -475,6 +480,63 @@ function section(title, items, emptyText) {
     items.length ? items.map(slip) : h('div', { class: 'empty' }, emptyText));
 }
 
+// ---------- Оқушының суреті ----------
+
+const photoCache = new Map(); // "10А|Аты-жөні" -> data: URI немесе '' (суреті жоқ)
+const photoLoading = new Map();
+
+function initials(name) {
+  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+}
+
+function fillAvatar(el, uri, name) {
+  el.replaceChildren(h('img', { src: uri, alt: name, loading: 'lazy' }));
+  el.classList.add('has-photo');
+  el.removeAttribute('aria-hidden');
+  el.setAttribute('role', 'button');
+  el.setAttribute('tabindex', '0');
+  el.setAttribute('aria-label', `${name}: суретті үлкейту`);
+  const open = () => {
+    $('photo-dialog-img').src = uri;
+    $('photo-dialog-img').alt = name;
+    $('photo-dialog-name').textContent = name;
+    $('photo-dialog').showModal();
+  };
+  el.addEventListener('click', open);
+  el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+}
+
+$('photo-dialog').querySelector('[data-close]').addEventListener('click', () => $('photo-dialog').close());
+$('photo-dialog').addEventListener('click', (e) => { if (e.target === $('photo-dialog')) $('photo-dialog').close(); });
+
+function loadPhoto(className, name) {
+  const key = `${className}|${name}`;
+  if (!photoLoading.has(key)) {
+    photoLoading.set(key, call('apiPhoto', className, name)
+      .catch(() => '')
+      .then((uri) => { photoCache.set(key, uri || ''); return uri || ''; }));
+  }
+  return photoLoading.get(key);
+}
+
+// Суреттің орнында алдымен аты-жөнінің бас әріптері тұрады, сурет жүктелгенде ауысады.
+function avatar(className, name, size = 'md') {
+  const key = `${className}|${name}`;
+  const el = h('div', { class: `avatar avatar-${size}`, 'data-photo-key': key, 'aria-hidden': 'true' }, initials(name));
+  const cached = photoCache.get(key);
+  if (cached) {
+    fillAvatar(el, cached, name);
+  } else if (cached === undefined) {
+    loadPhoto(className, name).then((uri) => {
+      if (!uri) return;
+      document.querySelectorAll('[data-photo-key]').forEach((node) => {
+        if (node.dataset.photoKey === key && !node.classList.contains('has-photo')) fillAvatar(node, uri, name);
+      });
+    });
+  }
+  return el;
+}
+
 function slip(r) {
   const role = state.user.role;
   const isToday = state.date === state.today;
@@ -492,11 +554,13 @@ function slip(r) {
   if (r.leftAt) meta.push(`Шықты ${time(r.leftAt)} · ${r.guardName}`);
 
   return h('article', { class: `slip ${r.status}` },
-    h('div', {},
-      h('div', { class: 'slip-head' },
-        h('span', { class: 'slip-name' }, r.student),
-        h('span', { class: 'slip-class' }, r.className)),
-      h('dl', {}, rows.map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]))),
+    h('div', { class: 'slip-main' },
+      avatar(r.className, r.student, role === 'guard' ? 'lg' : 'md'),
+      h('div', {},
+        h('div', { class: 'slip-head' },
+          h('span', { class: 'slip-name' }, r.student),
+          h('span', { class: 'slip-class' }, r.className)),
+        h('dl', {}, rows.map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])))),
     h('div', { class: 'slip-side' },
       h('span', { class: `pill ${r.status}` }, STATUS_NAMES[r.status]),
       isToday && actions(r),

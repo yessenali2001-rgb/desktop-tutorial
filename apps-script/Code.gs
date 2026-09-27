@@ -24,8 +24,8 @@ var REQ_HEADERS = ['ID', 'Күні', 'Жіберілді', 'Жетекші ID', 
   'Қайда', 'Кім алып кетеді', 'Телефон', 'Күйі', 'Шешім қабылдаған', 'Шешім уақыты', 'Завуч ескертпесі', 'Шыққан уақыты', 'Күзетші'];
 
 var SESSION_COLS = ['token', 'userId', 'expires'];
-var STUDENT_COLS = ['className', 'name'];
-var STUDENT_HEADERS = ['Сынып', 'Оқушының аты-жөні'];
+var STUDENT_COLS = ['className', 'name', 'photoId'];
+var STUDENT_HEADERS = ['Сынып', 'Оқушының аты-жөні', 'Сурет (Drive ID)'];
 
 var ROLES = ['teacher', 'zavuch', 'guard'];
 var ROLE_LABELS = { teacher: 'Сынып жетекшісі', zavuch: 'Завуч', guard: 'Күзетші' };
@@ -61,6 +61,8 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Шығу рұқсаты')
     .addItem('Бастапқы баптау', 'setup')
+    .addItem('Суреттерді байланыстыру', 'linkPhotos')
+    .addItem('Суреттер бумасын ауыстыру', 'changePhotosFolder')
     .addToUi();
 }
 
@@ -394,9 +396,165 @@ function readStudents_() {
   if (!SpreadsheetApp.getActive().getSheetByName(SHEET_STUDENTS)) return [];
   return readRows_(SHEET_STUDENTS, STUDENT_COLS)
     .map(function (s) {
-      return { className: normClass_(s.className), name: String(s.name).replace(/\s+/g, ' ').trim() };
+      return {
+        className: normClass_(s.className),
+        name: String(s.name).replace(/\s+/g, ' ').trim(),
+        photoId: String(s.photoId || '').trim(),
+      };
     })
     .filter(function (s) { return s.className && s.name; });
+}
+
+// ---------- Оқушылардың суреттері ----------
+
+// Суреттер бумасын аралап, әр суретті «Оқушылар» парағындағы оқушыға байланыстырады.
+// Кестенің мәзірінен іске қосылады: «Шығу рұқсаты → Суреттерді байланыстыру».
+//
+// Суреттер бумасының ішінде сынып бумалары (7А, 7Ә …), файл аты — оқушының аты-жөні.
+// Бума сілтемесі кодта емес, скрипттің жабық баптауларында (Script properties) сақталады:
+// код ашық репозиторийде тұр, ал сілтеме арқылы балалардың суреттерін ашуға болады.
+function photosFolderId_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('PHOTOS_FOLDER_ID');
+  if (id) return id;
+  var ui = SpreadsheetApp.getUi();
+  var answer = ui.prompt('Суреттер бумасы',
+    'Google Drive-тағы суреттер бумасының сілтемесін қойыңыз (ішінде 7А, 7Ә … бумалары бар):',
+    ui.ButtonSet.OK_CANCEL);
+  if (answer.getSelectedButton() !== ui.Button.OK) return '';
+  var text = answer.getResponseText().trim();
+  var match = text.match(/folders\/([\w-]+)/) || text.match(/^([\w-]{20,})$/);
+  if (!match) {
+    ui.alert('Сілтеме танылмады. Drive-та буманы ашып, мекенжай жолындағы сілтемені көшіріңіз.');
+    return '';
+  }
+  props.setProperty('PHOTOS_FOLDER_ID', match[1]);
+  return match[1];
+}
+
+function changePhotosFolder() {
+  PropertiesService.getScriptProperties().deleteProperty('PHOTOS_FOLDER_ID');
+  linkPhotos();
+}
+
+function linkPhotos() {
+  var folderId = photosFolderId_();
+  if (!folderId) return;
+  var rows = readRows_(SHEET_STUDENTS, STUDENT_COLS);
+  var byClass = {};
+  rows.forEach(function (s) {
+    var cls = normClass_(s.className);
+    (byClass[cls] = byClass[cls] || []).push(s);
+  });
+  var linked = 0;
+  var unmatched = [];
+  var folders = DriveApp.getFolderById(folderId).getFolders();
+  while (folders.hasNext()) {
+    var folder = folders.next();
+    var cls = normClass_(folder.getName());
+    var list = byClass[cls] || [];
+    var files = folder.getFiles();
+    while (files.hasNext()) {
+      var file = files.next();
+      if (!/^image\//.test(file.getMimeType())) continue;
+      var student = matchStudent_(file.getName(), list);
+      if (student) {
+        student.photoId = file.getId();
+        linked++;
+      } else {
+        unmatched.push(cls + ': ' + file.getName());
+      }
+    }
+  }
+  if (rows.length) {
+    sheet_(SHEET_STUDENTS).getRange(2, 3, rows.length, 1)
+      .setValues(rows.map(function (s) { return [s.photoId || '']; }));
+  }
+  CacheService.getScriptCache().removeAll(rows.map(function (s) { return 'ph:' + s.photoId; }));
+
+  // Суреті жоқтар: бумасы мүлдем жоқ сыныптарды санымен, қалғандарын атымен көрсетеміз
+  var noFolder = [];
+  var missing = [];
+  Object.keys(byClass).forEach(function (cls) {
+    var without = byClass[cls].filter(function (s) { return !s.photoId; });
+    if (!without.length) return;
+    if (without.length === byClass[cls].length) {
+      noFolder.push(cls + ' (' + without.length + ')');
+    } else {
+      without.forEach(function (s) { missing.push(cls + ': ' + s.name); });
+    }
+  });
+  var message = 'Байланысты: ' + linked + ' сурет.\n\n' +
+    'Тізімнен табылмаған суреттер (' + unmatched.length + '):\n' + (unmatched.join('\n') || '—') + '\n\n' +
+    'Суреті жоқ оқушылар (' + missing.length + '):\n' + (missing.join('\n') || '—') + '\n\n' +
+    'Суреттері мүлдем жоқ сыныптар:\n' + (noFolder.join(', ') || '—');
+  try {
+    SpreadsheetApp.getUi().alert(message);
+  } catch (e) {
+    Logger.log(message);
+  }
+}
+
+// Файл атын оқушының аты-жөнімен салыстыру. Жазылуы сәл басқа болса да табады:
+// «Расул» / «Расұл», әкесінің аты қосылған не түсіп қалған, бір-екі әріп қателігі.
+function looseKey_(s) {
+  s = String(s).normalize('NFC').replace(/\.(jpe?g|png|heic|heif|webp|gif)$/i, '').toLowerCase().replace(/ё/g, 'е');
+  var map = { 'ә': 'а', 'ғ': 'г', 'қ': 'к', 'ң': 'н', 'ө': 'о', 'ұ': 'у', 'ү': 'у', 'һ': 'х', 'і': 'и', 'ъ': '', 'ь': '' };
+  s = s.replace(/[әғқңөұүһіъь]/g, function (c) { return map[c]; });
+  return s.replace(/[^a-zа-я0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function exactKey_(s) {
+  return String(s).normalize('NFC').replace(/\.(jpe?g|png|heic|heif|webp|gif)$/i, '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+function distance_(a, b) {
+  var prev = [], cur, i, j;
+  for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++) {
+    cur = [i];
+    for (j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function matchStudent_(fileName, list) {
+  var ek = exactKey_(fileName), lk = looseKey_(fileName);
+  var hit = list.filter(function (s) { return exactKey_(s.name) === ek; });
+  if (hit.length === 1) return hit[0];
+  hit = list.filter(function (s) { return looseKey_(s.name) === lk; });
+  if (hit.length === 1) return hit[0];
+  // Әкесінің аты қосылған не түсіп қалған: алғашқы екі сөз бойынша
+  var two = lk.split(' ').slice(0, 2).join(' ');
+  hit = list.filter(function (s) { return looseKey_(s.name).split(' ').slice(0, 2).join(' ') === two; });
+  if (hit.length === 1) return hit[0];
+  // Бір-екі әріп қателігі
+  var best = null, bestD = 99, second = 99;
+  list.forEach(function (s) {
+    var d = distance_(lk, looseKey_(s.name));
+    if (d < bestD) { second = bestD; bestD = d; best = s; } else if (d < second) second = d;
+  });
+  if (best && bestD <= Math.max(2, Math.floor(lk.length * 0.12)) && second > bestD) return best;
+  return null;
+}
+
+// Оқушының суретін кішірейтілген түрде қайтарады (data: URI). Суреті жоқ болса — бос жол.
+function apiPhoto(token, className, name) {
+  auth_(token);
+  className = normClass_(className);
+  name = String(name || '').replace(/\s+/g, ' ').trim();
+  var student = readStudents_().filter(function (s) { return s.className === className && s.name === name; })[0];
+  if (!student || !student.photoId) return '';
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('ph:' + student.photoId);
+  if (cached) return cached;
+  try {
+    var blob = DriveApp.getFileById(student.photoId).getThumbnail();
+    if (!blob) return '';
+    var uri = 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+    if (uri.length < 95000) cache.put('ph:' + student.photoId, uri, 21600);
+    return uri;
+  } catch (e) {
+    return '';
+  }
 }
 
 // Сынып жетекшісіне өз сыныбының оқушылары
