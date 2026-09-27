@@ -21,3 +21,16 @@
 Если страница опубликована как артефакт на claude.ai, она подключается к общей базе: все, с кем поделились страницей (с правами Contributor), видят и заполняют один бюджет. Прежние записи из браузера можно перенести в общий бюджет одной кнопкой. Для публикации включите GitHub Pages в настройках репозитория (Settings → Pages → ветка с этими файлами).
 
 Валюта задаётся константой `CURRENCY` в начале `app.js`.
+
+## Общий бюджет через Firebase (для сайта на GitHub Pages)
+
+Сайт на GitHub Pages может хранить данные в общей базе Firebase. Тогда вся семья видит одни и те же записи, а вход — через Google.
+
+1. Создайте проект на https://console.firebase.google.com (Google Analytics не нужен).
+2. **Build → Firestore Database → Create database** → режим **production**, регион, например, `europe-west`.
+3. **Build → Authentication → Get started → Sign-in method → Google → Enable**.
+4. **Authentication → Settings → Authorized domains → Add domain** → `yessenali2001-rgb.github.io`.
+5. **Firestore Database → Rules**: вставьте содержимое `firestore.rules`, впишите email всех членов семьи и нажмите **Publish**.
+6. **Project settings → Your apps → Web (`</>`)** → зарегистрируйте приложение и скопируйте объект `firebaseConfig` в `firebase-config.js` вместо `null`.
+
+Ключи из `firebaseConfig` не секретные: доступ к данным защищают правила из шага 5, а не они.
