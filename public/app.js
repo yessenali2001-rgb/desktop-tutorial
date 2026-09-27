@@ -1,0 +1,516 @@
+'use strict';
+
+// ---------- Мәтіндер ----------
+
+const ROLE_NAMES = { teacher: 'Сынып жетекшісі', zavuch: 'Завуч', guard: 'Күзетші' };
+const STATUS_NAMES = {
+  pending: 'Завучты күтуде',
+  approved: 'Рұқсат берілді',
+  rejected: 'Рұқсат берілмеді',
+  left: 'Мектептен шықты',
+  cancelled: 'Қайтарылды',
+};
+const REASONS = ['Ауырып қалды', 'Дәрігерге', 'Отбасылық жағдай', 'Жарыс / олимпиада', 'Басқа'];
+const DESTINATIONS = ['Үйге', 'Емханаға', 'Ауруханаға', 'Басқа'];
+const PICKUPS = ['Анасы', 'Әкесі', 'Туысы', 'Өзі барады'];
+const REFRESH_MS = 5000;
+
+// ---------- Күй ----------
+
+const state = {
+  user: null,
+  today: '',
+  tz: 'Asia/Almaty',
+  tab: 'requests',
+  date: '',
+  requests: [],
+  users: [],
+  rejectDrafts: new Map(),
+  lastPending: null,
+};
+let timer = null;
+
+// ---------- Көмекшілер ----------
+
+function h(tag, attrs = {}, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v === true) el.setAttribute(k, '');
+    else el.setAttribute(k, v);
+  }
+  for (const c of children.flat(Infinity)) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    method: options.method || 'GET',
+    headers: options.body ? { 'Content-Type': 'application/json' } : {},
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: 'same-origin',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && path !== '/api/login') {
+    showLogin();
+    throw new Error(data.error || 'Жүйеге кіріңіз.');
+  }
+  if (!res.ok) throw new Error(data.error || 'Қате шықты. Қайталап көріңіз.');
+  return data;
+}
+
+function time(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleTimeString('ru-RU', { timeZone: state.tz, hour: '2-digit', minute: '2-digit' });
+}
+
+function prettyDate(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const months = ['қаңтар', 'ақпан', 'наурыз', 'сәуір', 'мамыр', 'маусым', 'шілде', 'тамыз', 'қыркүйек', 'қазан', 'қараша', 'желтоқсан'];
+  return `${d} ${months[m - 1]} ${y}`;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.hidden = true), 3000);
+}
+
+function beep() {
+  try {
+    const ctx = new AudioContext();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.15, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    o.connect(g).connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.4);
+  } catch {}
+}
+
+// ---------- Кіру / шығу ----------
+
+function showLogin() {
+  clearInterval(timer);
+  state.user = null;
+  $('app-view').hidden = true;
+  $('login-view').hidden = false;
+  $('login-login').focus();
+}
+
+$('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('login-error');
+  err.hidden = true;
+  try {
+    await api('/api/login', { method: 'POST', body: { login: $('login-login').value, password: $('login-password').value } });
+    $('login-password').value = '';
+    await start();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  }
+});
+
+$('btn-logout').addEventListener('click', async () => {
+  await api('/api/logout', { method: 'POST' }).catch(() => {});
+  showLogin();
+});
+
+$('btn-password').addEventListener('click', () => {
+  $('password-form').reset();
+  $('pw-error').hidden = true;
+  $('password-dialog').showModal();
+});
+$('password-dialog').querySelector('[data-close]').addEventListener('click', () => $('password-dialog').close());
+$('password-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/api/password', { method: 'POST', body: { oldPassword: $('pw-old').value, newPassword: $('pw-new').value } });
+    $('password-dialog').close();
+    toast('Құпия сөз ауыстырылды');
+  } catch (ex) {
+    $('pw-error').textContent = ex.message;
+    $('pw-error').hidden = false;
+  }
+});
+
+async function start() {
+  const me = await api('/api/me');
+  state.user = me.user;
+  state.today = me.today;
+  state.date = me.today;
+  state.tz = me.tz || state.tz;
+  state.tab = 'requests';
+  state.lastPending = null;
+  $('login-view').hidden = true;
+  $('app-view').hidden = false;
+  $('who-name').textContent = me.user.name;
+  $('who-role').textContent = ROLE_NAMES[me.user.role];
+  renderTabs();
+  await renderPage();
+  clearInterval(timer);
+  timer = setInterval(refresh, REFRESH_MS);
+}
+
+// ---------- Беттер ----------
+
+function renderTabs() {
+  const tabs = [['requests', state.user.role === 'guard' ? 'Шығатын оқушылар' : 'Өтінімдер']];
+  if (state.user.role === 'zavuch') tabs.push(['users', 'Қолданушылар']);
+  $('tabs').replaceChildren(
+    ...tabs.map(([id, label]) =>
+      h('button', {
+        type: 'button',
+        'aria-current': state.tab === id ? 'page' : null,
+        onclick: () => { state.tab = id; renderTabs(); renderPage(); },
+      }, label))
+  );
+}
+
+async function renderPage() {
+  const content = $('content');
+  if (state.tab === 'users') {
+    content.replaceChildren(h('p', { class: 'muted' }, 'Жүктелуде…'));
+    await loadUsers();
+    content.replaceChildren(usersPage());
+    return;
+  }
+  await loadRequests();
+  const role = state.user.role;
+  if (role === 'teacher') content.replaceChildren(teacherPage());
+  else if (role === 'zavuch') content.replaceChildren(zavuchPage());
+  else content.replaceChildren(guardPage());
+  renderList();
+}
+
+async function refresh() {
+  if (!state.user || state.tab !== 'requests' || document.hidden) return;
+  try {
+    await loadRequests();
+    renderList();
+  } catch {}
+}
+
+async function loadRequests() {
+  const data = await api(`/api/requests?date=${state.date}`);
+  state.requests = data.requests;
+  const pending = state.requests.filter((r) => r.status === 'pending').length;
+  const approved = state.requests.filter((r) => r.status === 'approved').length;
+  const alertCount = state.user.role === 'zavuch' ? pending : state.user.role === 'guard' ? approved : 0;
+  if (state.lastPending !== null && alertCount > state.lastPending) beep();
+  state.lastPending = alertCount;
+  document.title = (alertCount ? `(${alertCount}) ` : '') + 'Мектептен шығу рұқсаты';
+}
+
+function dateHead(title, subtitle) {
+  const canPick = state.user.role !== 'guard';
+  return h('div', { class: 'page-head' },
+    h('div', {},
+      h('h1', {}, title),
+      h('p', { class: 'muted' }, subtitle || prettyDate(state.date) + (state.date === state.today ? ' · бүгін' : ''))),
+    canPick && h('div', { class: 'stack' },
+      h('label', { for: 'date-pick' }, 'Күні'),
+      h('input', {
+        id: 'date-pick', type: 'date', value: state.date, max: state.today,
+        onchange: (e) => { state.date = e.target.value || state.today; renderPage(); },
+      })));
+}
+
+// --- Сынып жетекшісі ---
+
+function chipGroup(name, options, required) {
+  return h('div', { class: 'chips', role: 'radiogroup' },
+    options.map((opt, i) => [
+      h('input', { type: 'radio', name, id: `${name}-${i}`, value: opt, required: required && i === 0 }),
+      h('label', { for: `${name}-${i}` }, opt),
+    ]));
+}
+
+function teacherPage() {
+  const form = h('form', { class: 'panel stack', id: 'request-form', onsubmit: submitRequest },
+    h('h2', {}, 'Жаңа өтінім'),
+    h('p', { class: 'muted' }, 'Толтырып жіберіңіз — завуч бірден көреді.'),
+    h('div', { class: 'form-grid' },
+      h('div', { class: 'full' },
+        h('label', { for: 'f-student' }, 'Оқушының аты-жөні'),
+        h('input', { id: 'f-student', name: 'student', required: true, placeholder: 'Мысалы: Асанов Нұрлан' })),
+      h('div', {},
+        h('label', { for: 'f-class' }, 'Сыныбы'),
+        h('input', { id: 'f-class', name: 'className', required: true, value: state.user.className || '', placeholder: '10А' })),
+      h('div', {},
+        h('label', { for: 'f-phone' }, 'Ата-анасының телефоны'),
+        h('input', { id: 'f-phone', name: 'pickupPhone', type: 'tel', placeholder: '+7 7__ ___ __ __' })),
+      h('div', { class: 'full' }, h('label', {}, 'Себебі'), chipGroup('reason', REASONS, true)),
+      h('div', { class: 'full' },
+        h('label', { for: 'f-note' }, 'Қосымша (міндетті емес)'),
+        h('textarea', { id: 'f-note', name: 'reasonNote', placeholder: 'Мысалы: басы ауырады, температурасы 38' })),
+      h('div', { class: 'full' }, h('label', {}, 'Қайда барады'), chipGroup('destination', DESTINATIONS, true)),
+      h('div', { class: 'full' }, h('label', {}, 'Кім алып кетеді'), chipGroup('pickup', PICKUPS, false))),
+    h('p', { class: 'error', id: 'form-error', hidden: true }),
+    h('button', { class: 'btn btn-primary btn-big', type: 'submit' }, 'Завучқа жіберу'));
+
+  return h('div', { class: 'stack', style: 'gap:1.25rem' },
+    dateHead('Менің өтінімдерім'),
+    h('div', { class: 'teacher-grid' },
+      state.date === state.today ? form : h('div', { class: 'empty' }, 'Өткен күннің тізімі. Жаңа өтінімді тек бүгінге жіберуге болады.'),
+      h('div', { class: 'list', id: 'list' })));
+}
+
+async function submitRequest(e) {
+  e.preventDefault();
+  const form = e.target;
+  const fd = new FormData(form);
+  const btn = form.querySelector('button[type=submit]');
+  const err = $('form-error');
+  err.hidden = true;
+  btn.disabled = true;
+  try {
+    await api('/api/requests', { method: 'POST', body: Object.fromEntries(fd) });
+    const cls = fd.get('className');
+    form.reset();
+    $('f-class').value = cls;
+    toast('Өтінім завучқа жіберілді');
+    await loadRequests();
+    renderList();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// --- Завуч ---
+
+function zavuchPage() {
+  return h('div', { class: 'stack', style: 'gap:1.25rem' },
+    dateHead('Сабақтан босату өтінімдері'),
+    h('div', { class: 'counters', id: 'counters' }),
+    h('div', { class: 'list', id: 'list' }));
+}
+
+// --- Күзетші ---
+
+function guardPage() {
+  return h('div', { class: 'stack guard', style: 'gap:1.25rem' },
+    dateHead('Мектептен шығуға рұқсат барлар'),
+    h('div', { class: 'list', id: 'list' }));
+}
+
+// --- Тізім ---
+
+function renderList() {
+  const list = $('list');
+  if (!list) return;
+  const role = state.user.role;
+  const rs = state.requests;
+  const by = (s) => rs.filter((r) => r.status === s);
+
+  if (role === 'zavuch') {
+    const c = $('counters');
+    c.replaceChildren(
+      ...[['pending', 'Күтуде'], ['approved', 'Рұқсат берілді'], ['left', 'Мектептен шықты'], ['rejected', 'Бас тартылды']]
+        .map(([s, label]) => h('div', { class: `counter ${s}` }, h('b', {}, by(s).length), h('span', {}, label))));
+    list.replaceChildren(
+      section('Шешім күтіп тұр', by('pending'), 'Жаңа өтінім жоқ.'),
+      section('Қаралған өтінімдер', rs.filter((r) => r.status !== 'pending'), 'Әзірге ештеңе жоқ.'));
+    return;
+  }
+  if (role === 'guard') {
+    list.replaceChildren(
+      section('Шығаруға болады', by('approved'), 'Қазір рұқсаты бар оқушы жоқ.'),
+      section('Мектептен шықты', by('left'), 'Әзірге ешкім шыққан жоқ.'));
+    return;
+  }
+  list.replaceChildren(
+    h('h2', {}, 'Жіберілген өтінімдер'),
+    ...(rs.length ? rs.map(slip) : [h('div', { class: 'empty' }, 'Бұл күні өтінім жіберілмеген.')]));
+}
+
+function section(title, items, emptyText) {
+  return h('div', { class: 'list' },
+    h('div', { class: 'section-title' }, h('h2', {}, title), h('span', { class: 'count' }, items.length)),
+    items.length ? items.map(slip) : h('div', { class: 'empty' }, emptyText));
+}
+
+function slip(r) {
+  const role = state.user.role;
+  const isToday = state.date === state.today;
+  const rows = [
+    ['Себебі', r.reason + (r.reasonNote ? ` — ${r.reasonNote}` : '')],
+    ['Қайда', r.destination],
+    ['Алып кетеді', r.pickup || '—'],
+    r.pickupPhone && ['Телефон', r.pickupPhone],
+    role !== 'teacher' && ['Жетекшісі', r.teacherName],
+    r.decisionNote && ['Завуч ескертпесі', r.decisionNote],
+  ].filter(Boolean);
+
+  const meta = [`Жіберілді ${time(r.createdAt)}`];
+  if (r.decidedAt) meta.push(`${r.status === 'rejected' ? 'Бас тартты' : 'Рұқсат'} ${time(r.decidedAt)} · ${r.decidedBy}`);
+  if (r.leftAt) meta.push(`Шықты ${time(r.leftAt)} · ${r.guardName}`);
+
+  return h('article', { class: `slip ${r.status}` },
+    h('div', {},
+      h('div', { class: 'slip-head' },
+        h('span', { class: 'slip-name' }, r.student),
+        h('span', { class: 'slip-class' }, r.className)),
+      h('dl', {}, rows.map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]))),
+    h('div', { class: 'slip-side' },
+      h('span', { class: `pill ${r.status}` }, STATUS_NAMES[r.status]),
+      isToday && actions(r),
+      h('div', { class: 'slip-meta' }, meta.map((m) => h('div', {}, m)))));
+}
+
+function actions(r) {
+  const role = state.user.role;
+  if (role === 'zavuch' && r.status === 'pending') {
+    if (state.rejectDrafts.has(r.id)) {
+      const input = h('input', {
+        placeholder: 'Себебі (міндетті емес)', value: state.rejectDrafts.get(r.id),
+        oninput: (e) => state.rejectDrafts.set(r.id, e.target.value),
+      });
+      return h('div', { class: 'stack' },
+        input,
+        h('div', { class: 'slip-actions' },
+          h('button', { class: 'btn btn-ghost', type: 'button', onclick: () => { state.rejectDrafts.delete(r.id); renderList(); } }, 'Артқа'),
+          h('button', { class: 'btn btn-bad', type: 'button', onclick: (e) => act(e, r, 'reject', { note: input.value }) }, 'Бас тартуды растау')));
+    }
+    return h('div', { class: 'slip-actions' },
+      h('button', { class: 'btn btn-bad', type: 'button', onclick: () => { state.rejectDrafts.set(r.id, ''); renderList(); } }, '✕ Бас тарту'),
+      h('button', { class: 'btn btn-ok btn-big', type: 'button', onclick: (e) => act(e, r, 'approve') }, '✓ Рұқсат беру'));
+  }
+  if (role === 'guard' && r.status === 'approved') {
+    return h('button', { class: 'btn btn-primary btn-big', type: 'button', onclick: (e) => act(e, r, 'leave') }, 'Шығып кетті');
+  }
+  if (role === 'teacher' && r.status === 'pending') {
+    return h('button', { class: 'btn btn-ghost', type: 'button', onclick: (e) => act(e, r, 'cancel') }, 'Қайтарып алу');
+  }
+  return null;
+}
+
+async function act(e, r, verb, body = {}) {
+  e.currentTarget.disabled = true;
+  try {
+    await api(`/api/requests/${r.id}/${verb}`, { method: 'POST', body });
+    state.rejectDrafts.delete(r.id);
+    toast({ approve: 'Рұқсат берілді', reject: 'Бас тартылды', leave: 'Белгіленді: мектептен шықты', cancel: 'Өтінім қайтарылды' }[verb]);
+  } catch (ex) {
+    toast(ex.message);
+  }
+  await loadRequests();
+  renderList();
+}
+
+// --- Қолданушылар (завуч) ---
+
+async function loadUsers() {
+  state.users = (await api('/api/users')).users;
+}
+
+function usersPage() {
+  const form = h('form', { class: 'panel stack', onsubmit: addUser },
+    h('h2', {}, 'Жаңа қолданушы қосу'),
+    h('div', { class: 'form-grid' },
+      h('div', { class: 'full' },
+        h('label', { for: 'u-name' }, 'Аты-жөні'),
+        h('input', { id: 'u-name', name: 'name', required: true, placeholder: 'Мысалы: Серікова Айгүл Қанатқызы' })),
+      h('div', {},
+        h('label', { for: 'u-role' }, 'Рөлі'),
+        h('select', { id: 'u-role', name: 'role', onchange: (e) => ($('u-class-wrap').hidden = e.target.value !== 'teacher') },
+          Object.entries(ROLE_NAMES).map(([v, l]) => h('option', { value: v }, l)))),
+      h('div', { id: 'u-class-wrap' },
+        h('label', { for: 'u-class' }, 'Сыныбы'),
+        h('input', { id: 'u-class', name: 'className', placeholder: '10А' })),
+      h('div', {},
+        h('label', { for: 'u-login' }, 'Логин (латынша)'),
+        h('input', { id: 'u-login', name: 'login', required: true, autocapitalize: 'none', placeholder: '10a' })),
+      h('div', {},
+        h('label', { for: 'u-password' }, 'Құпия сөз'),
+        h('input', { id: 'u-password', name: 'password', required: true, minlength: '6' }))),
+    h('p', { class: 'error', id: 'u-error', hidden: true }),
+    h('div', {}, h('button', { class: 'btn btn-primary', type: 'submit' }, 'Қосу')));
+
+  const table = h('div', { class: 'panel stack' },
+    h('h2', {}, 'Барлық қолданушылар'),
+    h('div', { class: 'table-wrap' },
+      h('table', {},
+        h('thead', {}, h('tr', {}, ['Аты-жөні', 'Рөлі', 'Сынып', 'Логин', ''].map((t) => h('th', {}, t)))),
+        h('tbody', {}, state.users.map((u) => h('tr', {},
+          h('td', {}, u.name),
+          h('td', {}, ROLE_NAMES[u.role]),
+          h('td', { class: 'mono' }, u.className || '—'),
+          h('td', { class: 'mono' }, u.login),
+          h('td', {}, u.id === state.user.id ? h('span', { class: 'muted' }, 'сіз') : userActions(u))))))));
+
+  return h('div', { class: 'stack', style: 'gap:1.25rem' },
+    h('div', { class: 'page-head' }, h('div', {},
+      h('h1', {}, 'Қолданушылар'),
+      h('p', { class: 'muted' }, 'Сынып жетекшілері мен күзетшілерге логин беріңіз.'))),
+    form, table);
+}
+
+function userActions(u) {
+  const pw = h('input', { placeholder: 'Жаңа құпия сөз', minlength: '6', style: 'width:10rem' });
+  return h('div', { class: 'slip-actions' },
+    pw,
+    h('button', {
+      class: 'btn btn-ghost', type: 'button',
+      onclick: async () => {
+        try {
+          await api(`/api/users/${u.id}/password`, { method: 'POST', body: { password: pw.value } });
+          pw.value = '';
+          toast('Құпия сөз ауыстырылды');
+        } catch (ex) { toast(ex.message); }
+      },
+    }, 'Ауыстыру'),
+    h('button', {
+      class: 'btn btn-bad', type: 'button',
+      onclick: async (e) => {
+        const btn = e.currentTarget;
+        if (btn.dataset.confirm !== '1') {
+          btn.dataset.confirm = '1';
+          btn.textContent = 'Растау: өшіру';
+          return;
+        }
+        try {
+          await api(`/api/users/${u.id}`, { method: 'DELETE' });
+          toast('Қолданушы өшірілді');
+          await loadUsers();
+          $('content').replaceChildren(usersPage());
+        } catch (ex) { toast(ex.message); }
+      },
+    }, 'Өшіру'));
+}
+
+async function addUser(e) {
+  e.preventDefault();
+  const err = $('u-error');
+  err.hidden = true;
+  try {
+    await api('/api/users', { method: 'POST', body: Object.fromEntries(new FormData(e.target)) });
+    toast('Қолданушы қосылды');
+    await loadUsers();
+    $('content').replaceChildren(usersPage());
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  }
+}
+
+// ---------- Бастау ----------
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+start().catch(() => showLogin());

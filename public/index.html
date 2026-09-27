@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="kk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Мектептен шығу рұқсаты</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Кіру беті -->
+  <main id="login-view" class="login" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">✓</span>
+        <div>
+          <h1>Шығу рұқсаты</h1>
+          <p class="muted">Оқушыны сабақтан босату жүйесі</p>
+        </div>
+      </div>
+      <label for="login-login">Логин</label>
+      <input id="login-login" name="login" autocomplete="username" required autocapitalize="none">
+      <label for="login-password">Құпия сөз</label>
+      <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+      <p id="login-error" class="error" hidden></p>
+      <button class="btn btn-primary" type="submit">Кіру</button>
+    </form>
+  </main>
+
+  <!-- Негізгі бет -->
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand small">
+          <span class="brand-mark" aria-hidden="true">✓</span>
+          <strong>Шығу рұқсаты</strong>
+        </div>
+        <nav id="tabs" class="tabs"></nav>
+        <div class="who">
+          <span id="who-name"></span>
+          <span id="who-role" class="role-chip"></span>
+          <button id="btn-password" class="btn btn-ghost" type="button">Құпия сөз</button>
+          <button id="btn-logout" class="btn btn-ghost" type="button">Шығу</button>
+        </div>
+      </div>
+    </header>
+    <main id="content" class="content"></main>
+  </div>
+
+  <!-- Құпия сөзді ауыстыру -->
+  <dialog id="password-dialog">
+    <form id="password-form" class="stack">
+      <h2>Құпия сөзді ауыстыру</h2>
+      <label for="pw-old">Ескі құпия сөз</label>
+      <input id="pw-old" type="password" required autocomplete="current-password">
+      <label for="pw-new">Жаңа құпия сөз (кемінде 6 таңба)</label>
+      <input id="pw-new" type="password" required minlength="6" autocomplete="new-password">
+      <p id="pw-error" class="error" hidden></p>
+      <div class="row-end">
+        <button class="btn btn-ghost" type="button" data-close>Болдырмау</button>
+        <button class="btn btn-primary" type="submit">Сақтау</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
