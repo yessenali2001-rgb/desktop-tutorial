@@ -9,6 +9,7 @@ const DEFAULT_STATE = {
   limits: {},
   monthlyBudget: 0,
   transactions: [],
+  reports: {}, // итоги месяцев: { '2026-09': { ai, aiAt, notes } }
 };
 
 const SETTINGS_KEYS = ['members', 'expenseCategories', 'incomeCategories', 'limits', 'monthlyBudget'];
@@ -31,7 +32,17 @@ function normalize(data) {
   }
   if (data?.monthlyBudget > 0) out.monthlyBudget = Number(data.monthlyBudget);
   if (Array.isArray(data?.transactions)) out.transactions = data.transactions.filter(isValidTx);
+  if (data?.reports && typeof data.reports === 'object') {
+    for (const [m, r] of Object.entries(data.reports)) {
+      if (/^\d{4}-\d{2}$/.test(m) && r && typeof r === 'object') out.reports[m] = normalizeReport(r);
+    }
+  }
   return out;
+}
+
+function normalizeReport(r) {
+  const str = (v) => (typeof v === 'string' ? v : '');
+  return { ai: str(r?.ai), aiAt: str(r?.aiAt), notes: str(r?.notes) };
 }
 
 function isValidTx(t) {
@@ -80,10 +91,13 @@ let db = null;
 let canWrite = true;
 let settingsExist = false;
 let knownMonths = new Set();
+let knownReports = new Set();
 let settingsLoaded = false;
 let monthsLoaded = false;
 let localCopy = null; // данные этого браузера — можно перенести в общий бюджет
 let pendingSettings = null;
+const pendingReports = {};
+const reportTimers = {};
 let settingsTimer;
 const writeQueues = {};
 
@@ -142,19 +156,33 @@ function flushSettings() {
   enqueue('budget/settings', (ref) => (settingsExist ? ref.update(patch) : ref.set(settingsOf(state))));
 }
 
+// update требует существующий документ, поэтому первая запись создаёт его через set.
+async function upsert(ref, fields, exists) {
+  try {
+    await ref.update(fields);
+  } catch (e) {
+    if (e?.code !== 'invalid_argument' || exists) throw e;
+    await ref.set(fields);
+  }
+}
+
 function addTx(tx) {
   state.transactions.push(tx);
   if (!db) return saveLocal();
   const month = tx.date.slice(0, 7);
-  enqueue('months/' + month, async (ref) => {
-    try {
-      await ref.update({ items: { [tx.id]: tx } });
-    } catch (e) {
-      // update требует существующий документ: первая операция месяца создаёт его
-      if (e?.code !== 'invalid_argument' || knownMonths.has(month)) throw e;
-      await ref.set({ items: { [tx.id]: tx } });
-    }
-  });
+  enqueue('months/' + month, (ref) => upsert(ref, { items: { [tx.id]: tx } }, knownMonths.has(month)));
+}
+
+function setReport(month, fields, delay = 0) {
+  state.reports[month] = { ...normalizeReport(state.reports[month]), ...fields };
+  if (!db) return saveLocal();
+  pendingReports[month] = { ...pendingReports[month], ...fields };
+  clearTimeout(reportTimers[month]);
+  reportTimers[month] = setTimeout(() => {
+    const patch = pendingReports[month];
+    delete pendingReports[month];
+    enqueue('reports/' + month, (ref) => upsert(ref, patch, knownReports.has(month)));
+  }, delay);
 }
 
 function deleteTx(tx) {
@@ -170,9 +198,11 @@ async function replaceAll(data) {
   const byMonth = {};
   for (const t of state.transactions) (byMonth[t.date.slice(0, 7)] ??= {})[t.id] = t;
   const months = new Set([...knownMonths, ...Object.keys(byMonth)]);
+  const reports = new Set([...knownReports, ...Object.keys(state.reports)]);
   await Promise.all([
     enqueue('budget/settings', (ref) => ref.set(settingsOf(state))),
     ...[...months].map((m) => enqueue('months/' + m, (ref) => (byMonth[m] ? ref.set({ items: byMonth[m] }) : ref.delete()))),
+    ...[...reports].map((m) => enqueue('reports/' + m, (ref) => (state.reports[m] ? ref.set(state.reports[m]) : ref.delete()))),
   ]);
 }
 
@@ -227,6 +257,14 @@ async function connectShared() {
       .map((t) => ({ ...t }));
     if (!snap.metadata.fromCache) monthsLoaded = true;
     setStatus(canWrite ? 'Общий бюджет семьи' : 'Только просмотр', canWrite ? 'ok' : '');
+    render();
+  }, onSubscribeError);
+
+  db.collection('reports').onSnapshot((snap) => {
+    knownReports = new Set(snap.docs.map((d) => d.id));
+    state.reports = {};
+    for (const d of snap.docs) state.reports[d.id] = normalizeReport(d.data());
+    for (const [m, patch] of Object.entries(pendingReports)) state.reports[m] = { ...normalizeReport(state.reports[m]), ...patch };
     render();
   }, onSubscribeError);
 }
@@ -322,6 +360,9 @@ function render({ settings = true } = {}) {
 
   $('memberPanel').hidden = onMemberSheet;
   $('budgetPanel').hidden = onMemberSheet;
+  $('reportPanel').hidden = onMemberSheet;
+  if (!onMemberSheet) renderReport();
+  renderReminder();
   if (!onMemberSheet) renderBudget(expense);
   $('filterMember').hidden = onMemberSheet;
   $('member').hidden = onMemberSheet;
@@ -372,6 +413,219 @@ function renderBudget(spent) {
       ...stats.map(([label, value, c]) => el('div', {},
         el('span', { textContent: label }), el('b', { className: c, textContent: value }))))
   );
+}
+
+// ---------- Итоги месяца ----------
+
+const monthName = (key, opts = { month: 'long', year: 'numeric' }) => {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString('ru-RU', opts).replace(' г.', '');
+};
+
+function monthStats(month) {
+  const txs = state.transactions.filter((t) => t.date.startsWith(month));
+  const expenses = txs.filter((t) => t.type === 'expense');
+  const income = txs.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  const expense = expenses.reduce((s, t) => s + t.amount, 0);
+  return { txs, expenses, income, expense, byCat: sumBy(expenses, 'category'), byMember: sumBy(expenses, 'member') };
+}
+
+function daysCounted(month) {
+  const [y, m] = month.split('-').map(Number);
+  const now = new Date();
+  if (month === monthKey(now)) return now.getDate();
+  return new Date(y, m, 0).getDate();
+}
+
+const pct = (x) => `${x > 0 ? '+' : ''}${Math.round(x * 100)}%`;
+const shortDate = (iso) => new Date(iso + 'T00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+
+function stat(label, value, note = '', cls = '') {
+  return el('div', { className: 'stat' },
+    el('span', { textContent: label }), el('b', { className: cls, textContent: value }), el('small', { textContent: note }));
+}
+
+function renderReport() {
+  const cur = monthStats(currentMonth);
+  const prev = monthStats(shiftMonth(currentMonth, -1));
+  $('reportTitle').textContent = 'Итоги: ' + monthName(currentMonth);
+
+  const saved = cur.income - cur.expense;
+  const tiles = [
+    stat(saved >= 0 ? 'Отложено' : 'Потрачено больше дохода', fmt(Math.abs(saved)),
+      cur.income > 0 ? `${Math.round((saved / cur.income) * 100)}% от дохода` : 'доходов нет', saved >= 0 ? 'income' : 'expense'),
+    prev.expense > 0
+      ? stat('Расходы к прошлому месяцу', pct(cur.expense / prev.expense - 1), `было ${fmt(prev.expense)}`,
+        cur.expense > prev.expense ? 'expense' : 'income')
+      : stat('Расходы к прошлому месяцу', '—', 'за прошлый месяц нет данных'),
+    stat('В среднем в день', fmt(Math.round(cur.expense / daysCounted(currentMonth))), `дней: ${daysCounted(currentMonth)}`),
+  ];
+  if (state.monthlyBudget > 0) {
+    const left = state.monthlyBudget - cur.expense;
+    tiles.push(stat('Общий бюджет', left >= 0 ? 'Уложились' : 'Превышен',
+      left >= 0 ? `осталось ${fmt(left)}` : `на ${fmt(-left)}`, left >= 0 ? 'income' : 'expense'));
+  }
+  $('reportStats').replaceChildren(...tiles);
+
+  const facts = [];
+  if (!cur.txs.length) facts.push('Операций за этот месяц пока нет.');
+  const topCats = Object.entries(cur.byCat).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  for (const [c, v] of topCats) {
+    const before = prev.byCat[c] || 0;
+    let change = ', в прошлом месяце не было';
+    if (before && v === before) change = ', как в прошлом месяце';
+    else if (before) change = `, ${v > before ? '+' : '−'}${fmt(Math.abs(v - before))} к прошлому месяцу`;
+    facts.push(`${c}: ${fmt(v)} (${Math.round((v / cur.expense) * 100)}% расходов)${change}`);
+  }
+  const over = Object.entries(state.limits).filter(([c, lim]) => (cur.byCat[c] || 0) > lim);
+  if (over.length) facts.push('Превышен лимит: ' + over.map(([c, lim]) => `${c} (${fmt(cur.byCat[c])} из ${fmt(lim)})`).join(', '));
+  const biggest = [...cur.expenses].sort((a, b) => b.amount - a.amount)[0];
+  if (biggest) {
+    facts.push(`Самая крупная трата: ${fmt(biggest.amount)}, ${[biggest.category, biggest.member, shortDate(biggest.date), biggest.note].filter(Boolean).join(', ')}`);
+  }
+  const members = Object.entries(cur.byMember).sort((a, b) => b[1] - a[1]);
+  if (members.length > 1) {
+    facts.push('Расходы по людям: ' + members.map(([m, v]) => `${m} ${Math.round((v / cur.expense) * 100)}%`).join(', '));
+  }
+  $('reportFacts').replaceChildren(...facts.map((f) => el('li', { textContent: f })));
+
+  renderTrend();
+  renderAi();
+
+  const report = normalizeReport(state.reports[currentMonth]);
+  if (document.activeElement !== $('notesInput')) $('notesInput').value = report.notes;
+  $('notesInput').readOnly = !canWrite;
+}
+
+function renderTrend() {
+  const months = Array.from({ length: 6 }, (_, i) => shiftMonth(currentMonth, i - 5));
+  const data = months.map((m) => ({ m, ...monthStats(m) }));
+  const max = Math.max(1, ...data.flatMap((d) => [d.income, d.expense]));
+  const describe = (d) => `${monthName(d.m)}: доходы ${fmt(d.income)}, расходы ${fmt(d.expense)}`;
+
+  $('trendChart').replaceChildren(...data.map((d) => {
+    const col = el('button', {
+      className: 'trend-col' + (d.m === currentMonth ? ' current' : ''),
+      title: describe(d),
+      ariaLabel: describe(d),
+    },
+    el('div', { className: 'trend-bars' },
+      el('i', { className: 'inc', style: `height:${(d.income / max) * 100}%` }),
+      el('i', { className: 'exp', style: `height:${(d.expense / max) * 100}%` })),
+    el('span', { textContent: monthName(d.m, { month: 'short' }).replace('.', '') }));
+    const show = () => { $('trendCaption').textContent = describe(d); };
+    col.addEventListener('mouseenter', show);
+    col.addEventListener('focus', show);
+    col.addEventListener('mouseleave', () => { $('trendCaption').textContent = describe(data[5]); });
+    col.addEventListener('click', () => { currentMonth = d.m; render(); });
+    return col;
+  }));
+  $('trendCaption').textContent = describe(data[5]) + '. Нажмите на месяц, чтобы открыть его итоги.';
+}
+
+function renderReminder() {
+  // В первые 10 дней месяца напоминаем подвести итоги прошлого, если их ещё нет
+  const now = new Date();
+  const prev = shiftMonth(monthKey(now), -1);
+  const report = normalizeReport(state.reports[prev]);
+  const show = canWrite && now.getDate() <= 10 && currentMonth !== prev && (!db || settingsLoaded)
+    && state.transactions.some((t) => t.date.startsWith(prev)) && !report.notes && !report.ai;
+  $('reportReminder').hidden = !show;
+  if (show) $('reminderText').textContent = `${monthName(prev, { month: 'long' })} закончился. Подведите итоги месяца всей семьёй.`;
+}
+
+// ---------- Анализ Claude ----------
+
+let sampleFn = null;
+let aiController = null;
+
+function renderAi() {
+  if (aiController) return; // идёт анализ — текст обновляется по мере ответа
+  const report = normalizeReport(state.reports[currentMonth]);
+  const hasData = state.transactions.some((t) => t.date.startsWith(currentMonth));
+  $('aiText').textContent = report.ai;
+  $('aiBtn').hidden = !sampleFn || !canWrite;
+  $('aiBtn').disabled = !hasData;
+  $('aiBtn').textContent = report.ai ? 'Обновить анализ' : 'Сделать анализ';
+  $('aiStop').hidden = true;
+  if (report.ai) $('aiMeta').textContent = `Анализ от ${shortDate(report.aiAt || todayISO())}`;
+  else if (!sampleFn) $('aiMeta').textContent = 'Анализ Claude доступен, когда страница открыта на claude.ai.';
+  else $('aiMeta').textContent = hasData ? 'Claude разберёт месяц и даст советы. Анализ увидит вся семья.' : 'Добавьте операции, чтобы сделать анализ.';
+}
+
+function buildPrompt(month) {
+  const cur = monthStats(month);
+  const prev = monthStats(shiftMonth(month, -1));
+  const months6 = Array.from({ length: 6 }, (_, i) => monthStats(shiftMonth(month, i - 6))).filter((m) => m.txs.length);
+  const avg = (k) => (months6.length ? Math.round(months6.reduce((s, m) => s + m[k], 0) / months6.length) : null);
+  const cats = [...new Set([...Object.keys(cur.byCat), ...Object.keys(prev.byCat)])]
+    .sort((a, b) => (cur.byCat[b] || 0) - (cur.byCat[a] || 0))
+    .map((c) => `- ${c}: ${cur.byCat[c] || 0} (прошлый месяц ${prev.byCat[c] || 0}${state.limits[c] ? `, лимит ${state.limits[c]}` : ''})`);
+  const incomeByCat = Object.entries(sumBy(cur.txs.filter((t) => t.type === 'income'), 'category')).map(([c, v]) => `- ${c}: ${v}`);
+  const members = Object.entries(cur.byMember).map(([m, v]) => `- ${m}: ${v}`);
+  const top = [...cur.expenses].sort((a, b) => b.amount - a.amount).slice(0, 10)
+    .map((t) => `- ${t.date}, ${t.category}, ${t.member}, ${t.amount}${t.note ? `, «${t.note}»` : ''}`);
+
+  return [
+    'Ты помогаешь семье подвести итоги месяца по семейному бюджету.',
+    `Месяц: ${monthName(month)}. Валюта: ${CURRENCY}. Учтено дней: ${daysCounted(month)}.`,
+    `Доходы: ${cur.income}. Расходы: ${cur.expense}. Остаток: ${cur.income - cur.expense}.`,
+    state.monthlyBudget ? `Плановый бюджет расходов на месяц: ${state.monthlyBudget}.` : 'Плановый бюджет не задан.',
+    `Прошлый месяц: доходы ${prev.income}, расходы ${prev.expense}.`,
+    avg('expense') !== null ? `Средние расходы за предыдущие месяцы: ${avg('expense')}, средние доходы: ${avg('income')}.` : '',
+    '', 'Расходы по категориям (этот месяц, в скобках прошлый месяц и лимит):', ...cats,
+    '', 'Доходы по категориям:', ...(incomeByCat.length ? incomeByCat : ['- нет']),
+    '', 'Расходы по членам семьи:', ...(members.length ? members : ['- нет']),
+    '', 'Самые крупные траты:', ...(top.length ? top : ['- нет']),
+    '',
+    'Напиши итог месяца на русском языке, просто и дружелюбно, для всей семьи. Без markdown: без звёздочек, решёток и таблиц.',
+    'Структура (заголовки как обычный текст на отдельной строке):',
+    'Итог — 2–3 предложения с главными цифрами.',
+    'Что получилось — 2–3 пункта.',
+    'На что обратить внимание — 2–3 пункта.',
+    'Советы на следующий месяц — 3 конкретных пункта с суммами.',
+    'Каждый пункт начинай с «• ». Опирайся только на эти данные и ничего не выдумывай. Не больше 220 слов.',
+  ].filter((line) => line !== null).join('\n');
+}
+
+const AI_ERRORS = {
+  rate_limited: 'Слишком много запросов или исчерпан лимит Claude. Попробуйте позже.',
+  session_expired: 'Войдите в claude.ai заново и повторите.',
+  refused: 'Claude не смог сделать анализ по этим данным.',
+  prompt_too_large: 'Слишком много данных для анализа за один раз.',
+};
+const AI_HIDE = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'];
+
+async function runAnalysis() {
+  const month = currentMonth;
+  aiController = new AbortController();
+  $('aiBtn').hidden = true;
+  $('aiStop').hidden = false;
+  $('aiText').textContent = '';
+  $('aiMeta').textContent = 'Claude думает… это может занять до минуты.';
+  try {
+    const { text } = await sampleFn(buildPrompt(month), {
+      signal: aiController.signal,
+      cache: false,
+      onText: ({ text: soFar }) => {
+        if (currentMonth === month) $('aiText').textContent = soFar;
+        $('aiMeta').textContent = 'Claude пишет…';
+      },
+    });
+    aiController = null;
+    setReport(month, { ai: text.trim(), aiAt: todayISO() });
+  } catch (e) {
+    aiController = null;
+    if (AI_HIDE.includes(e?.code)) sampleFn = null;
+    else if (e?.code !== 'cancelled') notify(AI_ERRORS[e?.code] || 'Не удалось получить анализ. Попробуйте ещё раз.');
+  }
+  render();
+}
+
+async function connectSample() {
+  if (!window.claude?.use) return;
+  sampleFn = await window.claude.use('sample');
+  render();
 }
 
 function renderTabs() {
@@ -630,6 +884,19 @@ $('resetBtn').addEventListener('click', async () => {
   replaceAll(DEFAULT_STATE);
 });
 
+$('notesInput').addEventListener('input', () => {
+  setReport(currentMonth, { notes: $('notesInput').value }, 800);
+});
+
+$('reminderBtn').addEventListener('click', () => {
+  currentMonth = shiftMonth(monthKey(new Date()), -1);
+  render();
+  $('reportPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+$('aiBtn').addEventListener('click', runAnalysis);
+$('aiStop').addEventListener('click', () => aiController?.abort());
+
 $('migrateBtn').addEventListener('click', async () => {
   const data = localCopy;
   localCopy = null;
@@ -640,3 +907,4 @@ $('migrateBtn').addEventListener('click', async () => {
 $('date').value = todayISO();
 render();
 connectShared();
+connectSample();

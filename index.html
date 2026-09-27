@@ -20,6 +20,11 @@
   <nav id="tabs" class="tabs" aria-label="Листы"></nav>
 
   <main>
+    <section id="reportReminder" class="panel banner" hidden>
+      <p id="reminderText"></p>
+      <button id="reminderBtn" class="primary">Открыть итоги</button>
+    </section>
+
     <section id="migrateBanner" class="panel banner" hidden>
       <p id="migrateText"></p>
       <button id="migrateBtn" class="primary">Перенести</button>
@@ -65,6 +70,40 @@
         <div id="memberChart" class="bars"></div>
       </section>
     </div>
+
+    <section id="reportPanel" class="panel">
+      <h2 id="reportTitle">Итоги месяца</h2>
+      <div id="reportStats" class="report-stats"></div>
+      <ul id="reportFacts" class="facts"></ul>
+
+      <div class="report-block">
+        <div class="trend-head">
+          <h3>Доходы и расходы за полгода</h3>
+          <div class="legend">
+            <span><i class="swatch income-sw"></i>Доходы</span>
+            <span><i class="swatch expense-sw"></i>Расходы</span>
+          </div>
+        </div>
+        <div id="trendChart" class="trend"></div>
+        <p id="trendCaption" class="caption"></p>
+      </div>
+
+      <div class="report-block">
+        <h3>Анализ Claude</h3>
+        <p id="aiText" class="ai-text"></p>
+        <div class="ai-actions">
+          <button id="aiBtn" class="primary" hidden>Сделать анализ</button>
+          <button id="aiStop" hidden>Остановить</button>
+          <span id="aiMeta" class="caption"></span>
+        </div>
+      </div>
+
+      <div class="report-block">
+        <h3>Выводы семьи</h3>
+        <textarea id="notesInput" rows="4" placeholder="Что получилось, на чём сэкономим, что меняем в следующем месяце…"></textarea>
+        <p id="notesMeta" class="caption">Выводы сохраняются сами и видны всей семье.</p>
+      </div>
+    </section>
 
     <section class="panel">
       <div class="panel-head">
