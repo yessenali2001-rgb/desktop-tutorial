@@ -6,6 +6,7 @@ const DEFAULT_STATE = {
   expenseCategories: ['Продукты', 'Жильё и ЖКХ', 'Транспорт', 'Дети', 'Здоровье', 'Одежда', 'Развлечения', 'Прочее'],
   incomeCategories: ['Зарплата', 'Подработка', 'Подарки', 'Прочее'],
   limits: {},
+  monthlyBudget: 0,
   sheet: 'all', // 'all' — вся семья, иначе имя члена семьи
   transactions: [],
 };
@@ -82,6 +83,8 @@ function render({ settings = true } = {}) {
   $('balance').className = 'card-value ' + (balance >= 0 ? 'income' : 'expense');
 
   $('memberPanel').hidden = onMemberSheet;
+  $('budgetPanel').hidden = onMemberSheet;
+  if (!onMemberSheet) renderBudget(expense);
   $('filterMember').hidden = onMemberSheet;
   $('member').hidden = onMemberSheet;
 
@@ -91,6 +94,44 @@ function render({ settings = true } = {}) {
   renderMemberChart(monthTx);
   renderTxList(monthTx);
   if (settings) renderSettings();
+}
+
+function renderBudget(spent) {
+  const budget = state.monthlyBudget;
+  const input = $('budgetInput');
+  if (document.activeElement !== input) input.value = budget || '';
+
+  if (!(budget > 0)) {
+    $('budgetBody').replaceChildren(el('p', {
+      className: 'muted',
+      textContent: 'Укажите, сколько семья планирует потратить за месяц, — здесь появится остаток.',
+    }));
+    return;
+  }
+
+  const left = budget - spent;
+  const ratio = spent / budget;
+  const cls = ratio > 1 ? 'over' : ratio >= 0.8 ? 'near' : '';
+  const stats = [
+    ['Потрачено', `${fmt(spent)} (${Math.round(ratio * 100)}%)`, ''],
+    [left >= 0 ? 'Осталось' : 'Перерасход', fmt(Math.abs(left)), left >= 0 ? 'income' : 'expense'],
+  ];
+
+  // «в день» имеет смысл только для текущего месяца
+  const now = new Date();
+  if (currentMonth === monthKey(now) && left > 0) {
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daysLeft = daysInMonth - now.getDate() + 1;
+    stats.push([`В день (ещё ${daysLeft} дн.)`, fmt(Math.floor(left / daysLeft)), '']);
+  }
+
+  $('budgetBody').replaceChildren(
+    el('div', { className: 'bar-track budget-track' },
+      el('div', { className: 'bar-fill ' + cls, style: `width:${Math.min(100, ratio * 100)}%` })),
+    el('div', { className: 'budget-stats' },
+      ...stats.map(([label, value, c]) => el('div', {},
+        el('span', { textContent: label }), el('b', { className: c, textContent: value }))))
+  );
 }
 
 function renderTabs() {
@@ -237,6 +278,13 @@ $('nextMonth').addEventListener('click', () => { currentMonth = shiftMonth(curre
 
 document.querySelectorAll('input[name="type"]').forEach((r) => r.addEventListener('change', renderFormSelects));
 $('filterType').addEventListener('change', render);
+
+$('budgetInput').addEventListener('input', () => {
+  const v = parseFloat($('budgetInput').value);
+  state.monthlyBudget = v > 0 ? v : 0;
+  save();
+  render({ settings: false });
+});
 $('filterMember').addEventListener('change', render);
 
 $('txForm').addEventListener('submit', (e) => {

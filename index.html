@@ -25,6 +25,14 @@
       <div class="card"><div class="card-label">Баланс за месяц</div><div id="balance" class="card-value">0</div></div>
     </section>
 
+    <section id="budgetPanel" class="panel">
+      <div class="panel-head">
+        <h2>Общий бюджет на месяц</h2>
+        <input id="budgetInput" type="number" min="0" step="1000" placeholder="Сумма бюджета" aria-label="Общий бюджет на месяц">
+      </div>
+      <div id="budgetBody"></div>
+    </section>
+
     <section class="panel">
       <h2>Добавить операцию</h2>
       <form id="txForm" class="tx-form">

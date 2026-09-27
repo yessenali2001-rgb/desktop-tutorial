@@ -93,6 +93,12 @@ button.danger { color: var(--expense); }
 
 .panel-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 .panel-head h2 { margin: 0; }
+#budgetInput { width: 170px; }
+.budget-track { height: 14px; margin: 4px 0 12px; }
+.budget-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px 16px; }
+.budget-stats div { display: grid; }
+.budget-stats span { color: var(--muted); font-size: .85rem; }
+.budget-stats b { font-size: 1.15rem; }
 .filters { display: flex; gap: 8px; }
 
 .tx-list { list-style: none; margin: 0; padding: 0; }
