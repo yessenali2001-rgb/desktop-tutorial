@@ -32,7 +32,7 @@ function save() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
-    alert('Не удалось сохранить данные в браузере.');
+    notify('Не удалось сохранить данные в этом браузере.');
   }
 }
 
@@ -48,6 +48,48 @@ function shiftMonth(key, delta) {
 function todayISO() {
   const d = new Date();
   return `${monthKey(d)}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Окно подтверждения внутри страницы: встроенные confirm()/alert() работают не везде.
+// Возвращает 'ok', 'extra' или 'cancel'.
+function openModal({ text, okLabel = 'OK', cancelLabel = 'Отмена', extraLabel = '', data = null, readonly = true }) {
+  $('modalText').textContent = text;
+  $('modalOk').textContent = okLabel;
+  $('modalCancel').textContent = cancelLabel;
+  $('modalExtra').textContent = extraLabel;
+  $('modalExtra').hidden = !extraLabel;
+  $('modalData').hidden = data === null;
+  $('modalData').value = data ?? '';
+  $('modalData').readOnly = readonly;
+  $('modal').hidden = false;
+  (data !== null && !readonly ? $('modalData') : $('modalOk')).focus();
+
+  return new Promise((resolve) => {
+    const close = (result) => {
+      $('modal').hidden = true;
+      $('modalOk').onclick = $('modalCancel').onclick = $('modalExtra').onclick = $('modal').onclick = null;
+      document.removeEventListener('keydown', onKey);
+      resolve(result);
+    };
+    const onKey = (e) => { if (e.key === 'Escape') close('cancel'); };
+    $('modalOk').onclick = () => close('ok');
+    $('modalCancel').onclick = () => close('cancel');
+    $('modalExtra').onclick = () => close('extra');
+    $('modal').onclick = (e) => { if (e.target === $('modal')) close('cancel'); };
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+async function ask(text, okLabel = 'Удалить') {
+  return (await openModal({ text, okLabel })) === 'ok';
+}
+
+let toastTimer;
+function notify(text) {
+  $('toast').textContent = text;
+  $('toast').hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3500);
 }
 
 function el(tag, props = {}, ...children) {
@@ -215,8 +257,8 @@ function renderTxList(monthTx) {
     const date = new Date(t.date + 'T00:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
     const meta = [date, t.member, t.note].filter(Boolean).join(' · ');
     const del = el('button', { className: 'del-btn', textContent: '✕', title: 'Удалить' });
-    del.addEventListener('click', () => {
-      if (!confirm('Удалить эту операцию?')) return;
+    del.addEventListener('click', async () => {
+      if (!(await ask('Удалить эту операцию?'))) return;
       state.transactions = state.transactions.filter((x) => x.id !== t.id);
       save();
       render();
@@ -238,9 +280,9 @@ function renderTxList(monthTx) {
 function renderSettings() {
   $('memberList').replaceChildren(...state.members.map((m) => {
     const btn = el('button', { textContent: '✕', title: 'Удалить' });
-    btn.addEventListener('click', () => {
-      if (state.members.length <= 1) return alert('Должен остаться хотя бы один член семьи.');
-      if (!confirm(`Удалить «${m}»? Операции останутся.`)) return;
+    btn.addEventListener('click', async () => {
+      if (state.members.length <= 1) return notify('Должен остаться хотя бы один член семьи.');
+      if (!(await ask(`Удалить «${m}» и его лист? Операции останутся на листе «Вся семья».`))) return;
       state.members = state.members.filter((x) => x !== m);
       save();
       render();
@@ -259,9 +301,9 @@ function renderSettings() {
       render({ settings: false });
     });
     const del = el('button', { textContent: '✕', title: 'Удалить категорию' });
-    del.addEventListener('click', () => {
-      if (state.expenseCategories.length <= 1) return;
-      if (!confirm(`Удалить категорию «${c}»? Операции останутся.`)) return;
+    del.addEventListener('click', async () => {
+      if (state.expenseCategories.length <= 1) return notify('Должна остаться хотя бы одна категория.');
+      if (!(await ask(`Удалить категорию «${c}»? Операции останутся.`))) return;
       state.expenseCategories = state.expenseCategories.filter((x) => x !== c);
       delete state.limits[c];
       save();
@@ -331,32 +373,74 @@ $('categoryForm').addEventListener('submit', (e) => {
   $('categoryName').value = '';
 });
 
-$('exportBtn').addEventListener('click', () => {
-  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-  const a = el('a', { href: URL.createObjectURL(blob), download: `budget-${todayISO()}.json` });
+function downloadJSON(json) {
+  const a = el('a', { href: URL.createObjectURL(new Blob([json], { type: 'application/json' })), download: `budget-${todayISO()}.json` });
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function importData(json) {
+  const data = JSON.parse(json);
+  if (!data || !Array.isArray(data.transactions)) throw new Error('bad format');
+  state = { ...structuredClone(DEFAULT_STATE), ...data };
+  save();
+  render();
+  notify(`Загружено операций: ${state.transactions.length}.`);
+}
+
+const BAD_IMPORT = 'Не получилось прочитать данные. Нужен текст или файл, сохранённый через «Экспорт».';
+
+// Экспорт показывает данные текстом: скачивание файлов разрешено не на каждом хостинге.
+$('exportBtn').addEventListener('click', async () => {
+  const json = JSON.stringify(state, null, 2);
+  const result = await openModal({
+    text: 'Скопируйте эти данные и сохраните их, например, в заметках. Потом их можно загрузить через «Импорт».',
+    okLabel: 'Копировать', cancelLabel: 'Закрыть', extraLabel: 'Скачать файл', data: json,
+  });
+  if (result === 'extra') downloadJSON(json);
+  if (result === 'ok') {
+    if (await copyText(json)) notify('Данные скопированы.');
+    else notify('Скопировать не вышло. Выделите текст в окне экспорта и скопируйте вручную.');
+  }
+});
+
+$('importBtn').addEventListener('click', async () => {
+  const result = await openModal({
+    text: 'Вставьте данные, скопированные через «Экспорт», или выберите файл. Текущие данные будут заменены.',
+    okLabel: 'Загрузить', extraLabel: 'Выбрать файл', data: '', readonly: false,
+  });
+  if (result === 'extra') return $('importInput').click();
+  if (result !== 'ok') return;
+  try {
+    importData($('modalData').value);
+  } catch {
+    notify(BAD_IMPORT);
+  }
 });
 
 $('importInput').addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
-    const data = JSON.parse(await file.text());
-    if (!Array.isArray(data.transactions)) throw new Error('bad format');
-    if (!confirm('Заменить текущие данные данными из файла?')) return;
-    state = { ...structuredClone(DEFAULT_STATE), ...data };
-    save();
-    render();
+    importData(await file.text());
   } catch {
-    alert('Не удалось прочитать файл. Нужен JSON, сохранённый через «Экспорт».');
+    notify(BAD_IMPORT);
   } finally {
     e.target.value = '';
   }
 });
 
-$('resetBtn').addEventListener('click', () => {
-  if (!confirm('Удалить все операции и настройки? Это нельзя отменить.')) return;
+$('resetBtn').addEventListener('click', async () => {
+  if (!(await ask('Удалить все операции и настройки? Это нельзя отменить.', 'Удалить всё'))) return;
   state = structuredClone(DEFAULT_STATE);
   save();
   render();
