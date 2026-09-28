@@ -63,7 +63,7 @@ function call(fn, ...args) {
     google.script.run
       .withSuccessHandler(resolve)
       .withFailureHandler((err) => {
-        const msg = String((err && err.message) || err || 'Қате шықты. Қайталап көріңіз.').replace(/^Error:\s*/, '');
+        const msg = String((err && err.message) || err || 'Қате шықты. Қайталап көріңіз.').replace(/^(Error|Exception):\s*/, '');
         if (msg.startsWith('AUTH:')) {
           store.set('');
           showLogin();
@@ -204,7 +204,7 @@ $('login-form').addEventListener('submit', async (e) => {
     $('login-secret').value = '';
     await start();
   } catch (ex) {
-    err.textContent = String(ex.message || ex).replace(/^Error:\s*/, '');
+    err.textContent = String(ex.message || ex).replace(/^(Error|Exception):\s*/, '');
     err.hidden = false;
   }
 });
