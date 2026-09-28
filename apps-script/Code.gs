@@ -377,6 +377,86 @@ function apiRequestAction(token, id, verb, note) {
 
 // ---------- Қолданушыларды басқару (тек завуч) ----------
 
+// ---------- Айлық есеп (завуч) ----------
+
+// Шықты деп рұқсат берілген өтінімдерді санаймыз: күзетші белгілегені де, әлі белгілемегені де.
+function isExit_(r) {
+  return r.status === 'approved' || r.status === 'left';
+}
+
+function monthRows_(month) {
+  return readRows_(SHEET_REQUESTS, REQ_COLS)
+    .map(publicRequest_)
+    .filter(function (r) { return r.date.slice(0, 7) === month; });
+}
+
+function classOrder_(a, b) {
+  return (parseInt(a, 10) - parseInt(b, 10)) || a.localeCompare(b, 'kk');
+}
+
+function apiMonthReport(token, month) {
+  auth_(token, ['zavuch']);
+  if (!/^\d{4}-\d{2}$/.test(month || '')) month = today_().slice(0, 7);
+  var rows = monthRows_(month);
+  var totals = { all: rows.length, pending: 0, approved: 0, left: 0, rejected: 0, cancelled: 0 };
+  rows.forEach(function (r) { totals[r.status] = (totals[r.status] || 0) + 1; });
+
+  var byReason = {};
+  var byClass = {};
+  var byDay = {};
+  var students = {};
+  rows.filter(isExit_).forEach(function (r) {
+    byReason[r.reason] = (byReason[r.reason] || 0) + 1;
+    byClass[r.className] = (byClass[r.className] || 0) + 1;
+    byDay[r.date] = (byDay[r.date] || 0) + 1;
+    var key = r.className + '|' + r.student;
+    var s = students[key] = students[key] || { student: r.student, className: r.className, count: 0, reasons: {}, last: '' };
+    s.count++;
+    s.reasons[r.reason] = (s.reasons[r.reason] || 0) + 1;
+    if (r.createdAt > s.last) s.last = r.createdAt;
+  });
+
+  var pairs = function (obj) { return Object.keys(obj).map(function (k) { return [k, obj[k]]; }); };
+  return {
+    month: month,
+    totals: totals,
+    exits: totals.approved + totals.left,
+    byReason: pairs(byReason).sort(function (a, b) { return b[1] - a[1]; }),
+    byClass: pairs(byClass).sort(function (a, b) { return classOrder_(a[0], b[0]); }),
+    byDay: pairs(byDay).sort(function (a, b) { return a[0] < b[0] ? -1 : 1; }),
+    students: Object.keys(students).map(function (k) { return students[k]; })
+      .sort(function (a, b) { return (b.count - a.count) || a.student.localeCompare(b.student, 'kk'); }),
+  };
+}
+
+// Есепті кестенің жаңа парағына шығару (басып шығаруға, архивке)
+function apiExportMonthReport(token, month) {
+  var report = apiMonthReport(token, month);
+  var ss = SpreadsheetApp.getActive();
+  var name = 'Есеп ' + report.month;
+  var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
+  sheet.clear();
+  var rows = [['Оқушы', 'Сынып', 'Неше рет шықты', 'Себептері', 'Соңғы рет']];
+  report.students.forEach(function (s) {
+    var reasons = Object.keys(s.reasons).map(function (k) { return k + ' — ' + s.reasons[k]; }).join('; ');
+    rows.push([s.student, s.className, s.count, reasons, s.last.slice(0, 16)]);
+  });
+  rows.push(['', '', '', '', '']);
+  rows.push(['Себептер бойынша', '', '', '', '']);
+  report.byReason.forEach(function (p) { rows.push([p[0], '', p[1], '', '']); });
+  rows.push(['', '', '', '', '']);
+  rows.push(['Барлық өтінім', '', report.totals.all, '', '']);
+  rows.push(['Шығуға рұқсат берілді', '', report.exits, '', '']);
+  rows.push(['Бас тартылды', '', report.totals.rejected, '', '']);
+  sheet.getRange(1, 1, rows.length, 5).setNumberFormat('@').setValues(rows.map(function (r) {
+    return r.map(function (v) { return String(v); });
+  }));
+  sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, 5);
+  return ss.getUrl() + '#gid=' + sheet.getSheetId();
+}
+
 function apiListUsers(token) {
   auth_(token, ['zavuch']);
   var counts = {};
@@ -496,7 +576,8 @@ function linkPhotos() {
 }
 
 // Файл атын оқушының аты-жөнімен салыстыру. Жазылуы сәл басқа болса да табады:
-// «Расул» / «Расұл», әкесінің аты қосылған не түсіп қалған, бір-екі әріп қателігі.
+// «Расул» / «Расұл», әкесінің аты қосылған не түсіп қалған, аты мен тегі орын ауыстырған,
+// бір-екі әріп қателігі.
 function looseKey_(s) {
   s = String(s).normalize('NFC').replace(/\.(jpe?g|png|heic|heif|webp|gif)$/i, '').toLowerCase().replace(/ё/g, 'е');
   var map = { 'ә': 'а', 'ғ': 'г', 'қ': 'к', 'ң': 'н', 'ө': 'о', 'ұ': 'у', 'ү': 'у', 'һ': 'х', 'і': 'и', 'ъ': '', 'ь': '' };
@@ -525,6 +606,10 @@ function matchStudent_(fileName, list) {
   // Әкесінің аты қосылған не түсіп қалған: алғашқы екі сөз бойынша
   var two = lk.split(' ').slice(0, 2).join(' ');
   hit = list.filter(function (s) { return looseKey_(s.name).split(' ').slice(0, 2).join(' ') === two; });
+  if (hit.length === 1) return hit[0];
+  // Аты мен тегі орын ауыстырып жазылған
+  var sorted = lk.split(' ').sort().join(' ');
+  hit = list.filter(function (s) { return looseKey_(s.name).split(' ').sort().join(' ') === sorted; });
   if (hit.length === 1) return hit[0];
   // Бір-екі әріп қателігі
   var best = null, bestD = 99, second = 99;

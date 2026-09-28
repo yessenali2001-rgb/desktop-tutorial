@@ -262,7 +262,7 @@ async function start() {
 
 function renderTabs() {
   const tabs = [['requests', state.user.role === 'guard' ? 'Шығатын оқушылар' : 'Өтінімдер']];
-  if (state.user.role === 'zavuch') tabs.push(['users', 'Қолданушылар']);
+  if (state.user.role === 'zavuch') tabs.push(['report', 'Есеп'], ['users', 'Қолданушылар']);
   // Бір ғана бет болса, қойындыларды көрсетудің қажеті жоқ
   $('tabs').hidden = tabs.length < 2;
   $('tabs').replaceChildren(
@@ -277,6 +277,11 @@ function renderTabs() {
 
 async function renderPage() {
   const content = $('content');
+  if (state.tab === 'report') {
+    content.replaceChildren(h('p', { class: 'muted' }, 'Есеп дайындалуда…'));
+    await renderReport();
+    return;
+  }
   if (state.tab === 'users') {
     content.replaceChildren(h('p', { class: 'muted' }, 'Жүктелуде…'));
     await loadUsers();
@@ -605,6 +610,162 @@ async function act(e, r, verb, body = {}) {
   }
   await loadRequests();
   renderList();
+}
+
+// --- Айлық есеп (завуч) ---
+
+const MONTHS = ['Қаңтар', 'Ақпан', 'Наурыз', 'Сәуір', 'Мамыр', 'Маусым', 'Шілде', 'Тамыз', 'Қыркүйек', 'Қазан', 'Қараша', 'Желтоқсан'];
+const OFTEN = 3; // айына осыдан көп шықса, «жиі» деп белгілейміз
+
+function monthLabel(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  return `${MONTHS[m - 1]} ${y}`;
+}
+
+function lastMonths(count) {
+  const [y, m] = state.today.split('-').map(Number);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  return out;
+}
+
+async function renderReport() {
+  if (!state.reportMonth) state.reportMonth = state.today.slice(0, 7);
+  if (!state.reportFilter) state.reportFilter = { cls: '', q: '' };
+  const report = await call('apiMonthReport', state.reportMonth);
+  $('content').replaceChildren(reportPage(report));
+  renderStudentRows(report);
+}
+
+function reportPage(rep) {
+  const picker = h('div', { class: 'report-tools' },
+    h('div', { class: 'stack' },
+      h('label', { for: 'report-month' }, 'Ай'),
+      h('select', {
+        id: 'report-month',
+        onchange: (e) => { state.reportMonth = e.target.value; renderPage(); },
+      }, lastMonths(12).map((m) => h('option', { value: m, selected: m === rep.month }, monthLabel(m))))),
+    h('button', { class: 'btn btn-ghost', type: 'button', id: 'report-export', onclick: (e) => exportReport(e, rep.month) }, 'Кестеге шығару'),
+    h('span', { id: 'report-export-link' }));
+
+  const uniqueStudents = rep.students.length;
+  const counters = h('div', { class: 'counters' },
+    [[rep.totals.all, 'Барлық өтінім', ''], [rep.exits, 'Шығуға рұқсат', 'approved'],
+     [rep.totals.rejected, 'Бас тартылды', 'rejected'], [uniqueStudents, 'Оқушы шықты', 'left']]
+      .map(([n, label, cls]) => h('div', { class: `counter ${cls}` }, h('b', {}, n), h('span', {}, label))));
+
+  const classes = rep.students.map((s) => s.className).filter((c, i, a) => a.indexOf(c) === i)
+    .sort((a, b) => (parseInt(a, 10) - parseInt(b, 10)) || a.localeCompare(b, 'kk'));
+
+  return h('div', { class: 'stack', style: 'gap:1.25rem' },
+    h('div', { class: 'page-head' },
+      h('div', {}, h('h1', {}, `Айлық есеп`), h('p', { class: 'muted' }, `${monthLabel(rep.month)} · рұқсат берілген шығулар бойынша`)),
+      picker),
+    counters,
+    rep.exits ? [
+      h('div', { class: 'report-grid' },
+        h('section', { class: 'panel stack' }, h('h2', {}, 'Себептер'), barList(rep.byReason, rep.exits)),
+        h('section', { class: 'panel stack' }, h('h2', {}, 'Сыныптар'), barList(rep.byClass, rep.exits))),
+      h('section', { class: 'panel stack' }, h('h2', {}, 'Күн бойынша'), dayChart(rep)),
+      h('section', { class: 'panel stack' },
+        h('div', { class: 'report-table-head' },
+          h('h2', {}, 'Оқушылар'),
+          h('div', { class: 'report-filters' },
+            h('select', {
+              id: 'report-class', 'aria-label': 'Сынып',
+              onchange: (e) => { state.reportFilter.cls = e.target.value; renderStudentRows(rep); },
+            }, h('option', { value: '' }, 'Барлық сынып'), classes.map((c) => h('option', { value: c, selected: c === state.reportFilter.cls }, c))),
+            h('input', {
+              id: 'report-search', type: 'search', placeholder: 'Аты бойынша іздеу', 'aria-label': 'Аты бойынша іздеу', value: state.reportFilter.q,
+              oninput: (e) => { state.reportFilter.q = e.target.value; renderStudentRows(rep); },
+            }))),
+        h('p', { class: 'muted' }, `Айына ${OFTEN} рет не одан көп шыққан оқушылар «жиі» деп белгіленеді.`),
+        h('div', { class: 'table-wrap' },
+          h('table', { class: 'report-table' },
+            h('thead', {}, h('tr', {}, ['Оқушы', 'Сынып', 'Рет', 'Себептері', 'Соңғы рет'].map((t) => h('th', {}, t)))),
+            h('tbody', { id: 'report-rows' }))))
+    ] : h('div', { class: 'empty' }, `${monthLabel(rep.month)} айында шығуға рұқсат берілген өтінім жоқ.`));
+}
+
+// Көлденең жолақтар: бір түс, мәні жолақтың жанында жазылады
+function barList(pairs, total) {
+  const max = Math.max(...pairs.map((p) => p[1]), 1);
+  return h('div', { class: 'barlist' }, pairs.map(([label, n]) =>
+    h('div', { class: 'bar-row', title: `${label}: ${n} (${Math.round((n / total) * 100)}%)` },
+      h('span', { class: 'bar-label' }, label),
+      h('span', { class: 'bar-track' }, h('span', { class: 'bar-fill', style: `width:${(n / max) * 100}%` })),
+      h('span', { class: 'bar-value' }, n))));
+}
+
+// Айдың әр күні бір баған. Меңзер апарғанда не басқанда сол күннің саны шығады.
+function dayChart(rep) {
+  const [y, m] = rep.month.split('-').map(Number);
+  const days = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const counts = Object.fromEntries(rep.byDay);
+  const max = Math.max(...rep.byDay.map((d) => d[1]), 1);
+  const top = Math.max(2, Math.ceil(max / 2) * 2);
+  const tip = h('div', { class: 'chart-tip', hidden: true });
+  const show = (col, text) => {
+    tip.textContent = text;
+    tip.hidden = false;
+    const box = col.parentElement.getBoundingClientRect();
+    const r = col.getBoundingClientRect();
+    tip.style.left = `${Math.min(Math.max(r.left - box.left + r.width / 2, 40), box.width - 40)}px`;
+  };
+  const cols = [];
+  for (let d = 1; d <= days; d++) {
+    const date = `${rep.month}-${String(d).padStart(2, '0')}`;
+    const n = counts[date] || 0;
+    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    const text = `${d} ${MONTHS[m - 1].toLowerCase()}: ${n} оқушы`;
+    const col = h('div', {
+      class: `day-col${weekday === 0 || weekday === 6 ? ' weekend' : ''}`, tabindex: n ? '0' : null, 'aria-label': text,
+      onmouseenter: (e) => show(e.currentTarget, text), onfocus: (e) => show(e.currentTarget, text),
+      onmouseleave: () => (tip.hidden = true), onblur: () => (tip.hidden = true),
+    },
+      h('span', { class: 'day-bar', style: `height:${(n / top) * 100}%` }),
+      h('span', { class: 'day-num' }, d % 5 === 1 || d === days ? d : ''));
+    cols.push(col);
+  }
+  return h('div', { class: 'daychart' },
+    h('div', { class: 'day-grid' },
+      h('span', { class: 'grid-line', style: 'bottom:100%' }, h('i', {}, top)),
+      h('span', { class: 'grid-line', style: 'bottom:50%' }, h('i', {}, top / 2)),
+      h('span', { class: 'grid-line base', style: 'bottom:0' }, h('i', {}, 0))),
+    h('div', { class: 'day-cols' }, cols, tip));
+}
+
+function renderStudentRows(rep) {
+  const body = $('report-rows');
+  if (!body) return;
+  const { cls, q } = state.reportFilter;
+  const needle = q.trim().toLowerCase();
+  const list = rep.students.filter((s) => (!cls || s.className === cls) && (!needle || s.student.toLowerCase().includes(needle)));
+  body.replaceChildren(...(list.length ? list.map((s) => h('tr', { class: s.count >= OFTEN ? 'often' : '' },
+    h('td', {}, h('div', { class: 'report-student' }, avatar(s.className, s.student, 'sm'), h('span', {}, s.student))),
+    h('td', { class: 'mono' }, s.className),
+    h('td', { class: 'mono' }, h('b', {}, s.count), s.count >= OFTEN ? h('span', { class: 'often-badge' }, '⚠ жиі') : ''),
+    h('td', {}, h('div', { class: 'reason-chips' }, Object.entries(s.reasons).sort((a, b) => b[1] - a[1])
+      .map(([r, n]) => h('span', { class: 'reason-chip' }, n > 1 ? `${r} · ${n}` : r)))),
+    h('td', { class: 'mono' }, s.last ? `${Number(s.last.slice(8, 10))} ${MONTHS[Number(s.last.slice(5, 7)) - 1].toLowerCase()}, ${s.last.slice(11, 16)}` : '—')))
+    : [h('tr', {}, h('td', { colspan: '5', class: 'muted' }, 'Ешкім табылмады.'))]));
+}
+
+async function exportReport(e, month) {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const url = await call('apiExportMonthReport', month);
+    $('report-export-link').replaceChildren(h('a', { href: url, target: '_blank', rel: 'noopener' }, 'Кестені ашу →'));
+    toast('Есеп кестеге шығарылды');
+  } catch (ex) {
+    toast(ex.message);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // --- Қолданушылар (завуч) ---
