@@ -678,6 +678,66 @@ function apiAddUser(token, b) {
   });
 }
 
+// «Оқушылар» парағындағы, бірақ әлі жетекші аккаунты жоқ сыныптар
+function apiClassesWithoutTeacher(token) {
+  auth_(token, ['zavuch']);
+  var have = {};
+  readRows_(SHEET_USERS, USER_COLS).forEach(function (u) { if (u.role === 'teacher') have[u.className] = true; });
+  var seen = {};
+  return readStudents_()
+    .map(function (s) { return s.className; })
+    .filter(function (c) { if (seen[c] || have[c]) return false; seen[c] = true; return true; })
+    .sort(classOrder_);
+}
+
+// Сыныптарды тізіммен бірден қосу. Әр жол: «Сынып; Жетекшілердің аты-жөні; PIN».
+// PIN бос болса, сайт өзі жасайды. Жасалған PIN-кодтар тек осы жауапта көрінеді:
+// кестеде олар шифрланып сақталады.
+function apiBulkAddTeachers(token, text) {
+  auth_(token, ['zavuch']);
+  var lines = String(text || '').split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+  if (!lines.length) throw new Error('Тізім бос.');
+  if (lines.length > 60) throw new Error('Бір реттен 60 жолдан көп емес.');
+  return withLock_(function () {
+    var users = readRows_(SHEET_USERS, USER_COLS);
+    var taken = {};
+    users.forEach(function (u) { if (u.role === 'teacher') taken[u.className] = true; });
+    return lines.map(function (line) {
+      var parts = line.split(/\t|;/).map(function (p) { return p.trim(); });
+      var className = normClass_(parts[0]);
+      var name = str_(parts[1] || '', 100).replace(/\s+/g, ' ') || className + ' сынып жетекшісі';
+      var pin = str_(parts[2] || '');
+      var row = { className: className, name: name, pin: '', status: 'error', message: '' };
+      if (!/^\d{1,2}\S+$/.test(className)) {
+        row.message = 'Жол танылмады. Үлгі: 10А; Аты-жөні';
+        return row;
+      }
+      if (taken[className]) {
+        row.status = 'exists';
+        row.message = 'Бұл сынып бұрыннан бар';
+        return row;
+      }
+      if (pin && !isPin_(pin)) {
+        row.message = 'PIN-код 4–6 саннан тұрсын';
+        return row;
+      }
+      if (!pin) pin = String(Math.floor(1000 + Math.random() * 9000));
+      appendRow_(SHEET_USERS, USER_COLS, {
+        id: Utilities.getUuid(),
+        login: 'class:' + className,
+        name: name,
+        role: 'teacher',
+        className: className,
+        password: hashPassword_(pin),
+      });
+      taken[className] = true;
+      row.pin = pin;
+      row.status = 'added';
+      return row;
+    });
+  });
+}
+
 function apiResetPassword(token, userId, password) {
   auth_(token, ['zavuch']);
   withLock_(function () {

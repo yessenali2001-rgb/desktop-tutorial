@@ -771,7 +771,63 @@ async function exportReport(e, month) {
 // --- Қолданушылар (завуч) ---
 
 async function loadUsers() {
-  state.users = await call('apiListUsers');
+  const [users, missing] = await Promise.all([call('apiListUsers'), call('apiClassesWithoutTeacher').catch(() => [])]);
+  state.users = users;
+  state.missingClasses = missing;
+}
+
+// Сыныптарды бірден қосу: «Оқушылар» парағындағы жетекшісі жоқ сыныптар алдын ала жазылып тұрады
+function bulkPanel() {
+  const missing = state.missingClasses || [];
+  const area = h('textarea', {
+    id: 'bulk-text', rows: String(Math.min(Math.max(missing.length, 3), 12)), spellcheck: 'false',
+    placeholder: '7А; Аты-жөні, Аты-жөні\n7Ә; Аты-жөні, Аты-жөні',
+  });
+  area.value = missing.map((c) => `${c}; `).join('\n');
+  return h('section', { class: 'panel stack', id: 'bulk-panel' },
+    h('h2', {}, 'Сыныптарды бірден қосу'),
+    h('p', { class: 'muted' }, missing.length
+      ? `«Оқушылар» парағында ${missing.length} сыныптың жетекшісі әлі қосылмаған. Әр жолға нүктелі үтірден (;) кейін жетекшілердің аты-жөнін жазыңыз. PIN-кодты сайт өзі жасайды.`
+      : 'Әр жол: Сынып; Жетекшілердің аты-жөні; PIN (міндетті емес). PIN жазылмаса, сайт өзі жасайды.'),
+    area,
+    h('div', {}, h('button', { class: 'btn btn-primary', type: 'button', onclick: bulkAdd }, 'Барлығын қосу')));
+}
+
+async function bulkAdd(e) {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const rows = await call('apiBulkAddTeachers', $('bulk-text').value);
+    await loadUsers();
+    $('content').replaceChildren(usersPage());
+    const added = rows.filter((r) => r.status === 'added');
+    const statusText = { added: 'Қосылды', exists: 'Бұрыннан бар', error: 'Қате' };
+    const copyText = added.map((r) => `${r.className}\t${r.name}\tPIN: ${r.pin}`).join('\n');
+    $('bulk-result').hidden = false;
+    $('bulk-result').replaceChildren(
+      h('h2', {}, 'Қосылған сыныптар'),
+      h('div', { class: 'bulk-note' },
+        h('b', {}, `${added.length} сынып қосылды.`),
+        added.length ? ' PIN-кодтарды қазір жазып алыңыз: кейін оларды көру мүмкін емес, тек жаңасын беруге болады.' : ''),
+      h('div', { class: 'table-wrap' }, h('table', {},
+        h('thead', {}, h('tr', {}, ['Сынып', 'Жетекшілер', 'PIN', 'Күйі'].map((t) => h('th', {}, t)))),
+        h('tbody', {}, rows.map((r) => h('tr', {},
+          h('td', { class: 'mono' }, r.className),
+          h('td', {}, r.name),
+          h('td', { class: 'mono' }, h('b', {}, r.pin || '—')),
+          h('td', { class: r.status === 'error' ? 'error' : r.status === 'exists' ? 'muted' : '' }, r.message || statusText[r.status])))))),
+      added.length ? h('div', {}, h('button', {
+        class: 'btn btn-ghost', type: 'button',
+        onclick: (ev) => navigator.clipboard.writeText(copyText)
+          .then(() => { ev.currentTarget.textContent = 'Көшірілді ✓'; })
+          .catch(() => toast('Көшіру мүмкін болмады. Кестені қолмен белгілеп көшіріңіз.')),
+      }, 'PIN-кодтарды көшіру')) : '');
+    $('bulk-result').scrollIntoView({ block: 'start' });
+    toast(`${added.length} сынып қосылды`);
+  } catch (ex) {
+    toast(ex.message);
+    btn.disabled = false;
+  }
 }
 
 function usersPage() {
@@ -814,7 +870,8 @@ function usersPage() {
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Қолданушылар'),
       h('p', { class: 'muted' }, 'Әр сыныпқа PIN-код, КПП-ға өз құпия сөзін беріңіз.'))),
-    form, table);
+    h('section', { class: 'panel stack', id: 'bulk-result', hidden: true }),
+    (state.missingClasses || []).length || !state.users.some((u) => u.role === 'teacher') ? bulkPanel() : null, form, table);
 }
 
 function userActions(u) {
