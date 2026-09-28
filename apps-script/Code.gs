@@ -19,14 +19,14 @@ var USER_HEADERS = ['ID', 'Кілт', 'Аты-жөні', 'Рөлі', 'Сыныб
 var REQ_COLS = ['id', 'date', 'createdAt', 'teacherId', 'teacherName', 'student', 'className', 'reason', 'reasonNote',
   'destination', 'pickup', 'pickupPhone', 'status', 'decidedBy', 'decidedAt', 'decisionNote', 'leftAt', 'guardName'];
 var REQ_HEADERS = ['ID', 'Күні', 'Жіберілді', 'Жетекші ID', 'Сынып жетекшісі', 'Оқушы', 'Сыныбы', 'Себебі', 'Қосымша',
-  'Қайда', 'Кім алып кетеді', 'Телефон', 'Күйі', 'Шешім қабылдаған', 'Шешім уақыты', 'Завуч ескертпесі', 'Шыққан уақыты', 'Өткізу бекеті'];
+  'Қайда', 'Кім алып кетеді', 'Телефон', 'Күйі', 'Шешім қабылдаған', 'Шешім уақыты', 'Завуч ескертпесі', 'Шыққан уақыты', 'КПП'];
 
 var SESSION_COLS = ['token', 'userId', 'expires'];
 var STUDENT_COLS = ['className', 'name', 'photoId'];
 var STUDENT_HEADERS = ['Сынып', 'Оқушының аты-жөні', 'Сурет (Drive ID)'];
 
 var ROLES = ['teacher', 'zavuch', 'guard'];
-var ROLE_LABELS = { teacher: 'Сынып жетекшісі', zavuch: 'Завуч', guard: 'Өткізу бекеті' };
+var ROLE_LABELS = { teacher: 'Сынып жетекшісі', zavuch: 'Завуч', guard: 'КПП' };
 var STATUS_LABELS = {
   pending: 'Күтуде',
   approved: 'Рұқсат берілді',
@@ -250,7 +250,7 @@ function apiLoginOptions() {
   return { classes: classes };
 }
 
-// Сынып жетекшісі: сынып + PIN. Өткізу бекеті мен завуч: рөлі + өз құпия сөзі.
+// Сынып жетекшісі: сынып + PIN. КПП мен завуч: рөлі + өз құпия сөзі.
 function apiLogin(role, className, secret) {
   if (ROLES.indexOf(role) === -1) throw new Error('Кім ретінде кіретініңізді таңдаңыз.');
   className = role === 'teacher' ? normClass_(className) : '';
@@ -355,7 +355,7 @@ function apiRequestAction(token, id, verb, note) {
       r.decidedAt = now_();
       r.decisionNote = str_(note, 300);
     } else if (verb === 'leave') {
-      if (user.role !== 'guard') throw new Error('Тек өткізу бекеті белгілейді.');
+      if (user.role !== 'guard') throw new Error('Тек КПП белгілейді.');
       if (status !== 'approved') throw new Error('Оқушыға шығуға рұқсат берілмеген.');
       r.status = STATUS_LABELS.left;
       r.leftAt = now_();
@@ -376,7 +376,7 @@ function apiRequestAction(token, id, verb, note) {
 
 // ---------- Айлық есеп (завуч) ----------
 
-// Шықты деп рұқсат берілген өтінімдерді санаймыз: өткізу бекеті белгілегені де, әлі белгілемегені де.
+// Шықты деп рұқсат берілген өтінімдерді санаймыз: КПП белгілегені де, әлі белгілемегені де.
 function isExit_(r) {
   return r.status === 'approved' || r.status === 'left';
 }
