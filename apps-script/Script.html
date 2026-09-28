@@ -3,7 +3,7 @@
 
 // ---------- Мәтіндер ----------
 
-const ROLE_NAMES = { teacher: 'Сынып жетекшісі', zavuch: 'Завуч', guard: 'Күзетші' };
+const ROLE_NAMES = { teacher: 'Сынып жетекшісі', zavuch: 'Завуч', guard: 'Өткізу бекеті' };
 const STATUS_NAMES = {
   pending: 'Завучты күтуде',
   approved: 'Рұқсат берілді',
@@ -441,7 +441,7 @@ function zavuchPage() {
     h('div', { class: 'list', id: 'list' }));
 }
 
-// --- Күзетші ---
+// --- Өткізу бекеті ---
 
 function guardPage() {
   return h('div', { class: 'stack guard', style: 'gap:1.25rem' },
@@ -813,7 +813,7 @@ function usersPage() {
   return h('div', { class: 'stack', style: 'gap:1.25rem' },
     h('div', { class: 'page-head' }, h('div', {},
       h('h1', {}, 'Қолданушылар'),
-      h('p', { class: 'muted' }, 'Әр сыныпқа PIN-код, күзетшіге өз құпия сөзін беріңіз.'))),
+      h('p', { class: 'muted' }, 'Әр сыныпқа PIN-код, өткізу бекетіне өз құпия сөзін беріңіз.'))),
     form, table);
 }
 
@@ -856,8 +856,8 @@ function updateUserForm() {
   const pin = role === 'teacher';
   $('u-class-wrap').hidden = !pin;
   $('u-class').required = pin;
-  $('u-name-label').textContent = pin ? 'Жетекшінің аты-жөні' : 'Аты-жөні';
-  $('u-name').placeholder = pin ? 'Серікова Айгүл' : role === 'guard' ? 'Бекжанов Ерлан' : 'Аты-жөні';
+  $('u-name-label').textContent = pin ? 'Жетекшінің аты-жөні' : role === 'guard' ? 'Бекеттің атауы' : 'Аты-жөні';
+  $('u-name').placeholder = pin ? 'Серікова Айгүл' : role === 'guard' ? 'Мысалы: Бас қақпа' : 'Аты-жөні';
   const pw = $('u-password');
   $('u-password-label').textContent = pin ? 'PIN-код (4–6 сан)' : 'Құпия сөз (кемінде 6 таңба)';
   pw.value = '';
