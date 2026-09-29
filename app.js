@@ -2815,7 +2815,7 @@ function englishHtml(s) {
   const best = pts.length ? Math.max(...pts.map((p) => p.v)) : 0;
   const target = ieltsTarget(s);
   const cefr = bestCefr(s);
-  const ket = (s.exams || []).filter((x) => /^(KET|PET|FCE)/i.test(x.name) && cellValue(x.value));
+  const ket = (s.exams || []).filter((x) => /(^|\s)(KET|PET|FCE)/i.test(x.name) && cellValue(x.value));
   return `<div class="card">
     <div class="eyebrow">Ағылшын тілі</div>
     <h2>🇬🇧 Английский</h2>
