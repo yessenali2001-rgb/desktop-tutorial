@@ -29,6 +29,7 @@ const SHEETS = {
   tg: "Telegram",
   wordProgress: "Слова — прогресс",
   customWords: "Свои слова",
+  reading: "Читаю сейчас",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -53,7 +54,8 @@ const HEADERS = {
   activities: ["ID ученика", "Вид", "Название", "Роль, что делал", "Часов в неделю", "Недель", "Период", "Добавлено"],
   english: ["ID ученика", "Дата", "Экзамен", "Общий балл", "Listening", "Reading", "Writing", "Speaking", "Уровень / примечание"],
   wordProgress: ["ID ученика", "Набор (id)", "Название", "Прогресс (JSON, не менять)", "Выучено", "Слов", "Лучший тест, %", "Тестов", "Произнесено", "Обновлено"],
-  customWords: ["Набор", "Слово", "Транскрипция", "Перевод", "Пример"],
+  customWords: ["Набор", "Слово", "Транскрипция", "Перевод", "Пример", "Қазақша"],
+  reading: ["ID ученика", "Книга", "Автор", "Страниц всего", "Прочитано страниц", "Начал", "Обновлено"],
   tg: ["Chat ID", "ID ученика", "Кто", "Имя в Telegram", "Подключено"],
   duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
@@ -151,6 +153,14 @@ function handle_(req) {
       }
       delete saved.before;
       return { ok: true, lesson: saved, notified: notified };
+    }
+    case "setReading": {
+      const id = targetId_(user, req.id, "Книгу указывает сам ученик или учитель");
+      return { ok: true, id: id, reading: setReading_(id, req.reading) };
+    }
+    case "endReading": {
+      const id = targetId_(user, req.id, "Книгу указывает сам ученик или учитель");
+      return Object.assign({ ok: true, id: id }, endReading_(id, !!req.done));
     }
     case "saveWords": {
       const id = targetId_(user, req.id, "Слова учит сам ученик");
@@ -491,6 +501,7 @@ function context_() {
     activities: readActivities_(),
     english: readEnglish_(),
     words: readWordProgress_(),
+    reading: readReading_(),
   };
 }
 
@@ -510,6 +521,7 @@ function publicStudent_(s, ctx) {
     activities: ctx.activities[s.id] || [],
     english: ctx.english[s.id] || [],
     words: ctx.words[s.id] || {},
+    reading: ctx.reading[s.id] || null,
   };
 }
 
@@ -1284,7 +1296,7 @@ function telegramSetup() {
 
 // ===================== Английские слова =====================
 // Сами наборы слов лежат на сайте (words.js). Учитель может добавить свои наборы на лист «Свои слова»:
-// Набор | Слово | Транскрипция | Перевод | Пример. Лист «Слова — прогресс» создаётся сам:
+// Набор | Слово | Транскрипция | Перевод | Пример | Қазақша. Лист «Слова — прогресс» создаётся сам:
 // ID | Набор (id) | Название | Прогресс (JSON, не менять) | Выучено | Слов | Лучший тест, % | Тестов | Произнесено | Обновлено.
 
 // Свои наборы учителя (если листа нет — пусто)
@@ -1300,7 +1312,8 @@ function readCustomWords_() {
       byName[name] = { id: "custom:" + name.slice(0, 60), level: "Свои", name: name, kind: "От учителя", words: [] };
       sets.push(byName[name]);
     }
-    const word = [w, String(r[2]).trim(), t];
+    // как в words.js: [английское, транскрипция, русский, казахский, пример]
+    const word = [w, String(r[2]).trim(), t, String(r[5] || "").trim()];
     if (String(r[4]).trim()) word.push(String(r[4]).trim());
     byName[name].words.push(word);
   });
@@ -1383,6 +1396,72 @@ function saveWords_(id, x) {
     lock.releaseLock();
   }
   return readWordProgress_()[id] || {};
+}
+
+// ===================== Читаю сейчас =====================
+// Лист «Читаю сейчас»: ID | Книга | Автор | Страниц всего | Прочитано страниц | Начал | Обновлено. Создаётся сам.
+// Одна строка на ученика. «Дочитал» — книга переходит в «Прочитанные книги» (Портфолио), строка удаляется.
+
+function readReading_() {
+  const res = {};
+  rows_("reading", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    if (!id || !String(r[1]).trim()) return;
+    res[id] = { title: clean_(r[1]), author: clean_(r[2]), pages: Number(r[3]) || 0, page: Number(r[4]) || 0, started: iso_(r[5]), updated: iso_(r[6]) };
+  });
+  return res;
+}
+
+function readingRow_(sh, id) {
+  const values = sh.getDataRange().getValues();
+  for (let i = 1; i < values.length; i++) if (String(values[i][0]).trim().toUpperCase() === id) return i + 1;
+  return -1;
+}
+
+// x: {title, author, pages, page} — начать новую книгу или обновить страницу
+function setReading_(id, x) {
+  x = x || {};
+  const today = Utilities.parseDate(Utilities.formatDate(new Date(), tz_(), "yyyy-MM-dd"), tz_(), "yyyy-MM-dd");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("reading", 6);
+    const row = readingRow_(sh, id);
+    const cur = readReading_()[id];
+    const title = safeText_(x.title, 150) || (cur && cur.title);
+    if (!title) throw new Error("Введите название книги");
+    const pages = numOrEmpty_(x.pages === undefined ? cur && cur.pages : x.pages, 5000, "Страниц всего");
+    let page = numOrEmpty_(x.page === undefined ? (cur ? cur.page : 0) : x.page, 5000, "Страница");
+    if (pages && page > pages) page = pages;
+    const sameBook = cur && cur.title === title;
+    const data = [id, title, safeText_(x.author === undefined ? cur && cur.author : x.author, 100), pages, page || 0, sameBook ? Utilities.parseDate(cur.started, tz_(), "yyyy-MM-dd") : today, today];
+    if (row > 0) sh.getRange(row, 1, 1, data.length).setValues([data]);
+    else sh.appendRow(data);
+  } finally {
+    lock.releaseLock();
+  }
+  return readReading_()[id] || null;
+}
+
+// done = true: «Дочитал» (книга уходит в прочитанные), false: «Бросил» (просто убираем)
+function endReading_(id, done) {
+  const cur = readReading_()[id];
+  if (!cur) throw new Error("Сейчас книга не указана. Обновите страницу.");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("reading", 6);
+    const row = readingRow_(sh, id);
+    if (row > 0) sh.deleteRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  if (done) {
+    const MONTHS = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+    const now = new Date();
+    addBook_(id, { title: cur.title, details: cur.author, date: MONTHS[Number(Utilities.formatDate(now, tz_(), "M")) - 1] + " " + Utilities.formatDate(now, tz_(), "yyyy") });
+  }
+  return { reading: null, books: booksOf_(id) };
 }
 
 // ===================== Дежурства (кезекшілік) =====================
@@ -1547,6 +1626,7 @@ function setup() {
     }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
+    if (key === "reading") sh.getRange(2, 6, Math.max(data.length, 200), 2).setNumberFormat("dd.mm.yyyy");
     if (key === "wordProgress") sh.getRange(2, 10, Math.max(data.length, 2000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "english") {
       sh.getRange(2, 2, Math.max(data.length, 2000), 1).setNumberFormat("dd.mm.yyyy");

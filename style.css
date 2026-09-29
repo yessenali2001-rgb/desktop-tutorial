@@ -540,3 +540,19 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .wl-end { text-align: center; padding: 10px 0; }
 .wl-big { font-size: 52px; }
 .wyes { min-width: 130px; } .wno { min-width: 130px; }
+.wlang-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; }
+/* Рейтинг: горизонтальные полосы, значение подписано справа */
+.rank { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.rank-row { display: grid; grid-template-columns: 24px minmax(110px, 200px) 1fr 40px; gap: 8px; align-items: center; font-size: 13px; padding: 2px 0; }
+.rank-row:hover { background: var(--accent-soft); border-radius: 6px; }
+.rank-pos { color: var(--muted); text-align: right; }
+.rank-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rank-bar { height: 12px; background: var(--accent-soft); border-radius: 4px; overflow: hidden; }
+.rank-bar span { display: block; height: 100%; background: var(--gold-deep); border-radius: 0 4px 4px 0; min-width: 2px; }
+.rank-val { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 600px) { .rank-row { grid-template-columns: 20px 110px 1fr 34px; } }
+/* ---------- Сейчас читаю ---------- */
+.reading-now { display: flex; gap: 14px; align-items: center; }
+.reading-cover { flex: none; width: 54px; height: 70px; border-radius: 8px; background: var(--accent-soft); display: grid; place-items: center; font-size: 30px; }
+.read-upd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.read-upd input { width: 90px; }

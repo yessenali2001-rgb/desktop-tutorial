@@ -271,6 +271,25 @@ async function demoApi(action, payload) {
     }
     return { ok: true, meetings: JSON.parse(JSON.stringify(D.meetings)) };
   }
+  if (action === "setReading" || action === "endReading") {
+    if (parent) throw new Error("Книгу указывает сам ученик или учитель");
+    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    if (action === "setReading") {
+      const r = payload.reading || {};
+      const cur = target.reading;
+      const title = r.title || (cur && cur.title);
+      if (!title) throw new Error("Введите название книги");
+      const pages = Number(r.pages !== undefined ? r.pages : cur && cur.pages) || 0;
+      const page = Math.min(pages || 1e9, Number(r.page !== undefined ? r.page : cur ? cur.page : 0) || 0);
+      target.reading = { title, author: r.author !== undefined ? r.author : (cur && cur.author) || "", pages, page, started: cur && cur.title === title ? cur.started : todayIso(), updated: todayIso() };
+      return { ok: true, id: target.id, reading: { ...target.reading } };
+    }
+    const cur = target.reading;
+    if (!cur) throw new Error("Сейчас книга не указана.");
+    target.reading = null;
+    if (payload.done) target.portfolio.push({ section: BOOKS_SECTION, title: cur.title, details: cur.author, date: "" });
+    return { ok: true, id: target.id, reading: null, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
+  }
   if (action === "saveWords") {
     if (parent) throw new Error("Слова учит сам ученик");
     const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
@@ -510,7 +529,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "portfolio") body = portfolioHtml(s);
   if (state.tab === "olympiads") body = kvCardHtml("Олимпиады", s.olympiads);
   if (state.tab === "exams") body = kvCardHtml("Экзамены", s.exams);
-  if (state.tab === "books") body = booksHtml(s);
+  if (state.tab === "books") body = readingHtml(s) + booksHtml(s);
   if (state.tab === "grades") body = gradesHtml(s);
   if (state.tab === "tests") body = testsHtml(s);
   if (state.tab === "resources") body = resourcesHtml();
@@ -548,10 +567,12 @@ function renderStudent(s, byTeacher) {
       ${(() => {
         const b = birthdayInfo(s);
         const o = olympiadHtml(s);
-        if (!b && !o) return "";
+        const rd = s.reading;
+        if (!b && !o && !rd) return "";
         return `<div class="highlights">
           ${b ? `<div class="hl ${b.days === 0 ? "hl-today" : ""}"><span class="hl-icon">🎂</span><div><div class="eyebrow">День рождения</div><div>${esc(birthdayText(b))}</div></div></div>` : ""}
           ${o ? `<div class="hl"><span class="hl-icon">🏅</span><div><div class="eyebrow">Олимпиада</div><div>${o}</div></div></div>` : ""}
+          ${rd ? `<div class="hl"><span class="hl-icon">📖</span><div><div class="eyebrow">Читает сейчас</div><div>${esc(rd.title)}${rd.pages ? ` <span class="small muted">${readingPct(rd)}%</span>` : ""}</div></div></div>` : ""}
         </div>`;
       })()}
       ${
@@ -581,7 +602,10 @@ function renderStudent(s, byTeacher) {
   bindSubjectFilter();
   bindPeriods();
   if (byTeacher) bindPhoto(s); // фото меняют только учитель и воспитатель
-  if (state.tab === "books") bindBooks(s);
+  if (state.tab === "books") {
+    bindReading(s);
+    bindBooks(s);
+  }
   if (state.tab === "idp") bindIdp(s);
   if (state.tab === "meetings" && byTeacher) bindMeetings(s);
   if (state.tab === "admission") bindAdmission(s);
@@ -1132,6 +1156,82 @@ function booksOf(s) {
   return (s.portfolio || []).filter((x) => x.section === BOOKS_SECTION);
 }
 const MONTHS_FULL = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+// «Сейчас читаю»: книга, страницы, прогресс
+function readingPct(r) {
+  return r && r.pages ? Math.min(100, Math.round((r.page / r.pages) * 100)) : 0;
+}
+function readingHtml(s) {
+  const r = s.reading;
+  const canEdit = state.user.role !== "parent";
+  if (!r)
+    return `<div class="card reading-card"><h2>📖 Сейчас читаю</h2>${
+      canEdit
+        ? `<form class="plan-form" id="read-form">
+            <label class="wide">Книга<input id="read-title" maxlength="150" placeholder="Название книги" required></label>
+            <label>Автор<input id="read-author" maxlength="100" placeholder="Автор"></label>
+            <label>Страниц в книге<input id="read-pages" type="number" min="1" max="5000" placeholder="например, 320"></label>
+            <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="read-save">📖 Начать читать</button><span class="small" id="read-msg"></span></div>
+          </form>`
+        : '<p class="muted">Сейчас книга не указана.</p>'
+    }</div>`;
+  const pct = readingPct(r);
+  const days = r.started ? Math.max(1, Math.round((Date.now() - new Date(r.started).getTime()) / 864e5)) : 0;
+  return `<div class="card reading-card">
+    <h2>📖 Сейчас читаю</h2>
+    <div class="reading-now"><div class="reading-cover">📘</div><div style="flex:1;min-width:0">
+      <div class="uni-name">${esc(r.title)}</div>${r.author ? `<div class="small muted">${esc(r.author)}</div>` : ""}
+      <div class="wbar" style="margin:8px 0 4px"><span style="width:${pct}%"></span></div>
+      <div class="small muted">${r.pages ? `страница ${r.page} из ${r.pages} · ${pct}%` : `прочитано страниц: ${r.page}`}${r.started ? ` · читает с ${fmtDate(r.started)}${days > 1 ? ` (${days} дн.)` : ""}` : ""}</div>
+    </div></div>
+    ${
+      canEdit
+        ? `<form class="read-upd" id="read-upd"><label class="small muted">Дочитал(а) до страницы <input id="read-page" type="number" min="0" max="5000" value="${r.page || ""}"></label><button class="btn btn-ghost" type="submit">Сохранить</button></form>
+          <div class="wl-actions" style="justify-content:flex-start"><button class="btn" id="read-done">✓ Дочитал(а)</button><button class="btn btn-ghost" id="read-drop">Бросил(а)</button><span class="small" id="read-msg"></span></div>`
+        : ""
+    }
+  </div>`;
+}
+function bindReading(s) {
+  const msg = () => document.getElementById("read-msg");
+  const run = async (action, payload, okText) => {
+    if (msg()) {
+      msg().textContent = "Сохранение…";
+      msg().style.color = "";
+    }
+    try {
+      const res = await api(action, { id: s.id, ...payload });
+      s.reading = res.reading || null;
+      if (res.books) s.portfolio = (s.portfolio || []).filter((x) => x.section !== BOOKS_SECTION).concat(res.books);
+      render();
+      if (msg()) {
+        msg().textContent = okText;
+        msg().style.color = "var(--green)";
+      }
+    } catch (ex) {
+      if (msg()) {
+        msg().textContent = "Ошибка: " + ex.message;
+        msg().style.color = "var(--red)";
+      }
+    }
+  };
+  document.getElementById("read-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const title = document.getElementById("read-title").value.trim();
+    if (!title) return;
+    run("setReading", { reading: { title, author: document.getElementById("read-author").value.trim(), pages: document.getElementById("read-pages").value, page: 0 } }, "Удачного чтения! 📖");
+  });
+  document.getElementById("read-upd")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    run("setReading", { reading: { page: document.getElementById("read-page").value } }, "Сохранено ✓");
+  });
+  document.getElementById("read-done")?.addEventListener("click", () => {
+    if (confirm(`Отметить «${s.reading.title}» прочитанной? Книга перейдёт в список прочитанных.`)) run("endReading", { done: true }, "Поздравляем! Книга добавлена в прочитанные 🎉");
+  });
+  document.getElementById("read-drop")?.addEventListener("click", () => {
+    if (confirm("Убрать эту книгу из «Сейчас читаю»?")) run("endReading", { done: false }, "Убрано");
+  });
+}
+
 function booksHtml(s) {
   const books = booksOf(s);
   const canEdit = state.user.role !== "parent"; // ученик — свои книги, учитель — любому ученику
@@ -1224,11 +1324,18 @@ function booksTableHtml() {
   const rows = DATA.students
     .map((s) => ({ s, books: booksOf(s) }))
     .sort((a, b) => b.books.length - a.books.length || a.s.name.localeCompare(b.s.name, "ru"));
-  return `<div class="card"><h2>Прочитанные книги</h2><div class="table-wrap"><table>
-    <tr><th>Ученик</th><th class="num">Книг</th><th>Последние книги</th></tr>
+  const readingNow = DATA.students.filter((s) => s.reading).length;
+  return `<div class="card"><h2>Книги класса</h2>
+    <p class="small muted">Сейчас читают: <b>${readingNow}</b> из ${DATA.students.length}. Ученики сами отмечают книгу во вкладке «📖 Книги» → «Сейчас читаю».</p>
+    <div class="table-wrap"><table>
+    <tr><th>Ученик</th><th>📖 Читает сейчас</th><th class="num">Прочитано книг</th><th>Последние книги</th></tr>
     ${rows
       .map(
-        ({ s, books }) => `<tr><td>${studentLink(s)}</td><td class="num"><b>${books.length}</b></td><td class="wrap small">${books.length ? books.slice(-3).map((b) => esc(b.title)).join(" · ") : '<span class="muted">—</span>'}</td></tr>`
+        ({ s, books }) => `<tr><td>${studentLink(s)}</td><td class="wrap">${
+          s.reading
+            ? `<b>${esc(s.reading.title)}</b>${s.reading.author ? ` <span class="small muted">${esc(s.reading.author)}</span>` : ""}${s.reading.pages ? `<div class="wbar" style="margin-top:4px;max-width:160px"><span style="width:${readingPct(s.reading)}%"></span></div><span class="small muted">${readingPct(s.reading)}% · с ${fmtDate(s.reading.started)}</span>` : ""}`
+            : '<span class="pill absent">не указано</span>'
+        }</td><td class="num"><b>${books.length}</b></td><td class="wrap small">${books.length ? books.slice(-3).map((b) => esc(b.title)).join(" · ") : '<span class="muted">—</span>'}</td></tr>`
       )
       .join("")}
   </table></div><p class="muted small">Книги добавляются в Google Таблице: лист «Портфолио», раздел «Прочитанные книги».</p></div>`;
@@ -2947,6 +3054,29 @@ function loadWords() {
     });
   return wordsScript;
 }
+// Язык перевода: русский, казахский или оба (запоминается в этом браузере)
+function wLang() {
+  if (!state.wlang) {
+    try {
+      state.wlang = localStorage.getItem("wlang") || "ru";
+    } catch (e) {
+      state.wlang = "ru";
+    }
+  }
+  return state.wlang;
+}
+function wTr(w) {
+  const l = wLang();
+  if (l === "kk") return w[3] || w[2];
+  if (l === "both") return w[3] ? `${w[2]} / ${w[3]}` : w[2];
+  return w[2];
+}
+function wLangHtml() {
+  const l = wLang();
+  return `<div class="seg sched-view wlang">${[["ru", "Русский"], ["kk", "Қазақша"], ["both", "Оба"]]
+    .map(([k, t]) => `<button class="seg-btn ${l === k ? "active" : ""}" data-wlang="${k}">${t}</button>`)
+    .join("")}</div>`;
+}
 function allWordSets() {
   return (typeof WORD_SETS !== "undefined" ? WORD_SETS : []).concat(DATA.customWords || []);
 }
@@ -3002,6 +3132,7 @@ function wordsHtml(s) {
       <div class="hl"><span class="hl-icon">🧠</span><div><div class="eyebrow">Выучено слов</div><div><b>${learnedAll}</b> из ${sets.reduce((a, x) => a + x.words.length, 0)}</div></div></div>
       <div class="hl"><span class="hl-icon">🎤</span><div><div class="eyebrow">Правильно произнесено</div><div><b>${pronAll}</b></div></div></div>
     </div>
+    <div class="wlang-row"><span class="small muted">Перевод:</span>${wLangHtml()}</div>
     <p class="small muted">Выберите уровень и набор. Слово считается выученным, когда вы ответили правильно 3 раза. Произношение тренируется в режиме 🎤: слушайте слово и повторяйте в микрофон.</p>
     <div class="day-chips">${levels
       .map((l) => `<button class="day-chip ${l === lvl ? "active" : ""}" data-wlevel="${esc(l)}"><b>${esc(l)}</b><span>${perLevel(l)} выуч.</span></button>`)
@@ -3033,6 +3164,7 @@ function wordSetHtml(s, setId) {
   return `<div class="card">
     <button class="btn btn-ghost" id="wback">← Все наборы</button>
     <h2 style="margin-top:10px">${esc(set.level)} · ${esc(set.name)}</h2>
+    <div class="wlang-row"><span class="small muted">Перевод:</span>${wLangHtml()}</div>
     <p class="small muted">${esc(set.kind)} · ${set.words.length} слов · выучено ${p.learned}${p.best ? ` · лучший тест ${p.best}%` : ""}${p.pron ? ` · произнесено ${p.pron}` : ""}</p>
     ${
       canLearn
@@ -3045,11 +3177,11 @@ function wordSetHtml(s, setId) {
         : ""
     }
     <div class="table-wrap"><table class="wlist">
-      <tr><th></th><th>Слово</th><th>Транскрипция</th><th>Перевод</th><th class="num">Статус</th></tr>
+      <tr><th></th><th>Слово</th><th>Транскрипция</th><th>Перевод</th><th>Қазақша</th><th class="num">Статус</th></tr>
       ${set.words
         .map((w, i) => {
           const box = (p.b || {})[w[0]] || 0;
-          return `<tr><td><button class="wsay" data-say="${i}" title="Послушать">🔊</button></td><td><b>${esc(w[0])}</b>${w[3] ? `<div class="small muted">${esc(w[3])}</div>` : ""}</td><td class="muted">${esc(w[1])}</td><td>${esc(w[2])}</td><td class="num">${
+          return `<tr><td><button class="wsay" data-say="${i}" title="Послушать">🔊</button></td><td><b>${esc(w[0])}</b>${w[4] ? `<div class="small muted">${esc(w[4])}</div>` : ""}</td><td class="muted">${esc(w[1])}</td><td>${esc(w[2])}</td><td>${esc(w[3] || "")}</td><td class="num">${
             box >= LEARNED_BOX ? '<span class="pill present">✓</span>' : box ? `<span class="small muted">${box}/3</span>` : ""
           }${pronSet.has(w[0]) ? " 🎤" : ""}</td></tr>`;
         })
@@ -3073,8 +3205,8 @@ function startWords(s, setId, mode) {
   if (mode === "test") state.wl.options = queue.map((i) => testOptions(set, i));
 }
 function testOptions(set, i) {
-  const right = set.words[i][2];
-  const others = shuffle(set.words.filter((w) => w[2] !== right).map((w) => w[2]));
+  const right = wTr(set.words[i]);
+  const others = shuffle(set.words.map(wTr).filter((t) => t !== right));
   return shuffle([right, ...[...new Set(others)].slice(0, 3)]);
 }
 
@@ -3100,7 +3232,7 @@ function wordSessionHtml(s) {
       <button class="wcard ${L.flipped ? "flipped" : ""}" id="wflip">
         <div class="wcard-word">${esc(w[0])}</div>
         ${w[1] ? `<div class="wcard-tr">${esc(w[1])}</div>` : ""}
-        ${L.flipped ? `<div class="wcard-t">${esc(w[2])}</div>${w[3] ? `<div class="small muted">${esc(w[3])}</div>` : ""}` : '<div class="small muted">нажмите, чтобы увидеть перевод</div>'}
+        ${L.flipped ? `<div class="wcard-t">${esc(wTr(w))}</div>${w[4] ? `<div class="small muted">${esc(w[4])}</div>` : ""}` : '<div class="small muted">нажмите, чтобы увидеть перевод</div>'}
       </button>
       <div class="wl-actions">${sayBtns}</div>
       <div class="wl-actions"><button class="btn btn-ghost wno" data-wans="0">🔁 Ещё учу</button><button class="btn wyes" data-wans="1">✓ Знаю</button></div>
@@ -3112,7 +3244,7 @@ function wordSessionHtml(s) {
       <div class="wq"><div class="wcard-word">${esc(w[0])}</div>${w[1] ? `<div class="wcard-tr">${esc(w[1])}</div>` : ""}<div class="wl-actions">${sayBtns}</div></div>
       <div class="wopts">${opts
         .map((o, k) => {
-          const cls = L.answered === null ? "" : o === w[2] ? "right" : k === L.answered ? "wrong" : "";
+          const cls = L.answered === null ? "" : o === wTr(w) ? "right" : k === L.answered ? "wrong" : "";
           return `<button class="wopt ${cls}" data-wopt="${k}" ${L.answered !== null ? "disabled" : ""}>${esc(o)}</button>`;
         })
         .join("")}</div>
@@ -3122,7 +3254,7 @@ function wordSessionHtml(s) {
   if (L.mode === "write") {
     const fb = L.answered;
     return `<div class="card wl">${head}
-      <div class="wq"><div class="small muted">Напишите по-английски:</div><div class="wcard-word">${esc(w[2])}</div></div>
+      <div class="wq"><div class="small muted">Напишите по-английски:</div><div class="wcard-word">${esc(wTr(w))}</div></div>
       <form id="wwrite" class="wwrite"><input id="wwrite-in" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="слово по-английски" ${fb ? "disabled" : ""} value="${esc(fb ? fb.text : "")}"><button class="btn" ${fb ? "disabled" : ""}>Проверить</button></form>
       ${
         fb
@@ -3135,7 +3267,7 @@ function wordSessionHtml(s) {
   // произношение
   const fb = L.answered;
   return `<div class="card wl">${head}
-    <div class="wq"><div class="wcard-word">${esc(w[0])}</div>${w[1] ? `<div class="wcard-tr">${esc(w[1])}</div>` : ""}<div class="small muted">${esc(w[2])}</div></div>
+    <div class="wq"><div class="wcard-word">${esc(w[0])}</div>${w[1] ? `<div class="wcard-tr">${esc(w[1])}</div>` : ""}<div class="small muted">${esc(wTr(w))}</div></div>
     <div class="wl-actions">${sayBtns}</div>
     ${
       SpeechRec
@@ -3189,6 +3321,15 @@ function bindWords(s) {
     return;
   }
   const set = state.wset && allWordSets().find((x) => x.id === state.wset);
+  app.querySelectorAll("[data-wlang]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.wlang = b.dataset.wlang;
+      try {
+        localStorage.setItem("wlang", state.wlang);
+      } catch (e) {}
+      render();
+    })
+  );
   app.querySelectorAll("[data-wlevel]").forEach((b) => b.addEventListener("click", () => ((state.wlevel = b.dataset.wlevel), render())));
   app.querySelectorAll("[data-wset]").forEach((b) => b.addEventListener("click", () => ((state.wset = b.dataset.wset), render(), window.scrollTo(0, 0))));
   document.getElementById("wback")?.addEventListener("click", () => ((state.wset = null), render()));
@@ -3243,7 +3384,7 @@ function bindWords(s) {
     b.addEventListener("click", () => {
       const k = Number(b.dataset.wopt);
       L.answered = k;
-      mark(L.options[L.i][k] === cur()[2]);
+      mark(L.options[L.i][k] === wTr(cur()));
       render();
     })
   );
@@ -3327,7 +3468,48 @@ function wordsAllHtml() {
   });
   const sort = state.wsort || "total";
   rows.sort((a, b) => (sort === "name" ? a.s.name.localeCompare(b.s.name, "ru") : b[sort] - a[sort]));
-  return `<div class="card">
+
+  // Анализ: итоги класса, кто занимался за неделю, рейтинг, прогресс по уровням
+  const n = rows.length || 1;
+  const classTotal = rows.reduce((a, r) => a + r.total, 0);
+  const weekAgo = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const activeWeek = rows.filter((r) => r.last && r.last >= weekAgo).length;
+  const notStarted = rows.filter((r) => !r.last);
+  const ranked = [...rows].sort((a, b) => b.total - a.total || b.pron - a.pron);
+  const maxT = Math.max(1, ...ranked.map((r) => r.total));
+  const levelWords = {};
+  sets.forEach((x) => (levelWords[x.level] = (levelWords[x.level] || 0) + x.words.length));
+  const analytics = `<div class="card">
+    <h2>📊 Анализ: кто сколько слов выучил</h2>
+    <div class="stats" style="margin:0 0 14px">
+      <div class="stat"><div class="stat-value">${classTotal}</div><div class="stat-label">Выучено классом</div></div>
+      <div class="stat blue"><div class="stat-value">${Math.round(classTotal / n)}</div><div class="stat-label">В среднем на ученика</div></div>
+      <div class="stat green"><div class="stat-value">${activeWeek}</div><div class="stat-label">Занимались за 7 дней</div></div>
+      <div class="stat red"><div class="stat-value">${notStarted.length}</div><div class="stat-label">Ещё не начинали</div></div>
+    </div>
+    <h3>Рейтинг по выученным словам</h3>
+    <div class="rank">${ranked
+      .map(
+        (r, i) => `<div class="rank-row" title="${esc(r.s.name)}: выучено ${r.total}, произнесено ${r.pron}">
+          <span class="rank-pos">${i + 1}</span><span class="rank-name">${esc(r.s.name)}</span>
+          <span class="rank-bar"><span style="width:${(r.total / maxT) * 100}%"></span></span><span class="rank-val">${r.total}</span>
+        </div>`
+      )
+      .join("")}</div>
+    <h3>Прогресс класса по уровням</h3>
+    <div class="table-wrap"><table>
+      <tr><th>Уровень</th><th class="num">Слов</th><th class="num">Выучено классом</th><th class="num">В среднем на ученика</th><th>Охват</th></tr>
+      ${levels
+        .map((l) => {
+          const sum = rows.reduce((a, r) => a + (r.per[l] || 0), 0);
+          const pct = Math.round((sum / (levelWords[l] * n)) * 100);
+          return `<tr><td><b>${esc(l)}</b></td><td class="num">${levelWords[l]}</td><td class="num">${sum}</td><td class="num">${(sum / n).toFixed(1)}</td><td style="min-width:140px"><div class="wbar"><span style="width:${pct}%"></span></div><span class="small muted">${pct}% всех слов уровня</span></td></tr>`;
+        })
+        .join("")}
+    </table></div>
+    ${notStarted.length ? `<p class="small"><b>Ещё не начинали:</b> ${notStarted.map((r) => esc(r.s.name)).join(", ")}</p>` : '<p class="small" style="color:var(--green)">Все ученики уже начали учить слова ✓</p>'}
+  </div>`;
+  return `${analytics}<div class="card">
     <h2>🔤 Английские слова: прогресс класса</h2>
     <div class="filters"><select id="wsort">
       <option value="total" ${sort === "total" ? "selected" : ""}>Больше всего выучено</option>
@@ -3344,7 +3526,7 @@ function wordsAllHtml() {
         )
         .join("")}
     </table></div>
-    <p class="small muted">Всего наборов: ${sets.length}, слов: ${sets.reduce((a, x) => a + x.words.length, 0)}. Свои наборы можно добавить в Google Таблицу на лист «Свои слова» (колонки: Набор | Слово | Транскрипция | Перевод | Пример) — они появятся в уровне «Свои».</p>
+    <p class="small muted">Всего наборов: ${sets.length}, слов: ${sets.reduce((a, x) => a + x.words.length, 0)}. Свои наборы можно добавить в Google Таблицу на лист «Свои слова» (колонки: Набор | Слово | Транскрипция | Перевод | Пример | Қазақша) — они появятся в уровне «Свои».</p>
   </div>`;
 }
 
