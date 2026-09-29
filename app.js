@@ -271,6 +271,16 @@ async function demoApi(action, payload) {
     }
     return { ok: true, meetings: JSON.parse(JSON.stringify(D.meetings)) };
   }
+  if (action === "tgStatus") {
+    const parents = {};
+    (D.tgDemo || []).forEach((id) => (parents[id] = 1));
+    return { ok: true, tg: parent ? { enabled: true, bot: "bil_class_demo_bot", connected: (D.tgDemo || []).includes(s.id) ? 1 : 0 } : { enabled: true, bot: "bil_class_demo_bot", me: 0, parents } };
+  }
+  if (action === "tgLink") {
+    if (!isTeacher && !parent) throw new Error("Уведомления подключают родители, учитель и воспитатель");
+    if (parent) (D.tgDemo = D.tgDemo || []).push(s.id); // в демо «подключение» происходит сразу
+    return { ok: true, tg: { bot: "bil_class_demo_bot", link: "https://t.me/bil_class_demo_bot?start=DEMO" } };
+  }
   if (action === "setPhoto") {
     if (!isTeacher) throw new Error("Фото меняет только учитель или воспитатель");
     const id = payload.id;
@@ -546,7 +556,7 @@ function renderStudent(s, byTeacher) {
       <div class="stat orange"><div class="stat-value">${st.late}</div><div class="stat-label">Опозданий</div></div>
       <div class="stat green"><div class="stat-value">${idpProgress(s)}%</div><div class="stat-label">Выполнение IDP</div></div>
     </div>
-    ${isParent ? recentMissesHtml(s) : ""}
+    ${isParent ? recentMissesHtml(s) + parentTgHtml(s) : ""}
     ${tabsHtml(tabs)}
     ${body}`;
   bindTabs();
@@ -567,6 +577,10 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "activities") bindActivities(s);
   if (state.tab === "english") bindEnglish(s);
   document.getElementById("resume-btn").addEventListener("click", () => openResume(s));
+  if (isParent) {
+    bindTg();
+    if (!state.tg) loadTgStatus().then(() => state.user && render());
+  }
 }
 
 // ---------- фото ученика ----------
@@ -1348,6 +1362,7 @@ function renderTeacher() {
     ["duty", "🧹 Кезекшілік"],
     ["admission-all", "🎓 Поступление"],
     ["activities-all", "⭐ Активности"],
+    ["tg", "🔔 Telegram"],
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
@@ -1372,6 +1387,7 @@ function renderTeacher() {
   if (state.tab === "duty") body = dutyHtml();
   if (state.tab === "admission-all") body = admissionAllHtml();
   if (state.tab === "activities-all") body = activitiesAllHtml();
+  if (state.tab === "tg") body = teacherTgHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
@@ -1396,6 +1412,10 @@ function renderTeacher() {
   if (state.tab === "mark") bindMark();
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
+  if (state.tab === "tg") {
+    bindTg();
+    if (!state.tg) loadTgStatus().then(() => state.user && !state.viewStudent && state.tab === "tg" && render());
+  }
   if (state.tab === "schedule") bindSchedule();
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -1680,7 +1700,7 @@ function bindMark() {
       if (i >= 0) DATA.attendance[i] = res.lesson;
       else DATA.attendance.push(res.lesson);
       m.existing = true;
-      msg.textContent = DEMO ? "Сохранено ✓ (демо-режим: только до перезагрузки)" : "Сохранено в Google Таблицу ✓";
+      msg.textContent = (DEMO ? "Сохранено ✓ (демо-режим: только до перезагрузки)" : "Сохранено в Google Таблицу ✓") + (res.notified ? ` · родителям отправлено уведомлений: ${res.notified}` : "");
       msg.style.color = "var(--green)";
     } catch (ex) {
       msg.textContent = "Ошибка: " + ex.message;
@@ -2794,6 +2814,99 @@ function openResume(s) {
   w.document.open();
   w.document.write(resumeHtml(s));
   w.document.close();
+}
+
+// ---------- Telegram-уведомления ----------
+// Статус загружается в фоне один раз за вход; ссылка на бота — одноразовая, на 30 минут
+function loadTgStatus(force) {
+  if (state.tg && !force) return Promise.resolve(state.tg);
+  return api("tgStatus")
+    .then((res) => (state.tg = res.tg))
+    .catch((ex) => (state.tg = { error: ex.message }));
+}
+
+function tgLinkBlockHtml() {
+  return `<div class="tg-actions">
+    <button class="btn" id="tg-link">🔔 Подключить Telegram</button>
+    <button class="btn btn-ghost" id="tg-check">Проверить подключение</button>
+    <span class="small" id="tg-msg"></span>
+  </div>
+  <div id="tg-go"></div>`;
+}
+
+function parentTgHtml(s) {
+  const t = state.tg;
+  let status = '<span class="muted">проверяем…</span>';
+  if (t && t.error) status = `<span class="muted">${esc(t.error)}</span>`;
+  else if (t && !t.enabled) status = '<span class="muted">учитель ещё не подключил бота класса</span>';
+  else if (t) status = t.connected ? `<b style="color:var(--green)">подключено ✓</b> (${t.connected} ${plural(t.connected, "чат", "чата", "чатов")})` : "<b>не подключено</b>";
+  return `<div class="card tg-card" id="tg-card">
+    <h3>🔔 Уведомления в Telegram</h3>
+    <p class="small">Сообщение придёт, если ${esc(s.name.split(" ").slice(-1)[0])} отсутствовал(а) или опоздал(а) на этюд. Статус: ${status}</p>
+    ${t && t.enabled ? tgLinkBlockHtml() : ""}
+    <p class="small muted">Маме и папе можно подключить каждому со своего телефона. Отключить — отправьте боту /stop.</p>
+  </div>`;
+}
+
+function bindTg() {
+  const msg = () => document.getElementById("tg-msg");
+  document.getElementById("tg-link")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    msg().textContent = "Создаём ссылку…";
+    try {
+      const res = await api("tgLink");
+      msg().textContent = "";
+      document.getElementById("tg-go").innerHTML = `<div class="tg-go">
+        <a class="btn" href="${esc(res.tg.link)}" target="_blank" rel="noopener">Открыть @${esc(res.tg.bot)} в Telegram</a>
+        <p class="small">В Telegram нажмите <b>«Запустить» / Start</b>. Бот ответит «✅ Уведомления подключены». Ссылка действует 30 минут и только один раз.</p>
+      </div>`;
+    } catch (ex) {
+      msg().textContent = "Ошибка: " + ex.message;
+      msg().style.color = "var(--red)";
+    }
+    e.target.disabled = false;
+  });
+  document.getElementById("tg-check")?.addEventListener("click", async () => {
+    msg().textContent = "Проверяем…";
+    await loadTgStatus(true);
+    render();
+  });
+}
+
+// Учитель: подключение своего Telegram и сколько родителей подключились
+function teacherTgHtml() {
+  const t = state.tg;
+  if (!t) return '<div class="card"><h2>🔔 Telegram</h2><p class="muted">Загрузка…</p></div>';
+  if (t.error) return `<div class="card"><h2>🔔 Telegram</h2><p style="color:var(--red)">${esc(t.error)}</p></div>`;
+  if (!t.enabled)
+    return `<div class="card"><h2>🔔 Telegram-бот ещё не подключён</h2>
+      <ol class="tips">
+        <li>В Telegram откройте <b>@BotFather</b>, отправьте <code>/newbot</code>, придумайте название (например, «9А Ақтөбе БИЛ») и имя, которое заканчивается на <code>bot</code>. BotFather пришлёт <b>токен</b>.</li>
+        <li>В Apps Script: <b>Настройки проекта ⚙️ → Свойства скрипта → Добавить свойство</b>: имя <code>TELEGRAM_BOT_TOKEN</code>, значение — токен.</li>
+        <li>В редакторе выберите функцию <b>telegramSetup</b> и нажмите <b>Выполнить</b> (разрешите доступ).</li>
+        <li>Обновите эту страницу.</li>
+      </ol></div>`;
+  const list = sortedStudents();
+  const done = list.filter((s) => (t.parents || {})[s.id]).length;
+  const site = location.href.split("#")[0].split("?")[0];
+  return `<div class="card">
+    <h2>🔔 Telegram · @${esc(t.bot)}</h2>
+    <p class="small">Ваши уведомления (дни рождения каждое утро): ${t.me ? '<b style="color:var(--green)">подключено ✓</b>' : "<b>не подключено</b>"}</p>
+    ${tgLinkBlockHtml()}
+  </div>
+  <div class="card">
+    <h2>Родители в Telegram: ${done} из ${list.length}</h2>
+    <p class="small muted">Родитель получает сообщение, когда ребёнок отмечен «Отсутствовал» или «Опоздал» на этюде. «Уважительная причина» не отправляется.</p>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th><th class="num">Подключено чатов</th></tr>
+      ${list.map((s, i) => { const n = (t.parents || {})[s.id] || 0; return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="num">${n ? `<b style="color:var(--green)">${n}</b>` : '<span class="pill absent">0</span>'}</td></tr>`; }).join("")}
+    </table></div>
+    <h3>Текст для родителей (можно отправить в чат класса)</h3>
+    <textarea class="tg-text" readonly rows="5">Уважаемые родители! Подключите уведомления об этюде в Telegram:
+1) Откройте сайт ${site}
+2) Вкладка «Родитель» → выберите ребёнка → введите свой номер телефона
+3) Нажмите «🔔 Подключить Telegram» → «Открыть в Telegram» → «Запустить».</textarea>
+  </div>`;
 }
 
 // ---------- тема: белый / чёрный фон ----------

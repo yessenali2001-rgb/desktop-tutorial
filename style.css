@@ -492,3 +492,9 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .week-table .wk-today { background: var(--accent-soft); }
 @media (max-width: 600px) { .tl-card { padding: 9px 11px; } .day-chips { gap: 6px; } }
 .sched-view .seg-btn.active { background: var(--btn-bg); color: var(--btn-text); font-weight: 700; }
+
+/* ---------- Telegram ---------- */
+.tg-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+.tg-go { margin-top: 8px; padding: 12px; border-radius: 10px; background: var(--blue-soft); }
+.tg-go .btn { display: inline-block; text-decoration: none; }
+.tg-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; }

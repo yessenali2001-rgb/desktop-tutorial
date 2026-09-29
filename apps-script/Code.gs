@@ -26,6 +26,7 @@ const SHEETS = {
   universities: "Университеты",
   activities: "Активности",
   english: "Английский",
+  tg: "Telegram",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -49,6 +50,7 @@ const HEADERS = {
   universities: ["Университет", "Город", "Страна", "Направления (через точку с запятой)", "Как поступать", "Финансирование", "Сроки подачи (обычно)", "Балл ЕНТ на грант (ориентир)", "IELTS (минимум)", "Язык обучения", "Сайт", "Примечание"],
   activities: ["ID ученика", "Вид", "Название", "Роль, что делал", "Часов в неделю", "Недель", "Период", "Добавлено"],
   english: ["ID ученика", "Дата", "Экзамен", "Общий балл", "Listening", "Reading", "Writing", "Speaking", "Уровень / примечание"],
+  tg: ["Chat ID", "ID ученика", "Кто", "Имя в Telegram", "Подключено"],
   duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
 };
@@ -134,9 +136,22 @@ function handle_(req) {
   switch (req.action) {
     case "login":
       return { ok: true, role: user.role, id: user.id, staff: user.staff, data: user.role === "teacher" ? teacherData_() : studentData_(user.id) }; // родитель видит то же, что и ребёнок
-    case "saveLesson":
+    case "saveLesson": {
       if (user.role !== "teacher") throw new Error("Доступно только учителю");
-      return { ok: true, lesson: saveLesson_(req.lesson) };
+      const saved = saveLesson_(req.lesson);
+      let notified = 0;
+      try {
+        notified = tgNotifyLesson_(saved, saved.before);
+      } catch (e) {
+        // этюд уже сохранён; сбой Telegram не должен мешать
+      }
+      delete saved.before;
+      return { ok: true, lesson: saved, notified: notified };
+    }
+    case "tgLink":
+      return { ok: true, tg: tgLink_(user) };
+    case "tgStatus":
+      return { ok: true, tg: tgStatus_(user) };
     case "setPhoto": {
       // Фото меняют только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Фото меняет только учитель или воспитатель");
@@ -1036,6 +1051,225 @@ function deleteEnglish_(id, x) {
   throw new Error("Результат не найден. Обновите страницу.");
 }
 
+// ===================== Telegram-уведомления =====================
+// 1) Учитель создаёт бота у @BotFather и кладёт токен в Настройки проекта (⚙️) → Свойства скрипта →
+//    TELEGRAM_BOT_TOKEN. 2) Один раз запускает функцию telegramSetup. Всё остальное — на сайте.
+// Родитель подключается по ссылке с сайта (одноразовый код на 30 минут), учитель и воспитатель — так же.
+// Лист «Telegram»: Chat ID | ID ученика | Кто | Имя в Telegram | Подключено. Chat ID на сайт не отправляются.
+
+const TG_API = "https://api.telegram.org/bot";
+const TG_CODE_SECONDS = 1800;
+
+function tgToken_() {
+  return PropertiesService.getScriptProperties().getProperty("TELEGRAM_BOT_TOKEN") || "";
+}
+
+function tgCall_(method, payload) {
+  const token = tgToken_();
+  if (!token) throw new Error("Telegram-бот ещё не подключён: учителю нужно добавить TELEGRAM_BOT_TOKEN в настройках Apps Script.");
+  const resp = UrlFetchApp.fetch(TG_API + token + "/" + method, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload || {}),
+    muteHttpExceptions: true,
+  });
+  let data = {};
+  try {
+    data = JSON.parse(resp.getContentText());
+  } catch (e) {
+    // не JSON
+  }
+  if (!data.ok) {
+    if (resp.getResponseCode() === 401 || resp.getResponseCode() === 404) throw new Error("Неверный токен Telegram-бота. Проверьте TELEGRAM_BOT_TOKEN.");
+    throw new Error("Telegram: " + (data.description || resp.getResponseCode()));
+  }
+  return data.result;
+}
+
+// Имя бота (например, bil9a_bot) — берём у Telegram один раз и запоминаем
+function tgBotName_() {
+  const props = PropertiesService.getScriptProperties();
+  const token = tgToken_();
+  const saved = props.getProperty("TELEGRAM_BOT_NAME") || "";
+  if (saved && props.getProperty("TELEGRAM_BOT_NAME_FOR") === token.slice(0, 12)) return saved;
+  const name = tgCall_("getMe").username;
+  props.setProperty("TELEGRAM_BOT_NAME", name);
+  props.setProperty("TELEGRAM_BOT_NAME_FOR", token.slice(0, 12));
+  return name;
+}
+
+function readTg_() {
+  return rows_("tg", true).map((r) => ({ chat: String(r[0]).trim(), id: String(r[1]).trim().toUpperCase(), who: String(r[2]).trim() }));
+}
+
+// Ссылка для подключения: родитель — к своему ребёнку, учитель/воспитатель — к своей роли
+function tgLink_(user) {
+  if (user.role === "student") throw new Error("Уведомления подключают родители, учитель и воспитатель");
+  const bot = tgBotName_();
+  const code = Utilities.getUuid().replace(/-/g, "").slice(0, 12);
+  const who = user.role === "parent" ? "Родитель" : user.staff;
+  CacheService.getScriptCache().put("tg:" + code, JSON.stringify({ id: user.role === "parent" ? user.id : "", who: who }), TG_CODE_SECONDS);
+  return { bot: bot, link: "https://t.me/" + bot + "?start=" + code };
+}
+
+// Сколько чатов подключено (без самих Chat ID)
+function tgStatus_(user) {
+  if (!tgToken_()) return { enabled: false };
+  try {
+    telegramPoll(); // сразу забираем свежие «/start», чтобы подключение было видно без ожидания
+  } catch (e) {
+    // не страшно: заберёт триггер
+  }
+  const rows = readTg_();
+  const res = { enabled: true, bot: tgBotName_() };
+  if (user.role === "parent") res.connected = rows.filter((r) => r.who === "Родитель" && r.id === user.id).length;
+  if (user.role === "teacher") {
+    res.me = rows.filter((r) => r.who === user.staff).length;
+    res.parents = {};
+    rows.filter((r) => r.who === "Родитель").forEach((r) => (res.parents[r.id] = (res.parents[r.id] || 0) + 1));
+  }
+  return res;
+}
+
+// Забирает новые сообщения боту (запускается триггером каждую минуту и при открытии страницы)
+function telegramPoll() {
+  if (!tgToken_()) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const offset = Number(props.getProperty("TELEGRAM_OFFSET") || 0);
+    const updates = tgCall_("getUpdates", { offset: offset, timeout: 0, allowed_updates: ["message"] });
+    if (!updates.length) return;
+    const cache = CacheService.getScriptCache();
+    const students = readStudents_();
+    updates.forEach((u) => {
+      const m = u.message;
+      if (!m || !m.chat || typeof m.text !== "string") return;
+      const chat = String(m.chat.id);
+      const text = m.text.trim();
+      const start = text.match(/^\/start(?:\s+(\S+))?/);
+      if (start && start[1]) {
+        const raw = cache.get("tg:" + start[1]);
+        if (!raw) return tgSend_(chat, "Ссылка устарела. Откройте сайт «Кабинет ученика» и нажмите «Подключить Telegram» ещё раз.");
+        cache.remove("tg:" + start[1]);
+        const link = JSON.parse(raw);
+        const sh = ensureSheet_("tg", 5);
+        const exists = readTg_().some((r) => r.chat === chat && r.id === link.id && r.who === link.who);
+        const name = [m.from && m.from.first_name, m.from && m.from.last_name].filter(Boolean).join(" ");
+        if (!exists) sh.appendRow([chat, link.id, link.who, safeText_(name, 60), new Date()]);
+        const child = students.find((s) => s.id === link.id);
+        tgSend_(
+          chat,
+          link.who === "Родитель"
+            ? "✅ Уведомления подключены: " + (child ? child.name : "") + ".\nВы будете получать сообщение, если ребёнок отсутствовал или опоздал на этюд.\nОтключить: /stop"
+            : "✅ Уведомления для роли «" + link.who + "» подключены.\nКаждое утро — дни рождения учеников.\nОтключить: /stop"
+        );
+      } else if (/^\/stop/.test(text)) {
+        const sh = ensureSheet_("tg", 5);
+        const values = sh.getDataRange().getValues();
+        for (let i = values.length - 1; i >= 1; i--) if (String(values[i][0]).trim() === chat) sh.deleteRow(i + 1);
+        tgSend_(chat, "🔕 Уведомления отключены. Подключить снова можно на сайте.");
+      } else {
+        tgSend_(chat, "Это бот класса. Чтобы получать уведомления, откройте сайт «Кабинет ученика» и нажмите «🔔 Подключить Telegram».\nОтключить: /stop");
+      }
+    });
+    props.setProperty("TELEGRAM_OFFSET", String(updates[updates.length - 1].update_id + 1));
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function tgSend_(chat, text) {
+  try {
+    tgCall_("sendMessage", { chat_id: chat, text: text });
+  } catch (e) {
+    // один недоступный чат (бот заблокирован) не должен ломать остальное
+  }
+}
+
+// Рассылает много сообщений сразу (параллельно). messages: [{chat, text}]
+function tgSendMany_(messages) {
+  if (!messages.length || !tgToken_()) return 0;
+  const url = TG_API + tgToken_() + "/sendMessage";
+  const res = UrlFetchApp.fetchAll(
+    messages.map((m) => ({ url: url, method: "post", contentType: "application/json", payload: JSON.stringify({ chat_id: m.chat, text: m.text }), muteHttpExceptions: true }))
+  );
+  return res.filter((r) => r.getResponseCode() === 200).length;
+}
+
+// После сохранения этюда: родителям тех, кто стал «Отсутствовал» или «Опоздал» (повторное сохранение не дублирует)
+function tgNotifyLesson_(lesson, before) {
+  if (!tgToken_()) return 0;
+  const chats = readTg_().filter((r) => r.who === "Родитель");
+  if (!chats.length) return 0;
+  const names = {};
+  readStudents_().forEach((s) => (names[s.id] = s.name));
+  const cls = readSettings_().className;
+  const date = lesson.date.split("-").reverse().join(".");
+  const messages = [];
+  [
+    ["absent", "отсутствовал(а)"],
+    ["late", "опоздал(а)"],
+  ].forEach(([key, word]) =>
+    lesson[key]
+      .filter((id) => (before[key] || []).indexOf(id) < 0)
+      .forEach((id) =>
+        chats
+          .filter((c) => c.id === id)
+          .forEach((c) =>
+            messages.push({
+              chat: c.chat,
+              text: "⚠️ " + cls + "\n" + date + " · " + lesson.subject + ": " + (names[id] || id) + " " + word + ".\nЕсли это ошибка, свяжитесь с классным руководителем.",
+            })
+          )
+      )
+  );
+  return tgSendMany_(messages);
+}
+
+// Каждое утро: учителю и воспитателю — дни рождения сегодня и завтра
+function telegramDaily() {
+  if (!tgToken_()) return;
+  const staff = readTg_().filter((r) => r.who !== "Родитель");
+  if (!staff.length) return;
+  const tz = tz_();
+  const now = new Date();
+  const md = (d) => Utilities.formatDate(d, tz, "dd.MM");
+  const today = md(now), tomorrow = md(new Date(now.getTime() + 864e5));
+  const year = Number(Utilities.formatDate(now, tz, "yyyy"));
+  const portfolio = readPortfolio_();
+  const lines = [];
+  readStudents_().forEach((s) => {
+    const b = (portfolio[s.id] || []).find((p) => p.section === "Личное" && p.title === "Дата рождения");
+    const m = b && String(b.details).match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+    if (!m) return;
+    const d = m[1] + "." + m[2];
+    if (d === today) lines.push("🎂 Сегодня: " + s.name + " — " + (year - Number(m[3])) + " лет");
+    if (d === tomorrow) lines.push("🎁 Завтра: " + s.name + " — " + (year - Number(m[3])) + " лет");
+  });
+  if (!lines.length) return;
+  tgSendMany_(staff.map((c) => ({ chat: c.chat, text: readSettings_().className + "\n" + lines.join("\n") })));
+}
+
+/**
+ * Запустите ОДИН раз после того, как добавили TELEGRAM_BOT_TOKEN:
+ * проверяет бота и включает автоматические задачи (сообщения боту — каждую минуту, дни рождения — в 8:00).
+ */
+function telegramSetup() {
+  if (!tgToken_()) throw new Error("Сначала добавьте TELEGRAM_BOT_TOKEN: Настройки проекта (⚙️) → Свойства скрипта.");
+  PropertiesService.getScriptProperties().deleteProperty("TELEGRAM_BOT_NAME");
+  const bot = tgBotName_();
+  tgCall_("deleteWebhook", {});
+  ScriptApp.getProjectTriggers()
+    .filter((t) => ["telegramPoll", "telegramDaily"].indexOf(t.getHandlerFunction()) >= 0)
+    .forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger("telegramPoll").timeBased().everyMinutes(1).create();
+  ScriptApp.newTrigger("telegramDaily").timeBased().everyDays(1).atHour(8).create();
+  ensureSheet_("tg", 5);
+  Logger.log("Готово! Бот @" + bot + " подключён. Теперь выпустите новую версию развертывания.");
+}
+
 // ===================== Дежурства (кезекшілік) =====================
 // Лист «Дежурства»: Дата | Дежурство | Ученики (ID через запятую) | Ученики (ФИО) | Кто назначил.
 // Одна строка — одно дежурство в один день. Лист создаётся сам при первой записи.
@@ -1152,6 +1386,7 @@ function saveLesson_(lesson) {
     clean(lesson.excused).join(", "),
   ];
 
+  let before = { absent: [], late: [] };
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -1161,6 +1396,7 @@ function saveLesson_(lesson) {
     for (let i = 1; i < values.length; i++) {
       if (iso_(values[i][0]) === lesson.date && String(values[i][1]).trim() === subject) {
         rowIndex = i + 1;
+        before = { absent: ids_(values[i][2]), late: ids_(values[i][3]) }; // что было до изменения — для уведомлений
         break;
       }
     }
@@ -1169,7 +1405,7 @@ function saveLesson_(lesson) {
   } finally {
     lock.releaseLock();
   }
-  return { date: lesson.date, subject: subject, absent: ids_(row[2]), late: ids_(row[3]), excused: ids_(row[4]) };
+  return { date: lesson.date, subject: subject, absent: ids_(row[2]), late: ids_(row[3]), excused: ids_(row[4]), before: before };
 }
 
 // ===================== Первоначальная настройка =====================
