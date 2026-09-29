@@ -107,15 +107,33 @@ function doGet() {
   return json_({ ok: true, message: "API «Кабинет ученика» работает" });
 }
 
+// Google иногда теряет ответ веб-приложения (404 на втором шаге), хотя действие уже выполнено.
+// Сайт тогда повторяет запрос с тем же номером rid — и получает сохранённый ответ, а действие не выполняется дважды.
+const RID_SECONDS = 600;
+
 function doPost(e) {
   let res;
+  let rid = "";
   try {
     const req = JSON.parse(e.postData.contents);
+    rid = /^[\w-]{8,40}$/.test(String(req.rid || "")) ? String(req.rid) : "";
+    if (rid) {
+      const cached = CacheService.getScriptCache().get("rid:" + rid);
+      if (cached) return ContentService.createTextOutput(cached).setMimeType(ContentService.MimeType.JSON);
+    }
     res = handle_(req);
   } catch (err) {
     res = { ok: false, error: String((err && err.message) || err) };
   }
-  return json_(res);
+  const out = JSON.stringify(res);
+  if (rid && out.length < 90000) {
+    try {
+      CacheService.getScriptCache().put("rid:" + rid, out, RID_SECONDS);
+    } catch (err) {
+      // слишком большой ответ — не кэшируем
+    }
+  }
+  return ContentService.createTextOutput(out).setMimeType(ContentService.MimeType.JSON);
 }
 
 function json_(obj) {

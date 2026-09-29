@@ -82,33 +82,49 @@ function subjects() {
 // ---------- API ----------
 async function api(action, payload = {}) {
   if (DEMO) return demoApi(action, payload);
-  // Тело отправляется как text/plain, чтобы Apps Script принимал запрос без CORS-preflight
+  // Тело отправляется как text/plain, чтобы Apps Script принимал запрос без CORS-preflight.
+  // Google иногда теряет ответ (404 или страница вместо данных), хотя действие выполнено.
+  // Поэтому у запроса есть номер rid: при повторе сервер отдаёт сохранённый ответ и не выполняет действие второй раз.
   const ACCESS_HINT = "Проверьте интернет. Если ошибка повторяется, в развертывании Apps Script должен быть доступ «Все».";
-  let r;
-  try {
-    r = await fetch(CONFIG.API_URL, {
-      method: "POST",
-      body: JSON.stringify({ action, ...(creds || {}), ...payload }),
-    });
-  } catch (e) {
-    throw new Error("Не удалось связаться с сервером. " + ACCESS_HINT);
-  }
-  if (!r.ok) throw new Error("Сервер недоступен (" + r.status + "). " + ACCESS_HINT);
-  let res;
-  try {
-    res = await r.json();
-  } catch (e) {
-    // Google вернул страницу вместо данных — обычно доступ к веб-приложению не «Все»
-    throw new Error("Сервер не отвечает данными. В развертывании Apps Script должен быть доступ «Все».");
-  }
-  if (!res.ok) {
-    // Сайт новее, чем код в Apps Script: нужно вставить новый Code.gs и выпустить новую версию
-    if (/^Неизвестное действие/.test(res.error || "")) {
-      throw new Error("Сервер ещё не обновлён. Учителю: вставьте новый Code.gs в Apps Script и выпустите новую версию развертывания.");
+  const rid = Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+  const body = JSON.stringify({ action, ...(creds || {}), ...payload, rid });
+  let lastError = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 600 * attempt));
+    let r;
+    try {
+      r = await fetch(CONFIG.API_URL, { method: "POST", body });
+    } catch (e) {
+      lastError = new Error("Не удалось связаться с сервером. " + ACCESS_HINT);
+      continue;
     }
-    throw new Error(res.error || "Ошибка сервера");
+    if (!r.ok) {
+      lastError = new Error("Сервер недоступен (" + r.status + "). " + ACCESS_HINT);
+      continue;
+    }
+    let res;
+    try {
+      res = await r.json();
+    } catch (e) {
+      // Google вернул страницу вместо данных
+      lastError = new Error("Сервер не отвечает данными. Попробуйте ещё раз. Если ошибка повторяется, в развертывании Apps Script должен быть доступ «Все».");
+      continue;
+    }
+    // Ответ «API работает» вместо результата — запрос не дошёл до обработчика, повторяем
+    if (res.ok && res.message && Object.keys(res).length <= 2) {
+      lastError = new Error("Сервер ответил не на тот запрос. Попробуйте ещё раз.");
+      continue;
+    }
+    if (!res.ok) {
+      // Сайт новее, чем код в Apps Script: нужно вставить новый Code.gs и выпустить новую версию
+      if (/^Неизвестное действие/.test(res.error || "")) {
+        throw new Error("Сервер ещё не обновлён. Учителю: вставьте новый Code.gs в Apps Script и выпустите новую версию развертывания.");
+      }
+      throw new Error(res.error || "Ошибка сервера");
+    }
+    return res;
   }
-  return res;
+  throw lastError;
 }
 
 // Демо-режим: повторяет ответы сервера на данных из data.js
