@@ -53,7 +53,7 @@ const HEADERS = {
   universities: ["Университет", "Город", "Страна", "Направления (через точку с запятой)", "Как поступать", "Финансирование", "Сроки подачи (обычно)", "Балл ЕНТ на грант (ориентир)", "IELTS (минимум)", "Язык обучения", "Сайт", "Примечание"],
   activities: ["ID ученика", "Вид", "Название", "Роль, что делал", "Часов в неделю", "Недель", "Период", "Добавлено"],
   english: ["ID ученика", "Дата", "Экзамен", "Общий балл", "Listening", "Reading", "Writing", "Speaking", "Уровень / примечание"],
-  wordProgress: ["ID ученика", "Набор (id)", "Название", "Прогресс (JSON, не менять)", "Выучено", "Слов", "Лучший тест, %", "Тестов", "Произнесено", "Обновлено"],
+  wordProgress: ["Кто (ID ученика, S01:мама, Учитель…)", "Набор (id)", "Название", "Прогресс (JSON, не менять)", "Выучено", "Слов", "Лучший тест, %", "Тестов", "Произнесено", "Обновлено"],
   customWords: ["Набор", "Слово", "Транскрипция", "Перевод", "Пример", "Қазақша"],
   reading: ["ID ученика", "Книга", "Автор", "Страниц всего", "Прочитано страниц", "Начал", "Обновлено"],
   tg: ["Chat ID", "ID ученика", "Кто", "Имя в Telegram", "Подключено"],
@@ -140,8 +140,11 @@ function handle_(req) {
   }
   const user = auth_(req.login, req.pin, req.as);
   switch (req.action) {
-    case "login":
-      return { ok: true, role: user.role, id: user.id, staff: user.staff, data: user.role === "teacher" ? teacherData_() : studentData_(user.id) }; // родитель видит то же, что и ребёнок
+    case "login": {
+      const data = user.role === "teacher" ? teacherData_() : studentData_(user.id); // родитель видит то же, что и ребёнок
+      if (user.role !== "student") data.myWords = readWordProgress_()[wordsKey_(user)] || {}; // свои слова взрослого
+      return { ok: true, role: user.role, id: user.id, staff: user.staff, parent: user.parent, data: data };
+    }
     case "saveLesson": {
       if (user.role !== "teacher") throw new Error("Доступно только учителю");
       const saved = saveLesson_(req.lesson);
@@ -163,8 +166,9 @@ function handle_(req) {
       return Object.assign({ ok: true, id: id }, endReading_(id, !!req.done));
     }
     case "saveWords": {
-      const id = targetId_(user, req.id, "Слова учит сам ученик");
-      return { ok: true, id: id, words: saveWords_(id, req.words) };
+      // Ученик — свой прогресс; учитель, воспитатель и родители учат слова сами, у каждого свой прогресс
+      const key = wordsKey_(user);
+      return { ok: true, id: key, words: saveWords_(key, req.words) };
     }
     case "tgLink":
       return { ok: true, tg: tgLink_(user) };
@@ -256,7 +260,7 @@ function auth_(login, pin, as) {
     const child =
       code &&
       readStudents_().find((x) => x.id.toLowerCase() === login.toLowerCase() && (phone_(x.momPhone) === code || phone_(x.dadPhone) === code));
-    if (child) return { role: "parent", id: child.id };
+    if (child) return { role: "parent", id: child.id, parent: phone_(child.momPhone) === code ? "мама" : "папа" };
   } else {
     const settings = readSettings_();
     if (settings.teacherPin && login.toLowerCase() === settings.teacherLogin.toLowerCase() && pin === settings.teacherPin) {
@@ -540,6 +544,7 @@ function teacherData_() {
     duties: readDuties_(),
     universities: readUniversities_(),
     customWords: readCustomWords_(),
+    adultWords: adultWords_(),
   };
 }
 
@@ -1324,7 +1329,7 @@ function readCustomWords_() {
 function readWordProgress_() {
   const res = {};
   rows_("wordProgress", true).forEach((r) => {
-    const id = String(r[0]).trim().toUpperCase();
+    const id = String(r[0]).trim(); // ID ученика или «S01:мама», «Учитель»
     const set = String(r[1]).trim();
     if (!id || !set) return;
     let data = {};
@@ -1347,7 +1352,33 @@ function readWordProgress_() {
   return res;
 }
 
-// Сохраняет прогресс ученика по одному набору после занятия
+// Чей прогресс: ученик — его ID; родитель — «S01:мама» / «S01:папа»; учитель и воспитатель — «Учитель» / «Воспитатель»
+function wordsKey_(user) {
+  if (user.role === "student") return user.id;
+  if (user.role === "parent") return user.id + ":" + (user.parent || "родитель");
+  return user.staff || "Учитель";
+}
+
+// Взрослые, которые тоже учат слова: [{key, learned, pron, updated}]
+function adultWords_() {
+  const ids = {};
+  readStudents_().forEach((s) => (ids[s.id] = true));
+  const all = readWordProgress_();
+  return Object.keys(all)
+    .filter((k) => !ids[k])
+    .map((k) => {
+      const sets = all[k];
+      let learned = 0, pron = 0, updated = "";
+      Object.keys(sets).forEach((x) => {
+        learned += sets[x].learned;
+        pron += sets[x].pron;
+        if (sets[x].updated > updated) updated = sets[x].updated;
+      });
+      return { key: k, learned: learned, pron: pron, updated: updated };
+    });
+}
+
+// Сохраняет прогресс по одному набору после занятия
 function saveWords_(id, x) {
   x = x || {};
   const set = String(x.set || "").trim();
@@ -1385,7 +1416,7 @@ function saveWords_(id, x) {
     const values = sh.getDataRange().getValues();
     let rowIndex = -1;
     for (let i = 1; i < values.length; i++) {
-      if (String(values[i][0]).trim().toUpperCase() === id && String(values[i][1]).trim() === set) {
+      if (String(values[i][0]).trim() === id && String(values[i][1]).trim() === set) {
         rowIndex = i + 1;
         break;
       }

@@ -148,7 +148,17 @@ async function demoApi(action, payload) {
   if (action === "login") {
     const strip = ({ pin, momPhone, dadPhone, ...rest }) => rest;
     if (isTeacher)
-      return { ok: true, role: "teacher", staff: isTutor ? "Воспитатель" : "Учитель", data: { ...D, students: D.students.map(({ pin, ...rest }) => rest) } };
+      return {
+        ok: true,
+        role: "teacher",
+        staff: isTutor ? "Воспитатель" : "Учитель",
+        data: {
+          ...D,
+          students: D.students.map(({ pin, ...rest }) => rest),
+          myWords: ((D.adultWords || {})[isTutor ? "Воспитатель" : "Учитель"] || {}).words || {},
+          adultWords: Object.entries(D.adultWords || {}).map(([key, v]) => ({ key, learned: Object.values(v.words || {}).reduce((a, x) => a + x.learned, 0), pron: 0 })),
+        },
+      };
     const only = (list) => (list.includes(s.id) ? [s.id] : []);
     return {
       ok: true,
@@ -161,6 +171,7 @@ async function demoApi(action, payload) {
         calendar: D.calendar,
         resources: D.resources,
         students: [strip(s)],
+        myWords: parent ? ((D.adultWords || {})[s.id + ":родитель"] || {}).words || {} : undefined,
         universities: D.universities,
         duties: (D.duties || [])
           .filter((d) => d.students.includes(s.id) || d.date >= todayIso())
@@ -291,8 +302,10 @@ async function demoApi(action, payload) {
     return { ok: true, id: target.id, reading: null, books: target.portfolio.filter((x) => x.section === BOOKS_SECTION) };
   }
   if (action === "saveWords") {
-    if (parent) throw new Error("Слова учит сам ученик");
-    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    // взрослые учат сами: прогресс отдельно (в демо — в памяти страницы)
+    const adultKey = isTeacher ? (isTutor ? "Воспитатель" : "Учитель") : parent ? s.id + ":родитель" : null;
+    D.adultWords = D.adultWords || {};
+    const target = adultKey ? (D.adultWords[adultKey] = D.adultWords[adultKey] || { id: adultKey }) : s;
     const w = payload.words || {};
     target.words = target.words || {};
     const prev = target.words[w.set] || { best: 0, tests: 0 };
@@ -538,7 +551,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "admission") body = admissionHtml(s);
   if (state.tab === "activities") body = activitiesHtml(s);
   if (state.tab === "english") body = englishHtml(s);
-  if (state.tab === "words") body = wordsHtml(s);
+  if (state.tab === "words") body = isParent ? wordsWhoHtml("👦 Прогресс ребёнка") + wordsHtml(state.wself ? meLearner() : s) : wordsHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
@@ -612,7 +625,10 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "schedule") bindSchedule();
   if (state.tab === "activities") bindActivities(s);
   if (state.tab === "english") bindEnglish(s);
-  if (state.tab === "words") bindWords(s);
+  if (state.tab === "words") {
+    if (isParent) bindWordsWho();
+    bindWords(isParent && state.wself ? meLearner() : s);
+  }
   document.getElementById("resume-btn").addEventListener("click", () => openResume(s));
   if (isParent) {
     bindTg();
@@ -1509,7 +1525,7 @@ function renderTeacher() {
   if (state.tab === "admission-all") body = admissionAllHtml();
   if (state.tab === "activities-all") body = activitiesAllHtml();
   if (state.tab === "tg") body = teacherTgHtml();
-  if (state.tab === "words-all") body = wordsAllHtml();
+  if (state.tab === "words-all") body = wordsWhoHtml("📊 Класс") + (state.wself ? wordsHtml(meLearner()) : wordsAllHtml());
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
@@ -1535,7 +1551,9 @@ function renderTeacher() {
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
   if (state.tab === "words-all") {
-    if (typeof WORD_SETS === "undefined") loadWords().then(render);
+    bindWordsWho();
+    if (state.wself) bindWords(meLearner());
+    else if (typeof WORD_SETS === "undefined") loadWords().then(render);
     document.getElementById("wsort")?.addEventListener("change", (e) => ((state.wsort = e.target.value), render()));
   }
   if (state.tab === "tg") {
@@ -3077,6 +3095,28 @@ function wLangHtml() {
     .map(([k, t]) => `<button class="seg-btn ${l === k ? "active" : ""}" data-wlang="${k}">${t}</button>`)
     .join("")}</div>`;
 }
+// Взрослый (учитель, воспитатель, родитель) учит слова сам — свой прогресс, отдельно от учеников
+function meLearner() {
+  return { id: "__me", self: true, name: "", words: DATA.myWords || {} };
+}
+// Переключатель для родителя и учителя: смотреть прогресс / учить самому
+function wordsWhoHtml(first) {
+  const self = !!state.wself;
+  return `<div class="card wwho"><div class="seg sched-view">
+    <button class="seg-btn ${self ? "" : "active"}" data-wself="0">${esc(first)}</button>
+    <button class="seg-btn ${self ? "active" : ""}" data-wself="1">🙋 Учить самому</button>
+  </div>${self ? '<span class="small muted">Ваш личный прогресс. Ученики его не видят.</span>' : ""}</div>`;
+}
+function bindWordsWho() {
+  app.querySelectorAll("[data-wself]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.wself = b.dataset.wself === "1";
+      state.wset = null;
+      state.wl = null;
+      render();
+    })
+  );
+}
 function allWordSets() {
   return (typeof WORD_SETS !== "undefined" ? WORD_SETS : []).concat(DATA.customWords || []);
 }
@@ -3159,7 +3199,7 @@ function wordSetHtml(s, setId) {
     return wordsHtml(s);
   }
   const p = setProgress(s, set.id);
-  const canLearn = state.user.role === "student"; // учит сам ученик; учитель и родитель видят прогресс
+  const canLearn = state.user.role === "student" || s.self; // ученик — свои слова; взрослый — в режиме «Учить самому»
   const pronSet = new Set(p.p || []);
   return `<div class="card">
     <button class="btn btn-ghost" id="wback">← Все наборы</button>
@@ -3291,7 +3331,8 @@ function saveWordSession(s, sessionL) {
   const payload = { set: set.id, name: `${set.level} · ${set.name}`, total: set.words.length, boxes: L.boxes, pron: L.pron };
   if (L.mode === "test" && L.done) payload.test = Math.round((L.correct / L.queue.length) * 100);
   return api("saveWords", { id: s.id, words: payload }).then((res) => {
-    findStudent(s.id).words = res.words;
+    if (s.self) DATA.myWords = res.words;
+    else findStudent(s.id).words = res.words;
   });
 }
 
@@ -3507,6 +3548,20 @@ function wordsAllHtml() {
         })
         .join("")}
     </table></div>
+    ${(() => {
+      const adults = (DATA.adultWords || []).filter((a) => a.learned || a.pron);
+      if (!adults.length) return "";
+      const label = (k) => {
+        const m = k.match(/^(S\d+):(.+)$/);
+        if (!m) return esc(k);
+        const st = findStudent(m[1]);
+        return `${esc(m[2])} (${esc(st ? st.name : m[1])})`;
+      };
+      return `<p class="small"><b>🙋 Взрослые тоже учат:</b> ${adults
+        .sort((a, b) => b.learned - a.learned)
+        .map((a) => `${label(a.key)} — ${a.learned} ${plural(a.learned, "слово", "слова", "слов")}`)
+        .join(", ")}</p>`;
+    })()}
     ${notStarted.length ? `<p class="small"><b>Ещё не начинали:</b> ${notStarted.map((r) => esc(r.s.name)).join(", ")}</p>` : '<p class="small" style="color:var(--green)">Все ученики уже начали учить слова ✓</p>'}
   </div>`;
   return `${analytics}<div class="card">
