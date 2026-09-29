@@ -602,7 +602,7 @@ function renderStudent(s, byTeacher) {
       <div class="stat orange"><div class="stat-value">${st.late}</div><div class="stat-label">Опозданий</div></div>
       <div class="stat green"><div class="stat-value">${idpProgress(s)}%</div><div class="stat-label">Выполнение IDP</div></div>
     </div>
-    ${isParent ? recentMissesHtml(s) + parentTgHtml(s) : ""}
+    ${isParent ? recentMissesHtml(s) + (CONFIG.TELEGRAM ? parentTgHtml(s) : "") : ""}
     ${tabsHtml(tabs)}
     ${body}`;
   bindTabs();
@@ -630,7 +630,7 @@ function renderStudent(s, byTeacher) {
     bindWords(isParent && state.wself ? meLearner() : s);
   }
   document.getElementById("resume-btn").addEventListener("click", () => openResume(s));
-  if (isParent) {
+  if (isParent && CONFIG.TELEGRAM) {
     bindTg();
     if (!state.tg) loadTgStatus().then(() => state.user && render());
   }
@@ -1499,7 +1499,7 @@ function renderTeacher() {
     ["admission-all", "🎓 Поступление"],
     ["activities-all", "⭐ Активности"],
     ["words-all", "🔤 Слова"],
-    ["tg", "🔔 Telegram"],
+    ...(CONFIG.TELEGRAM ? [["tg", "🔔 Telegram"]] : []),
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
