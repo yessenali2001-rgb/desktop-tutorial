@@ -27,6 +27,8 @@ const SHEETS = {
   activities: "Активности",
   english: "Английский",
   tg: "Telegram",
+  wordProgress: "Слова — прогресс",
+  customWords: "Свои слова",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -50,6 +52,8 @@ const HEADERS = {
   universities: ["Университет", "Город", "Страна", "Направления (через точку с запятой)", "Как поступать", "Финансирование", "Сроки подачи (обычно)", "Балл ЕНТ на грант (ориентир)", "IELTS (минимум)", "Язык обучения", "Сайт", "Примечание"],
   activities: ["ID ученика", "Вид", "Название", "Роль, что делал", "Часов в неделю", "Недель", "Период", "Добавлено"],
   english: ["ID ученика", "Дата", "Экзамен", "Общий балл", "Listening", "Reading", "Writing", "Speaking", "Уровень / примечание"],
+  wordProgress: ["ID ученика", "Набор (id)", "Название", "Прогресс (JSON, не менять)", "Выучено", "Слов", "Лучший тест, %", "Тестов", "Произнесено", "Обновлено"],
+  customWords: ["Набор", "Слово", "Транскрипция", "Перевод", "Пример"],
   tg: ["Chat ID", "ID ученика", "Кто", "Имя в Telegram", "Подключено"],
   duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
@@ -147,6 +151,10 @@ function handle_(req) {
       }
       delete saved.before;
       return { ok: true, lesson: saved, notified: notified };
+    }
+    case "saveWords": {
+      const id = targetId_(user, req.id, "Слова учит сам ученик");
+      return { ok: true, id: id, words: saveWords_(id, req.words) };
     }
     case "tgLink":
       return { ok: true, tg: tgLink_(user) };
@@ -482,6 +490,7 @@ function context_() {
     plans: readPlans_(),
     activities: readActivities_(),
     english: readEnglish_(),
+    words: readWordProgress_(),
   };
 }
 
@@ -500,6 +509,7 @@ function publicStudent_(s, ctx) {
     plan: ctx.plans[s.id] || null,
     activities: ctx.activities[s.id] || [],
     english: ctx.english[s.id] || [],
+    words: ctx.words[s.id] || {},
   };
 }
 
@@ -517,6 +527,7 @@ function teacherData_() {
     dutyTypes: readSettings_().dutyTypes,
     duties: readDuties_(),
     universities: readUniversities_(),
+    customWords: readCustomWords_(),
   };
 }
 
@@ -534,6 +545,7 @@ function studentData_(id) {
     // Дежурства: все свои и ближайшие дежурства класса (кто дежурит сегодня и дальше)
     duties: dutiesForStudent_(id),
     universities: readUniversities_(),
+    customWords: readCustomWords_(),
     attendance: readAttendance_().map((l) => ({
       date: l.date,
       subject: l.subject,
@@ -1270,6 +1282,109 @@ function telegramSetup() {
   Logger.log("Готово! Бот @" + bot + " подключён. Теперь выпустите новую версию развертывания.");
 }
 
+// ===================== Английские слова =====================
+// Сами наборы слов лежат на сайте (words.js). Учитель может добавить свои наборы на лист «Свои слова»:
+// Набор | Слово | Транскрипция | Перевод | Пример. Лист «Слова — прогресс» создаётся сам:
+// ID | Набор (id) | Название | Прогресс (JSON, не менять) | Выучено | Слов | Лучший тест, % | Тестов | Произнесено | Обновлено.
+
+// Свои наборы учителя (если листа нет — пусто)
+function readCustomWords_() {
+  const sets = [];
+  const byName = {};
+  rows_("customWords", true).forEach((r) => {
+    const name = String(r[0]).trim();
+    const w = String(r[1]).trim();
+    const t = String(r[3]).trim();
+    if (!name || !w || !t) return;
+    if (!byName[name]) {
+      byName[name] = { id: "custom:" + name.slice(0, 60), level: "Свои", name: name, kind: "От учителя", words: [] };
+      sets.push(byName[name]);
+    }
+    const word = [w, String(r[2]).trim(), t];
+    if (String(r[4]).trim()) word.push(String(r[4]).trim());
+    byName[name].words.push(word);
+  });
+  return sets;
+}
+
+// { "S01": { "A1-verbs-1": {b: {word: box}, p: [слова], learned, total, best, tests, pron, updated} } }
+function readWordProgress_() {
+  const res = {};
+  rows_("wordProgress", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    const set = String(r[1]).trim();
+    if (!id || !set) return;
+    let data = {};
+    try {
+      data = JSON.parse(String(r[3]) || "{}");
+    } catch (e) {
+      // испорченная ячейка — начинаем набор заново
+    }
+    (res[id] = res[id] || {})[set] = {
+      b: data.b || {},
+      p: data.p || [],
+      learned: Number(r[4]) || 0,
+      total: Number(r[5]) || 0,
+      best: Number(r[6]) || 0,
+      tests: Number(r[7]) || 0,
+      pron: Number(r[8]) || 0,
+      updated: iso_(r[9]),
+    };
+  });
+  return res;
+}
+
+// Сохраняет прогресс ученика по одному набору после занятия
+function saveWords_(id, x) {
+  x = x || {};
+  const set = String(x.set || "").trim();
+  if (!/^[\wА-Яа-яЁёӘәҒғҚқҢңӨөҰұҮүҺһІі:.\- ()]{1,80}$/.test(set)) throw new Error("Неизвестный набор слов");
+  const clean = (w) => String(w).trim().slice(0, 80);
+  const boxes = {};
+  Object.keys(x.boxes || {})
+    .slice(0, 500)
+    .forEach((w) => {
+      const v = Math.max(0, Math.min(5, Math.round(Number(x.boxes[w]) || 0)));
+      if (clean(w)) boxes[clean(w)] = v;
+    });
+  const pron = (Array.isArray(x.pron) ? x.pron : []).slice(0, 500).map(clean).filter(Boolean);
+  const total = Math.max(0, Math.min(500, Math.round(Number(x.total) || 0)));
+  const learned = Object.keys(boxes).filter((w) => boxes[w] >= 3).length;
+  const test = x.test === undefined || x.test === null || x.test === "" ? null : Math.max(0, Math.min(100, Math.round(Number(x.test) || 0)));
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const prev = (readWordProgress_()[id] || {})[set] || { best: 0, tests: 0 };
+    const row = [
+      id,
+      set,
+      safeText_(x.name, 80),
+      JSON.stringify({ b: boxes, p: pron }),
+      learned,
+      total,
+      test === null ? prev.best : Math.max(prev.best, test),
+      prev.tests + (test === null ? 0 : 1),
+      pron.length,
+      Utilities.parseDate(Utilities.formatDate(new Date(), tz_(), "yyyy-MM-dd"), tz_(), "yyyy-MM-dd"),
+    ];
+    const sh = ensureSheet_("wordProgress", 10);
+    const values = sh.getDataRange().getValues();
+    let rowIndex = -1;
+    for (let i = 1; i < values.length; i++) {
+      if (String(values[i][0]).trim().toUpperCase() === id && String(values[i][1]).trim() === set) {
+        rowIndex = i + 1;
+        break;
+      }
+    }
+    if (rowIndex > 0) sh.getRange(rowIndex, 1, 1, row.length).setValues([row]);
+    else sh.appendRow(row);
+  } finally {
+    lock.releaseLock();
+  }
+  return readWordProgress_()[id] || {};
+}
+
 // ===================== Дежурства (кезекшілік) =====================
 // Лист «Дежурства»: Дата | Дежурство | Ученики (ID через запятую) | Ученики (ФИО) | Кто назначил.
 // Одна строка — одно дежурство в один день. Лист создаётся сам при первой записи.
@@ -1432,6 +1547,7 @@ function setup() {
     }
     if (data.length) sh.getRange(2, 1, data.length, headers.length).setValues(data);
     if (key === "attendance") sh.getRange(2, 1, Math.max(data.length, 500), 1).setNumberFormat("dd.mm.yyyy");
+    if (key === "wordProgress") sh.getRange(2, 10, Math.max(data.length, 2000), 1).setNumberFormat("dd.mm.yyyy");
     if (key === "english") {
       sh.getRange(2, 2, Math.max(data.length, 2000), 1).setNumberFormat("dd.mm.yyyy");
       sh.getRange(2, 4, Math.max(data.length, 2000), 5).setNumberFormat("@"); // баллы — текстом

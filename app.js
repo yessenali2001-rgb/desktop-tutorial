@@ -271,6 +271,16 @@ async function demoApi(action, payload) {
     }
     return { ok: true, meetings: JSON.parse(JSON.stringify(D.meetings)) };
   }
+  if (action === "saveWords") {
+    if (parent) throw new Error("Слова учит сам ученик");
+    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    const w = payload.words || {};
+    target.words = target.words || {};
+    const prev = target.words[w.set] || { best: 0, tests: 0 };
+    const learned = Object.values(w.boxes || {}).filter((v) => v >= 3).length;
+    target.words[w.set] = { b: w.boxes || {}, p: w.pron || [], learned, total: w.total, best: w.test != null ? Math.max(prev.best, w.test) : prev.best, tests: prev.tests + (w.test != null ? 1 : 0), pron: (w.pron || []).length, updated: todayIso() };
+    return { ok: true, id: target.id, words: JSON.parse(JSON.stringify(target.words)) };
+  }
   if (action === "tgStatus") {
     const parents = {};
     (D.tgDemo || []).forEach((id) => (parents[id] = 1));
@@ -478,6 +488,7 @@ function renderStudent(s, byTeacher) {
     ["admission", "🎓 Поступление"],
     ["activities", "⭐ Активности"],
     ["english", "🇬🇧 Английский"],
+    ["words", "🔤 Слова"],
     ["attendance", "✅ Посещаемость"],
     ["grades", "📊 Оценки"],
     ["portfolio", "📁 Портфолио"],
@@ -508,6 +519,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "admission") body = admissionHtml(s);
   if (state.tab === "activities") body = activitiesHtml(s);
   if (state.tab === "english") body = englishHtml(s);
+  if (state.tab === "words") body = wordsHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
   app.innerHTML = `
@@ -576,6 +588,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "schedule") bindSchedule();
   if (state.tab === "activities") bindActivities(s);
   if (state.tab === "english") bindEnglish(s);
+  if (state.tab === "words") bindWords(s);
   document.getElementById("resume-btn").addEventListener("click", () => openResume(s));
   if (isParent) {
     bindTg();
@@ -1362,6 +1375,7 @@ function renderTeacher() {
     ["duty", "🧹 Кезекшілік"],
     ["admission-all", "🎓 Поступление"],
     ["activities-all", "⭐ Активности"],
+    ["words-all", "🔤 Слова"],
     ["tg", "🔔 Telegram"],
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
@@ -1388,6 +1402,7 @@ function renderTeacher() {
   if (state.tab === "admission-all") body = admissionAllHtml();
   if (state.tab === "activities-all") body = activitiesAllHtml();
   if (state.tab === "tg") body = teacherTgHtml();
+  if (state.tab === "words-all") body = wordsAllHtml();
   if (state.tab === "idp-all") body = idpAllHtml();
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
@@ -1412,6 +1427,10 @@ function renderTeacher() {
   if (state.tab === "mark") bindMark();
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
+  if (state.tab === "words-all") {
+    if (typeof WORD_SETS === "undefined") loadWords().then(render);
+    document.getElementById("wsort")?.addEventListener("change", (e) => ((state.wsort = e.target.value), render()));
+  }
   if (state.tab === "tg") {
     bindTg();
     if (!state.tg) loadTgStatus().then(() => state.user && !state.viewStudent && state.tab === "tg" && render());
@@ -1420,7 +1439,7 @@ function renderTeacher() {
   app.querySelectorAll("[data-student]").forEach((b) =>
     b.addEventListener("click", () => {
       state.viewStudent = b.dataset.student;
-      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings", duty: "duty", "admission-all": "admission", "activities-all": "activities" }[state.tab] || "attendance";
+      state.tab = { "books-all": "books", "grades-all": "grades", meetings: "meetings", duty: "duty", "admission-all": "admission", "activities-all": "activities", "words-all": "words" }[state.tab] || "attendance";
       state.subjectFilter = "";
       render();
     })
@@ -2906,6 +2925,426 @@ function teacherTgHtml() {
 1) Откройте сайт ${site}
 2) Вкладка «Родитель» → выберите ребёнка → введите свой номер телефона
 3) Нажмите «🔔 Подключить Telegram» → «Открыть в Telegram» → «Запустить».</textarea>
+  </div>`;
+}
+
+// ---------- 🔤 английские слова: карточки, тест, написание, произношение ----------
+// Наборы — в words.js (грузится при первом открытии вкладки) + «Свои слова» учителя из таблицы.
+// Прогресс по каждому слову — «коробка» 0–5: правильный ответ +1, ошибка → 0. Выучено — коробка 3 и выше.
+const WORD_LEVELS = ["A1", "A2", "B1", "B2", "IELTS", "Свои"];
+const LEARNED_BOX = 3;
+let wordsScript = null;
+function loadWords() {
+  if (typeof WORD_SETS !== "undefined") return Promise.resolve();
+  wordsScript =
+    wordsScript ||
+    new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = "words.js";
+      el.onload = resolve;
+      el.onerror = () => reject(new Error("Не удалось загрузить слова"));
+      document.head.appendChild(el);
+    });
+  return wordsScript;
+}
+function allWordSets() {
+  return (typeof WORD_SETS !== "undefined" ? WORD_SETS : []).concat(DATA.customWords || []);
+}
+function setProgress(s, setId) {
+  return (s.words || {})[setId] || { b: {}, p: [], learned: 0, best: 0, tests: 0, pron: 0 };
+}
+function wordNorm(t) {
+  return String(t || "")
+    .toLowerCase()
+    .replace(/^to\s+/, "")
+    .replace(/[’']/g, "'")
+    .replace(/[^a-z' -]/g, " ")
+    .replace(/[\s-]+/g, " ")
+    .trim();
+}
+function shuffle(a) {
+  const x = [...a];
+  for (let i = x.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [x[i], x[j]] = [x[j], x[i]];
+  }
+  return x;
+}
+
+// Озвучка (бесплатно, встроена в браузер)
+function speak(text, slow) {
+  if (!("speechSynthesis" in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  const voices = speechSynthesis.getVoices();
+  const v = voices.find((x) => /en[-_]GB/i.test(x.lang)) || voices.find((x) => /^en/i.test(x.lang));
+  if (v) u.voice = v;
+  u.lang = v ? v.lang : "en-GB";
+  u.rate = slow ? 0.6 : 0.95;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+}
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function wordsHtml(s) {
+  if (typeof WORD_SETS === "undefined") return '<div class="card"><h2>🔤 Английские слова</h2><p class="muted">Загрузка слов…</p></div>';
+  if (state.wl && state.wl.sid === s.id) return wordSessionHtml(s);
+  if (state.wset) return wordSetHtml(s, state.wset);
+  const sets = allWordSets();
+  const lvl = state.wlevel || "A1";
+  const learnedAll = sets.reduce((a, x) => a + (setProgress(s, x.id).learned || 0), 0);
+  const pronAll = sets.reduce((a, x) => a + (setProgress(s, x.id).pron || 0), 0);
+  const levels = WORD_LEVELS.filter((l) => sets.some((x) => x.level === l));
+  const perLevel = (l) => sets.filter((x) => x.level === l).reduce((a, x) => a + setProgress(s, x.id).learned, 0);
+  return `<div class="card">
+    <div class="eyebrow">Ағылшын сөздері</div>
+    <h2>🔤 Английские слова</h2>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl"><span class="hl-icon">🧠</span><div><div class="eyebrow">Выучено слов</div><div><b>${learnedAll}</b> из ${sets.reduce((a, x) => a + x.words.length, 0)}</div></div></div>
+      <div class="hl"><span class="hl-icon">🎤</span><div><div class="eyebrow">Правильно произнесено</div><div><b>${pronAll}</b></div></div></div>
+    </div>
+    <p class="small muted">Выберите уровень и набор. Слово считается выученным, когда вы ответили правильно 3 раза. Произношение тренируется в режиме 🎤: слушайте слово и повторяйте в микрофон.</p>
+    <div class="day-chips">${levels
+      .map((l) => `<button class="day-chip ${l === lvl ? "active" : ""}" data-wlevel="${esc(l)}"><b>${esc(l)}</b><span>${perLevel(l)} выуч.</span></button>`)
+      .join("")}</div>
+    <div class="wsets">${sets
+      .filter((x) => x.level === lvl)
+      .map((x) => {
+        const p = setProgress(s, x.id);
+        const pct = Math.round((p.learned / x.words.length) * 100);
+        return `<button class="wset ${pct >= 100 ? "done" : ""}" data-wset="${esc(x.id)}">
+          <div class="wset-top"><b>${esc(x.name)}</b><span class="small muted">${esc(x.kind)}</span></div>
+          <div class="wbar"><span style="width:${Math.min(100, pct)}%"></span></div>
+          <div class="small muted">${p.learned} из ${x.words.length} выучено${p.best ? ` · тест ${p.best}%` : ""}${p.pron ? ` · 🎤 ${p.pron}` : ""}</div>
+        </button>`;
+      })
+      .join("")}</div>
+  </div>`;
+}
+
+function wordSetHtml(s, setId) {
+  const set = allWordSets().find((x) => x.id === setId);
+  if (!set) {
+    state.wset = null;
+    return wordsHtml(s);
+  }
+  const p = setProgress(s, set.id);
+  const canLearn = state.user.role === "student"; // учит сам ученик; учитель и родитель видят прогресс
+  const pronSet = new Set(p.p || []);
+  return `<div class="card">
+    <button class="btn btn-ghost" id="wback">← Все наборы</button>
+    <h2 style="margin-top:10px">${esc(set.level)} · ${esc(set.name)}</h2>
+    <p class="small muted">${esc(set.kind)} · ${set.words.length} слов · выучено ${p.learned}${p.best ? ` · лучший тест ${p.best}%` : ""}${p.pron ? ` · произнесено ${p.pron}` : ""}</p>
+    ${
+      canLearn
+        ? `<div class="wmodes">
+            <button class="wmode" data-wmode="cards"><span>📇</span><b>Карточки</b><small>запомнить слова</small></button>
+            <button class="wmode" data-wmode="test"><span>✅</span><b>Тест</b><small>выбрать перевод</small></button>
+            <button class="wmode" data-wmode="write"><span>✍️</span><b>Написание</b><small>написать слово</small></button>
+            <button class="wmode" data-wmode="pron"><span>🎤</span><b>Произношение</b><small>сказать вслух</small></button>
+          </div>`
+        : ""
+    }
+    <div class="table-wrap"><table class="wlist">
+      <tr><th></th><th>Слово</th><th>Транскрипция</th><th>Перевод</th><th class="num">Статус</th></tr>
+      ${set.words
+        .map((w, i) => {
+          const box = (p.b || {})[w[0]] || 0;
+          return `<tr><td><button class="wsay" data-say="${i}" title="Послушать">🔊</button></td><td><b>${esc(w[0])}</b>${w[3] ? `<div class="small muted">${esc(w[3])}</div>` : ""}</td><td class="muted">${esc(w[1])}</td><td>${esc(w[2])}</td><td class="num">${
+            box >= LEARNED_BOX ? '<span class="pill present">✓</span>' : box ? `<span class="small muted">${box}/3</span>` : ""
+          }${pronSet.has(w[0]) ? " 🎤" : ""}</td></tr>`;
+        })
+        .join("")}
+    </table></div>
+  </div>`;
+}
+
+// Начать занятие: какие слова и в каком порядке
+function startWords(s, setId, mode) {
+  const set = allWordSets().find((x) => x.id === setId);
+  const p = setProgress(s, setId);
+  const boxes = { ...(p.b || {}) };
+  const pron = new Set(p.p || []);
+  const idx = set.words.map((_, i) => i);
+  let queue;
+  if (mode === "pron") queue = shuffle(idx.filter((i) => !pron.has(set.words[i][0]))).concat(shuffle(idx.filter((i) => pron.has(set.words[i][0]))));
+  else queue = shuffle(idx.filter((i) => (boxes[set.words[i][0]] || 0) < LEARNED_BOX)).concat(shuffle(idx.filter((i) => (boxes[set.words[i][0]] || 0) >= LEARNED_BOX)));
+  queue = queue.slice(0, mode === "cards" ? 15 : 10);
+  state.wl = { sid: s.id, setId, mode, queue, i: 0, boxes, pron: [...pron], correct: 0, answered: null, flipped: false, done: false };
+  if (mode === "test") state.wl.options = queue.map((i) => testOptions(set, i));
+}
+function testOptions(set, i) {
+  const right = set.words[i][2];
+  const others = shuffle(set.words.filter((w) => w[2] !== right).map((w) => w[2]));
+  return shuffle([right, ...[...new Set(others)].slice(0, 3)]);
+}
+
+function wordSessionHtml(s) {
+  const L = state.wl;
+  const set = allWordSets().find((x) => x.id === L.setId);
+  const title = { cards: "📇 Карточки", test: "✅ Тест", write: "✍️ Написание", pron: "🎤 Произношение" }[L.mode];
+  const head = `<div class="wl-head"><button class="btn btn-ghost" id="wstop">✕ Завершить</button><b>${title}</b><span class="small muted">${Math.min(L.i + 1, L.queue.length)} / ${L.queue.length}</span></div>
+    <div class="wbar"><span style="width:${Math.round((L.i / L.queue.length) * 100)}%"></span></div>`;
+  if (L.done) {
+    const pct = Math.round((L.correct / L.queue.length) * 100);
+    return `<div class="card wl">${head}<div class="wl-end">
+      <div class="wl-big">${L.mode === "cards" ? "🎉" : pct >= 80 ? "🏆" : pct >= 50 ? "👍" : "💪"}</div>
+      <h2>${L.mode === "cards" ? `Знаю: ${L.correct} из ${L.queue.length}` : L.mode === "pron" ? `Правильно произнесено: ${L.correct} из ${L.queue.length}` : `Правильно: ${L.correct} из ${L.queue.length} (${pct}%)`}</h2>
+      <p class="small" id="wsave-msg">${L.saved ? "Прогресс сохранён ✓" : "Сохранение…"}</p>
+      <div class="wl-actions"><button class="btn" id="wagain">Ещё раз</button><button class="btn btn-ghost" id="wtoset">К набору</button></div>
+    </div></div>`;
+  }
+  const w = set.words[L.queue[L.i]];
+  const sayBtns = `<button class="wsay big" data-say-cur="0" title="Послушать">🔊</button><button class="wsay big" data-say-cur="1" title="Медленно">🐢</button>`;
+  if (L.mode === "cards") {
+    return `<div class="card wl">${head}
+      <button class="wcard ${L.flipped ? "flipped" : ""}" id="wflip">
+        <div class="wcard-word">${esc(w[0])}</div>
+        ${w[1] ? `<div class="wcard-tr">${esc(w[1])}</div>` : ""}
+        ${L.flipped ? `<div class="wcard-t">${esc(w[2])}</div>${w[3] ? `<div class="small muted">${esc(w[3])}</div>` : ""}` : '<div class="small muted">нажмите, чтобы увидеть перевод</div>'}
+      </button>
+      <div class="wl-actions">${sayBtns}</div>
+      <div class="wl-actions"><button class="btn btn-ghost wno" data-wans="0">🔁 Ещё учу</button><button class="btn wyes" data-wans="1">✓ Знаю</button></div>
+    </div>`;
+  }
+  if (L.mode === "test") {
+    const opts = L.options[L.i];
+    return `<div class="card wl">${head}
+      <div class="wq"><div class="wcard-word">${esc(w[0])}</div>${w[1] ? `<div class="wcard-tr">${esc(w[1])}</div>` : ""}<div class="wl-actions">${sayBtns}</div></div>
+      <div class="wopts">${opts
+        .map((o, k) => {
+          const cls = L.answered === null ? "" : o === w[2] ? "right" : k === L.answered ? "wrong" : "";
+          return `<button class="wopt ${cls}" data-wopt="${k}" ${L.answered !== null ? "disabled" : ""}>${esc(o)}</button>`;
+        })
+        .join("")}</div>
+      ${L.answered !== null ? `<div class="wl-actions"><button class="btn" id="wnext">Дальше →</button></div>` : ""}
+    </div>`;
+  }
+  if (L.mode === "write") {
+    const fb = L.answered;
+    return `<div class="card wl">${head}
+      <div class="wq"><div class="small muted">Напишите по-английски:</div><div class="wcard-word">${esc(w[2])}</div></div>
+      <form id="wwrite" class="wwrite"><input id="wwrite-in" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="слово по-английски" ${fb ? "disabled" : ""} value="${esc(fb ? fb.text : "")}"><button class="btn" ${fb ? "disabled" : ""}>Проверить</button></form>
+      ${
+        fb
+          ? `<div class="wfb ${fb.ok ? "ok" : "bad"}">${fb.ok ? "✓ Правильно!" : `✗ Правильно: <b>${esc(w[0])}</b>`} ${w[1] ? `<span class="muted">${esc(w[1])}</span>` : ""}</div>
+             <div class="wl-actions">${sayBtns}<button class="btn" id="wnext">Дальше →</button></div>`
+          : '<div class="small muted" style="text-align:center">Для глаголов «to» писать не обязательно.</div>'
+      }
+    </div>`;
+  }
+  // произношение
+  const fb = L.answered;
+  return `<div class="card wl">${head}
+    <div class="wq"><div class="wcard-word">${esc(w[0])}</div>${w[1] ? `<div class="wcard-tr">${esc(w[1])}</div>` : ""}<div class="small muted">${esc(w[2])}</div></div>
+    <div class="wl-actions">${sayBtns}</div>
+    ${
+      SpeechRec
+        ? `<div class="wl-actions"><button class="btn wmic ${L.listening ? "on" : ""}" id="wmic">${L.listening ? "🎙 Слушаю… говорите" : "🎤 Нажмите и скажите слово"}</button></div>`
+        : '<p class="wfb bad">Этот браузер не умеет распознавать речь. Откройте сайт в Chrome (на Android или компьютере) или в Safari на iPhone. Пока можно слушать слово и повторять вслух.</p>'
+    }
+    ${
+      fb
+        ? `<div class="wfb ${fb.ok ? "ok" : "bad"}">${fb.error ? esc(fb.error) : fb.ok ? "✓ Отлично! Произношение распознано." : "✗ Не совсем. Послушайте ещё раз и повторите."}${
+            fb.heard ? `<div class="small muted">Услышано: «${esc(fb.heard)}»</div>` : ""
+          }</div>`
+        : ""
+    }
+    <div class="wl-actions">${fb && !fb.ok ? '<button class="btn btn-ghost" id="wretry">Ещё попытка</button>' : ""}<button class="btn ${fb && fb.ok ? "" : "btn-ghost"}" id="wnext">${fb && fb.ok ? "Дальше →" : "Пропустить"}</button></div>
+  </div>`;
+}
+
+function saveWordSession(s, sessionL) {
+  const L = sessionL || state.wl;
+  const set = allWordSets().find((x) => x.id === L.setId);
+  const payload = { set: set.id, name: `${set.level} · ${set.name}`, total: set.words.length, boxes: L.boxes, pron: L.pron };
+  if (L.mode === "test" && L.done) payload.test = Math.round((L.correct / L.queue.length) * 100);
+  return api("saveWords", { id: s.id, words: payload }).then((res) => {
+    findStudent(s.id).words = res.words;
+  });
+}
+
+function finishWords(s) {
+  const L = state.wl;
+  L.done = true;
+  render();
+  saveWordSession(s)
+    .then(() => {
+      L.saved = true;
+      if (state.wl === L) render();
+    })
+    .catch((ex) => {
+      const m = document.getElementById("wsave-msg");
+      if (m) {
+        m.textContent = "Не сохранилось: " + ex.message;
+        m.style.color = "var(--red)";
+      }
+    });
+}
+
+function bindWords(s) {
+  if (typeof WORD_SETS === "undefined") {
+    loadWords()
+      .then(render)
+      .catch((ex) => (app.querySelector(".card p").textContent = ex.message));
+    return;
+  }
+  const set = state.wset && allWordSets().find((x) => x.id === state.wset);
+  app.querySelectorAll("[data-wlevel]").forEach((b) => b.addEventListener("click", () => ((state.wlevel = b.dataset.wlevel), render())));
+  app.querySelectorAll("[data-wset]").forEach((b) => b.addEventListener("click", () => ((state.wset = b.dataset.wset), render(), window.scrollTo(0, 0))));
+  document.getElementById("wback")?.addEventListener("click", () => ((state.wset = null), render()));
+  app.querySelectorAll("[data-say]").forEach((b) => b.addEventListener("click", () => speak(set.words[Number(b.dataset.say)][0])));
+  app.querySelectorAll("[data-wmode]").forEach((b) =>
+    b.addEventListener("click", () => {
+      startWords(s, state.wset, b.dataset.wmode);
+      render();
+      window.scrollTo(0, 0);
+      const L = state.wl;
+      if (L.mode !== "write") speak(set.words[L.queue[0]][0]);
+    })
+  );
+  const L = state.wl;
+  if (!L || L.sid !== s.id) return;
+  const cur = () => set.words[L.queue[L.i]];
+  const next = () => {
+    L.i++;
+    L.answered = null;
+    L.flipped = false;
+    if (L.i >= L.queue.length) return finishWords(s);
+    render();
+    if (L.mode !== "write") speak(cur()[0]);
+  };
+  const mark = (ok) => {
+    const w = cur()[0];
+    L.boxes[w] = ok ? Math.min(5, (L.boxes[w] || 0) + 1) : 0;
+    if (ok) L.correct++;
+  };
+  // Завершить раньше: сохраняем то, что уже пройдено (если хоть что-то пройдено и ещё не сохранено)
+  document.getElementById("wstop")?.addEventListener("click", () => {
+    const needSave = !L.done && L.i > 0;
+    state.wl = null;
+    render();
+    if (needSave) saveWordSession(s, L).then(render).catch(() => {});
+  });
+  document.getElementById("wagain")?.addEventListener("click", () => {
+    startWords(s, L.setId, L.mode);
+    render();
+    if (state.wl.mode !== "write") speak(set.words[state.wl.queue[0]][0]);
+  });
+  document.getElementById("wtoset")?.addEventListener("click", () => ((state.wl = null), render()));
+  app.querySelectorAll("[data-say-cur]").forEach((b) => b.addEventListener("click", () => speak(cur()[0], b.dataset.sayCur === "1")));
+  document.getElementById("wflip")?.addEventListener("click", () => ((L.flipped = !L.flipped), render()));
+  app.querySelectorAll("[data-wans]").forEach((b) =>
+    b.addEventListener("click", () => {
+      mark(b.dataset.wans === "1");
+      next();
+    })
+  );
+  app.querySelectorAll("[data-wopt]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const k = Number(b.dataset.wopt);
+      L.answered = k;
+      mark(L.options[L.i][k] === cur()[2]);
+      render();
+    })
+  );
+  document.getElementById("wnext")?.addEventListener("click", next);
+  const form = document.getElementById("wwrite");
+  if (form) {
+    const inp = document.getElementById("wwrite-in");
+    if (!L.answered) inp.focus();
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = inp.value.trim();
+      if (!text) return;
+      const ok = wordNorm(text) === wordNorm(cur()[0]);
+      mark(ok);
+      L.answered = { ok, text };
+      render();
+      speak(cur()[0]);
+    });
+  }
+  document.getElementById("wretry")?.addEventListener("click", () => ((L.answered = null), render()));
+  document.getElementById("wmic")?.addEventListener("click", () => {
+    if (!SpeechRec || L.listening) return;
+    const rec = new SpeechRec();
+    rec.lang = "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 5;
+    L.listening = true;
+    render();
+    const target = wordNorm(cur()[0]);
+    let got = false;
+    rec.onresult = (e) => {
+      got = true;
+      const alts = [...e.results[0]].map((a) => a.transcript);
+      const ok = alts.some((a) => {
+        const n = wordNorm(a);
+        return n === target || (" " + n + " ").includes(" " + target + " ");
+      });
+      L.listening = false;
+      L.answered = { ok, heard: alts[0] };
+      if (ok) {
+        L.correct++;
+        if (!L.pron.includes(cur()[0])) L.pron.push(cur()[0]);
+      }
+      render();
+    };
+    rec.onerror = (e) => {
+      L.listening = false;
+      L.answered = {
+        ok: false,
+        error: e.error === "not-allowed" || e.error === "service-not-allowed" ? "Нет доступа к микрофону: разрешите микрофон для этого сайта в браузере." : e.error === "no-speech" ? "Ничего не слышно. Говорите громче и ближе к телефону." : "Не получилось распознать. Попробуйте ещё раз.",
+      };
+      render();
+    };
+    rec.onend = () => {
+      if (!got && L.listening) {
+        L.listening = false;
+        render();
+      }
+    };
+    rec.start();
+  });
+}
+
+// Учитель: кто сколько слов выучил
+function wordsAllHtml() {
+  if (typeof WORD_SETS === "undefined") return '<div class="card"><h2>🔤 Слова</h2><p class="muted">Загрузка…</p></div>';
+  const sets = allWordSets();
+  const levels = WORD_LEVELS.filter((l) => sets.some((x) => x.level === l));
+  const rows = sortedStudents().map((s) => {
+    const per = {};
+    let total = 0, pron = 0, last = "", bestSum = 0, bestN = 0;
+    sets.forEach((x) => {
+      const p = setProgress(s, x.id);
+      per[x.level] = (per[x.level] || 0) + p.learned;
+      total += p.learned;
+      pron += p.pron || 0;
+      if (p.best) (bestSum += p.best), bestN++;
+      if (p.updated && p.updated > last) last = p.updated;
+    });
+    return { s, per, total, pron, last, avgBest: bestN ? Math.round(bestSum / bestN) : 0 };
+  });
+  const sort = state.wsort || "total";
+  rows.sort((a, b) => (sort === "name" ? a.s.name.localeCompare(b.s.name, "ru") : b[sort] - a[sort]));
+  return `<div class="card">
+    <h2>🔤 Английские слова: прогресс класса</h2>
+    <div class="filters"><select id="wsort">
+      <option value="total" ${sort === "total" ? "selected" : ""}>Больше всего выучено</option>
+      <option value="pron" ${sort === "pron" ? "selected" : ""}>Больше всего произнесено</option>
+      <option value="name" ${sort === "name" ? "selected" : ""}>По алфавиту</option>
+    </select></div>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th>${levels.map((l) => `<th class="num">${esc(l)}</th>`).join("")}<th class="num">Всего</th><th class="num">🎤</th><th class="num">Тесты, ср.</th><th>Занимался</th></tr>
+      ${rows
+        .map(
+          (r, i) => `<tr><td class="muted">${i + 1}</td><td>${studentLink(r.s)}</td>${levels.map((l) => `<td class="num">${r.per[l] || "—"}</td>`).join("")}<td class="num">${
+            r.total ? `<b>${r.total}</b>` : '<span class="pill absent">0</span>'
+          }</td><td class="num">${r.pron || "—"}</td><td class="num">${r.avgBest ? r.avgBest + "%" : "—"}</td><td>${r.last ? fmtDate(r.last) : '<span class="muted">—</span>'}</td></tr>`
+        )
+        .join("")}
+    </table></div>
+    <p class="small muted">Всего наборов: ${sets.length}, слов: ${sets.reduce((a, x) => a + x.words.length, 0)}. Свои наборы можно добавить в Google Таблицу на лист «Свои слова» (колонки: Набор | Слово | Транскрипция | Перевод | Пример) — они появятся в уровне «Свои».</p>
   </div>`;
 }
 

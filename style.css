@@ -498,3 +498,45 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .tg-go { margin-top: 8px; padding: 12px; border-radius: 10px; background: var(--blue-soft); }
 .tg-go .btn { display: inline-block; text-decoration: none; }
 .tg-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--text); resize: vertical; }
+
+/* ---------- 🔤 Английские слова ---------- */
+.wsets { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.wset { text-align: left; font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 6px; }
+.wset:hover { border-color: var(--gold-deep); }
+.wset.done { border-color: var(--green); }
+.wset-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.wbar { height: 6px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
+.wbar span { display: block; height: 100%; background: var(--gold-deep); border-radius: 999px; }
+.wmodes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 12px 0 16px; }
+@media (max-width: 700px) { .wmodes { grid-template-columns: 1fr 1fr; } }
+.wmode { font: inherit; color: var(--text); background: var(--accent-soft); border: 1px solid var(--border); border-radius: 12px; padding: 12px 8px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.wmode span { font-size: 26px; } .wmode small { color: var(--muted); font-size: 11.5px; }
+.wmode:hover { border-color: var(--gold-deep); }
+.wsay { border: 1px solid var(--border); background: var(--card); border-radius: 8px; cursor: pointer; font-size: 15px; padding: 3px 7px; }
+.wsay.big { font-size: 22px; padding: 8px 16px; border-radius: 12px; }
+.wl { max-width: 640px; margin-left: auto; margin-right: auto; }
+.wl-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.wl-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.wcard { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 200px; margin-top: 16px; border: 2px solid var(--border); border-radius: 18px; background: var(--card); color: var(--text); font: inherit; cursor: pointer; padding: 20px; }
+.wcard.flipped { border-color: var(--gold-deep); background: var(--accent-soft); }
+.wcard-word { font-size: 30px; font-weight: 800; text-align: center; word-break: break-word; }
+.wcard-tr { color: var(--muted); font-size: 16px; }
+.wcard-t { font-size: 20px; font-weight: 600; text-align: center; }
+.wq { text-align: center; margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.wopts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+@media (max-width: 560px) { .wopts { grid-template-columns: 1fr; } }
+.wopt { font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; cursor: pointer; text-align: center; }
+.wopt:hover:not(:disabled) { border-color: var(--gold-deep); }
+.wopt.right { background: var(--green-soft); border-color: var(--green); color: var(--green); font-weight: 700; }
+.wopt.wrong { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+.wwrite { display: flex; gap: 8px; margin-top: 16px; }
+.wwrite input { flex: 1; min-width: 0; font-size: 18px; }
+.wfb { margin-top: 14px; padding: 10px 14px; border-radius: 10px; text-align: center; }
+.wfb.ok { background: var(--green-soft); color: var(--green); }
+.wfb.bad { background: var(--red-soft); color: var(--red); }
+.wmic { font-size: 16px; padding: 12px 22px; }
+.wmic.on { background: var(--red); color: #fff; animation: wpulse 1s infinite; }
+@keyframes wpulse { 50% { opacity: .7; } }
+.wl-end { text-align: center; padding: 10px 0; }
+.wl-big { font-size: 52px; }
+.wyes { min-width: 130px; } .wno { min-width: 130px; }
