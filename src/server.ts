@@ -1,8 +1,7 @@
 import express from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config.js";
-import { generateReply } from "./claude.js";
-import { appendTurn, resetHistory } from "./history.js";
+import { answerQuestion } from "./claude.js";
 import { isValidSignature, markReadWithTyping, sendText } from "./whatsapp.js";
 
 interface IncomingMessage {
@@ -24,7 +23,7 @@ app.use(
 );
 
 app.get("/", (_req, res) => {
-  res.send("WhatsApp Claude bot is running");
+  res.send("WhatsApp robotics bot is running");
 });
 
 // Webhook verification handshake (Meta calls this once when you save the webhook URL).
@@ -51,7 +50,7 @@ function alreadySeen(id: string): boolean {
   return false;
 }
 
-// Process one user's messages strictly in order.
+// Answer one user's questions strictly in order.
 const userQueues = new Map<string, Promise<void>>();
 function enqueue(userId: string, task: () => Promise<void>): void {
   const previous = userQueues.get(userId) ?? Promise.resolve();
@@ -62,19 +61,26 @@ function enqueue(userId: string, task: () => Promise<void>): void {
   });
 }
 
+const GREETINGS = new Set(["/start", "/help", "start", "help", "привет", "помощь", "старт"]);
+const WELCOME_TEXT =
+  "🤖 Привет! Я бот-консультант по робототехнике.\n\n" +
+  "Задайте вопрос одним сообщением, например:\n" +
+  "- Как подключить шаговый двигатель к Arduino?\n" +
+  "- Чем отличается сервопривод от шагового двигателя?\n" +
+  "- Как настроить ПИД-регулятор для робота по линии?";
+
 async function handleMessage(message: IncomingMessage): Promise<void> {
   const from = message.from;
 
   if (message.type !== "text" || !message.text) {
-    await sendText(from, "Пока я понимаю только текстовые сообщения 🙂");
+    await sendText(from, "Пожалуйста, задайте вопрос текстом 🙂");
     return;
   }
 
   const text = message.text.body.trim();
 
-  if (text.toLowerCase() === "/reset") {
-    resetHistory(from);
-    await sendText(from, "Начинаем разговор заново ✨");
+  if (GREETINGS.has(text.toLowerCase())) {
+    await sendText(from, WELCOME_TEXT);
     return;
   }
 
@@ -83,9 +89,8 @@ async function handleMessage(message: IncomingMessage): Promise<void> {
   );
 
   try {
-    const reply = await generateReply(from, text);
-    appendTurn(from, text, reply);
-    await sendText(from, reply);
+    const answer = await answerQuestion(text);
+    await sendText(from, answer);
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
       await sendText(from, "Слишком много запросов, попробуйте через минуту.");
