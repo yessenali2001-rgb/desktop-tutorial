@@ -83,13 +83,15 @@ a { color: var(--accent-2); }
 
 /* Hero — in the style of the team flag */
 .hero {
-  padding: clamp(56px, 10vw, 120px) max(clamp(16px, 4vw, 48px), calc((100% - 1100px) / 2));
+  padding: clamp(32px, 6vw, 72px) max(clamp(16px, 4vw, 48px), calc((100% - 1100px) / 2));
   color: #fff;
   background:
     radial-gradient(ellipse 70% 90% at 50% 110%, transparent 58%, rgba(255,255,255,.14) 58.3%, transparent 58.8%),
     radial-gradient(ellipse 55% 80% at 50% 110%, transparent 58%, rgba(255,255,255,.10) 58.3%, transparent 58.8%),
     linear-gradient(160deg, #13234a, var(--navy) 60%, #0a1226);
 }
+.hero-flag { display: block; width: 100%; height: auto; border-radius: var(--radius); box-shadow: 0 20px 50px rgba(0,0,0,.45); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .hero-brand { display: flex; align-items: center; gap: clamp(14px, 3vw, 28px); flex-wrap: wrap; }
 .hero-logo { width: clamp(84px, 14vw, 150px); height: auto; border-radius: 50%; background: #fff; }
 .hero h1 {
