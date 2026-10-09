@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Aqsonix — робототехническая команда, Актобе</title>
-  <meta name="description" content="Aqsonix — робототехническая команда из Актобе: о команде, ключевые ценности, дизайн и код робота, инновационный проект.">
+  <title>AqSonix Robotics — команда FIRST LEGO League, Актобе</title>
+  <meta name="description" content="AqSonix Robotics — команда FIRST LEGO League Challenge из Aqtobe BIL, Актобе: о команде, Core Values, встречи с международными командами, робот, код и проект.">
+  <link rel="icon" href="images/logo.jpg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Playfair+Display:wght@700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -15,12 +16,11 @@
     КАК ЗАПОЛНЯТЬ САЙТ
     Всё, что выделено на странице жёлтым пунктиром, — места для ваших данных.
     Найдите их в этом файле по слову class="todo", замените текст и удалите class="todo".
-    Фото кладите в папку images/ и меняйте блоки <div class="photo todo">…</div>
-    на <img class="photo" src="images/имя-файла.jpg" alt="описание">.
+    Фото лежат в папке images/.
   -->
 
   <header class="nav">
-    <a class="brand" href="#top">🤖 Aqsonix</a>
+    <a class="brand" href="#top"><img src="images/logo.jpg" alt="" width="32" height="32"> AqSonix</a>
     <button class="menu-btn" aria-label="Открыть меню" aria-expanded="false">☰</button>
     <nav class="links">
       <a href="#team">О команде</a>
@@ -33,219 +33,285 @@
 
   <main id="top">
     <section class="hero">
-      <p class="eyebrow">FIRST LEGO League · <span class="todo">сезон 2025/26</span></p>
-      <h1>Aqsonix</h1>
-      <p class="lead">Робототехническая команда из Актобе<span class="todo">, школа …</span>. Мы строим и программируем роботов, решаем настоящие проблемы и учимся вместе с командами со всего мира.</p>
+      <div class="hero-brand">
+        <img class="hero-logo" src="images/logo.jpg" alt="Логотип AqSonix">
+        <div>
+          <h1>AQSONIX</h1>
+          <p class="hero-sub">ROBOTICS</p>
+        </div>
+      </div>
+      <p class="eyebrow">FIRST LEGO League Challenge · команда #310508 · Aqtobe BIL</p>
+      <p class="lead">Команда робототехники из Актобе. Мы строим и программируем роботов на LEGO SPIKE Prime, исследуем настоящие проблемы и делимся опытом с командами из других стран.</p>
       <div class="hero-actions">
         <a class="btn" href="#values">Наши ценности</a>
-        <a class="btn ghost" href="#project">Наш проект</a>
+        <a class="btn ghost" href="https://www.instagram.com/aqsonix_fll_challenge/" target="_blank" rel="noopener">Instagram</a>
       </div>
     </section>
 
     <!-- ===================== О КОМАНДЕ ===================== -->
     <section id="team" class="section">
       <h2>О команде</h2>
-      <p class="section-lead todo">Расскажите о команде в 2–3 предложениях: когда собрались, сколько вас, чем гордитесь, какие соревнования уже прошли.</p>
+      <div class="split">
+        <div>
+          <p class="section-lead">Наша команда появилась из интереса учеников к технике и программированию. Сначала собрались всего несколько ребят и начали строить простых роботов. Со временем к нам присоединялись новые участники, мы учились друг у друга, а благодаря поддержке наставника и общей работе команда выросла и начала выступать на соревнованиях.</p>
+          <p class="section-lead">Сегодня AqSonix — это место, где объединяются дружба, знания и новые идеи. Вместе с ещё тремя командами Aqtobe BIL мы — <b>четыре команды, одна большая семья</b>.</p>
+        </div>
+        <img class="photo" src="images/team-kitchen.jpg" alt="Команда AqSonix вместе готовит">
+      </div>
 
       <div class="stats">
-        <div class="stat"><b class="todo">8</b><span>участников</span></div>
-        <div class="stat"><b class="todo">2</b><span>сезона в FLL</span></div>
-        <div class="stat"><b class="todo">3</b><span>встречи с командами из других стран</span></div>
-        <div class="stat"><b class="todo">1</b><span>робот, сотни запусков</span></div>
+        <div class="stat"><b>7</b><span>участников и наставник</span></div>
+        <div class="stat"><b>50%+</b><span>команд Актобе получают нашу менторскую помощь</span></div>
+        <div class="stat"><b>15+</b><span>публикаций о нас в СМИ Казахстана</span></div>
+        <div class="stat"><b>🇯🇵 🇹🇷</b><span>онлайн-встречи с командами из других стран</span></div>
       </div>
 
       <h3>Участники</h3>
       <div class="cards members">
-        <!-- Скопируйте карточку для каждого участника -->
         <article class="card member">
-          <div class="avatar todo">🙂</div>
-          <h4 class="todo">Имя Фамилия</h4>
-          <p class="role todo">Капитан, программист</p>
-          <p class="todo">Пара слов о себе и своей роли в команде.</p>
+          <img class="avatar" src="images/member-omirzhan.jpg" alt="Омиржан Базарбай">
+          <h4>Омиржан Базарбай</h4>
+          <p class="role">Капитан</p>
         </article>
         <article class="card member">
-          <div class="avatar todo">🙂</div>
-          <h4 class="todo">Имя Фамилия</h4>
-          <p class="role todo">Конструктор</p>
-          <p class="todo">Пара слов о себе и своей роли в команде.</p>
+          <img class="avatar" src="images/member-tolegen.jpg" alt="Толеген Хажиолиев">
+          <h4>Толеген Хажиолиев</h4>
+          <p class="role">Менеджер, спикер</p>
         </article>
         <article class="card member">
-          <div class="avatar todo">🙂</div>
-          <h4 class="todo">Имя Фамилия</h4>
-          <p class="role todo">Исследователь проекта</p>
-          <p class="todo">Пара слов о себе и своей роли в команде.</p>
+          <img class="avatar" src="images/member-abubakr.jpg" alt="Абубакр Габит">
+          <h4>Абубакр Габит</h4>
+          <p class="role">Менеджер</p>
         </article>
         <article class="card member">
-          <div class="avatar todo">🙂</div>
-          <h4 class="todo">Имя Фамилия</h4>
-          <p class="role todo">Тренер</p>
-          <p class="todo">Пара слов о тренере.</p>
+          <img class="avatar" src="images/member-alikhan.jpg" alt="Алихан Турдыбек">
+          <h4>Алихан Турдыбек</h4>
+          <p class="role">Конструктор</p>
         </article>
+        <article class="card member">
+          <img class="avatar" src="images/member-sultan.jpg" alt="Султан Ахмет">
+          <h4>Султан Ахмет</h4>
+          <p class="role">Программист</p>
+        </article>
+        <article class="card member">
+          <img class="avatar" src="images/member-bekarys.jpg" alt="Бекарыс Елеусиз">
+          <h4>Бекарыс Елеусиз</h4>
+          <p class="role">Дизайнер</p>
+        </article>
+        <article class="card member">
+          <img class="avatar" src="images/member-eskendir.jpg" alt="Ескендир Танкиев">
+          <h4>Ескендир Танкиев</h4>
+          <p class="role">Дизайнер</p>
+        </article>
+        <article class="card member mentor">
+          <img class="avatar" src="images/member-yessenali.jpg" alt="Есенали Бисенгалиев">
+          <h4>Есенали Бисенгалиев</h4>
+          <p class="role">Наставник</p>
+        </article>
+      </div>
+
+      <h3>🏆 Достижения</h3>
+      <div class="split">
+        <ul class="checklist">
+          <li><b>Fibonacci International Robot Olympiad</b> — международная олимпиада по робототехнике, которая ежегодно проходит в Риме. На республиканском этапе мы заняли <b>3-е место</b>, а на международном завоевали <b>2-е, 3-е и 4-е места</b>.</li>
+          <li><b>Рекорд Казахстана:</b> одна цель — четыре команды.</li>
+          <li><b>15+ газет</b> писали о нас: наши достижения регулярно освещаются в СМИ Казахстана.</li>
+          <li><b>FIRST LEGO League Challenge:</b> сертификат участника соревнований.</li>
+        </ul>
+        <img class="photo" src="images/fibonacci-flag.jpg" alt="Команды Aqtobe BIL с флагом Казахстана на олимпиаде Fibonacci">
       </div>
     </section>
 
     <!-- ===================== CORE VALUES ===================== -->
     <section id="values" class="section alt">
       <h2>Core Values — наши ключевые ценности</h2>
-      <p class="section-lead">Ценности FIRST — это то, как мы работаем: не только побеждаем на поле, но и учимся, помогаем другим и делимся опытом.</p>
+      <p class="section-lead">Ценности FIRST — это то, как мы работаем. Победа важна, но не менее важно учиться новому, помогать другим и делиться опытом.</p>
 
       <div class="cards values">
         <article class="card value">
           <div class="icon">🔍</div>
           <h4>Discovery — Открытия</h4>
           <p>Мы исследуем новое и учимся у экспертов и друг у друга.</p>
-          <p class="example todo">Наш пример: …</p>
+          <p class="example"><b>Наш пример:</b> чтобы узнать больше об археологии для проекта, мы провели онлайн-встречу с археологом, а во время сборов ходили в музеи.</p>
         </article>
         <article class="card value">
           <div class="icon">💡</div>
           <h4>Innovation — Инновации</h4>
           <p>Мы используем творчество и упорство, чтобы решать задачи.</p>
-          <p class="example todo">Наш пример: …</p>
+          <p class="example"><b>Наш пример:</b> мы постоянно изучаем и внедряем новые технологии и улучшаем код робота от версии к версии.</p>
         </article>
         <article class="card value">
           <div class="icon">🌍</div>
           <h4>Impact — Влияние</h4>
           <p>Мы применяем то, чему научились, чтобы сделать мир лучше.</p>
-          <p class="example todo">Наш пример: …</p>
+          <p class="example"><b>Наш пример:</b> мы наставники для более чем половины команд Актобе, продвигаем робототехнику в школах и мечтаем создать академию робототехники.</p>
         </article>
         <article class="card value">
           <div class="icon">🤝</div>
           <h4>Inclusion — Инклюзивность</h4>
           <p>Мы уважаем друг друга и ценим различия.</p>
-          <p class="example todo">Наш пример: …</p>
+          <p class="example"><b>Наш пример:</b> мы общаемся с командами из разных стран и вовлекаем всё больше учеников в STEM-образование.</p>
         </article>
         <article class="card value">
           <div class="icon">👥</div>
           <h4>Teamwork — Командная работа</h4>
           <p>Вместе мы сильнее.</p>
-          <p class="example todo">Наш пример: …</p>
+          <p class="example"><b>Наш пример:</b> перед областным этапом мы провели 7-дневные сборы, в которых участвовали больше 10 человек.</p>
         </article>
         <article class="card value">
           <div class="icon">🎉</div>
           <h4>Fun — Радость</h4>
           <p>Мы получаем удовольствие от всего, что делаем.</p>
-          <p class="example todo">Наш пример: …</p>
+          <p class="example"><b>Наш пример:</b> мы не только тренируемся, но и вместе готовим, ужинаем и празднуем.</p>
         </article>
       </div>
 
       <div class="highlight">
         <h3>🌐 Встречи с международными командами</h3>
-        <p>Наши ученики провели встречи с командами из других стран: рассказывали о своём роботе и проекте, задавали вопросы, делились идеями и находили друзей. Так мы на практике проявляем Discovery, Inclusion и Teamwork.</p>
-
-        <!-- Скопируйте блок <article class="meeting"> для каждой встречи -->
-        <div class="meetings">
-          <article class="meeting">
-            <div class="meeting-head">
-              <span class="flag todo">🏳️</span>
-              <div>
-                <h4 class="todo">Команда «…», Страна</h4>
-                <p class="meta"><span class="todo">Месяц 2025</span> · <span class="todo">онлайн (Zoom)</span></p>
-              </div>
-            </div>
-            <p><b>О чём говорили:</b> <span class="todo">показали друг другу роботов, обсудили стратегию на поле и идеи проектов…</span></p>
-            <p><b>Что мы узнали:</b> <span class="todo">например, новый способ поворота по гироскопу или идею для исследования…</span></p>
+        <p>Чтобы обмениваться опытом, наши ученики провели онлайн-встречи с командами FIRST LEGO League из других стран, в том числе из <b>Японии</b> и <b>Турции</b>. Мы рассказывали о своём роботе и проекте, задавали вопросы, делились идеями и находили друзей по всему миру. Так мы на практике проявляем Discovery, Inclusion и Teamwork.</p>
+        <div class="split">
+          <img class="photo" src="images/international-meetings.jpg" alt="Скриншоты онлайн-встреч с командами из Японии и Турции">
+          <div>
+            <ul class="checklist">
+              <li><b>Обмен знаниями.</b> На тренировках мы делимся знаниями и общаемся с другими командами FLL, чтобы учиться новому. Совместная учёба помогает нам лучше понимать задачи.</li>
+              <li><b>Бесценный опыт.</b> Мы считаем, что участие и живое общение с соперниками дают опыт и знания, которых не получишь иначе.</li>
+              <li class="todo">Можно добавить: названия команд, даты встреч и что именно вы узнали.</li>
+            </ul>
             <p class="values-tags"><span>Discovery</span><span>Inclusion</span><span>Teamwork</span></p>
-          </article>
-          <article class="meeting">
-            <div class="meeting-head">
-              <span class="flag todo">🏳️</span>
-              <div>
-                <h4 class="todo">Команда «…», Страна</h4>
-                <p class="meta"><span class="todo">Месяц 2025</span> · <span class="todo">онлайн (Zoom)</span></p>
-              </div>
-            </div>
-            <p><b>О чём говорили:</b> <span class="todo">…</span></p>
-            <p><b>Что мы узнали:</b> <span class="todo">…</span></p>
-            <p class="values-tags"><span>Discovery</span><span>Impact</span></p>
-          </article>
+          </div>
         </div>
-        <div class="photo todo">📷 Фото или скриншот со встречи</div>
+      </div>
+
+      <div class="gallery">
+        <figure>
+          <img src="images/archaeologist-meeting.jpg" alt="Онлайн-встреча с археологом">
+          <figcaption>Онлайн-встреча с археологом</figcaption>
+        </figure>
+        <figure>
+          <img src="images/regional-camp.jpg" alt="Сборы перед областным этапом">
+          <figcaption>7 дней сборов перед областным этапом</figcaption>
+        </figure>
+        <figure>
+          <img src="images/team-history.jpg" alt="Жизнь команды">
+          <figcaption>Жизнь команды</figcaption>
+        </figure>
+      </div>
+
+      <h3>Наши цели</h3>
+      <div class="cards">
+        <article class="card">
+          <div class="icon">🧭</div>
+          <h4>Верность ценностям</h4>
+          <p>Чтобы получать удовольствие от работы и достигать успеха, мы остаёмся верны нашим ключевым ценностям.</p>
+        </article>
+        <article class="card">
+          <div class="icon">📈</div>
+          <h4>Накопление опыта</h4>
+          <p>Победа — главная цель, но получить новые знания и опыт не менее важно.</p>
+        </article>
+        <article class="card">
+          <div class="icon">✨</div>
+          <h4>Вдохновение</h4>
+          <p>Наша главная задача — вдохновить учеников средних и старших классов изучать робототехнику и осваивать STEM-навыки.</p>
+        </article>
       </div>
     </section>
 
     <!-- ===================== ДИЗАЙН РОБОТА ===================== -->
     <section id="design" class="section">
       <h2>Дизайн робота</h2>
-      <p class="section-lead todo">Как зовут робота и на чём он собран (например, LEGO SPIKE Prime). Главная идея конструкции в одном предложении.</p>
+      <p class="section-lead">Наш робот собран на <b>LEGO SPIKE Prime</b>. Конструкция компактная и прочная, чтобы робот точно проходил маршрут по полю сезона <b>UNEARTHED</b>.</p>
 
       <div class="split">
-        <div class="photo tall todo">📷 Фото робота</div>
+        <img class="photo" src="images/robot.jpg" alt="Робот команды AqSonix">
         <div>
           <h3>Конструкция</h3>
           <ul class="checklist">
-            <li><b>Шасси:</b> <span class="todo">два ведущих колеса и шаровая опора, компактная база для точных поворотов…</span></li>
-            <li><b>Насадки:</b> <span class="todo">быстросъёмные, меняются за несколько секунд…</span></li>
-            <li><b>Датчики:</b> <span class="todo">гироскоп для поворотов, датчики цвета для линии…</span></li>
-            <li><b>Моторы:</b> <span class="todo">2 больших для движения, 2 средних для насадок…</span></li>
+            <li><b>Хаб:</b> LEGO SPIKE Prime со встроенным гироскопом.</li>
+            <li><b>Привод:</b> два мотора в паре (порты A и B), колёса с длиной окружности 17,5 см.</li>
+            <li><b>Насадки:</b> <span class="todo">какие насадки есть и для каких миссий…</span></li>
+            <li><b>Датчики:</b> гироскоп для точных поворотов<span class="todo">, другие датчики…</span></li>
           </ul>
         </div>
       </div>
 
-      <h3>Как мы проектировали</h3>
-      <ol class="steps">
-        <li><b>Идеи</b><span>Разобрали задания поля и придумали, какие механизмы нужны.</span></li>
-        <li><b>Прототип</b><span>Собрали первую версию и проверили её на поле.</span></li>
-        <li><b>Тесты</b><span>Записывали результаты запусков и искали слабые места.</span></li>
-        <li><b>Улучшения</b><span class="todo">Что изменили по итогам тестов (например, «сделали базу ниже, чтобы робот не опрокидывался»).</span></li>
-      </ol>
+      <h3>Маршрут робота</h3>
+      <p>Миссии на поле разбиты на несколько заездов: каждый цвет на схеме — отдельный заезд, цифры — порядок точек маршрута.</p>
+      <img class="photo wide" src="images/robot-path.jpg" alt="Схема маршрута робота по полю UNEARTHED">
     </section>
 
     <!-- ===================== КОД РОБОТА ===================== -->
     <section id="code" class="section alt">
       <h2>Код робота</h2>
-      <p class="section-lead todo">На чём программируем (например, Python в LEGO SPIKE App) и кто в команде отвечает за код.</p>
+      <p class="section-lead">Мы программируем робота на <b>Python</b> в LEGO SPIKE App. Главное в нашем коде — точные повороты по гироскопу.</p>
 
       <div class="cards code-ideas">
         <article class="card">
           <div class="icon">🧩</div>
           <h4>Модульность</h4>
-          <p>Повторяющиеся действия (ехать прямо, повернуть, поднять насадку) вынесены в отдельные функции — их легко переиспользовать и исправлять.</p>
+          <p>Повороты и перевод расстояния в градусы вынесены в функции <code>turn</code>, <code>turn50</code>, <code>turn100</code> и <code>deg</code>: их легко переиспользовать в каждом заезде.</p>
         </article>
         <article class="card">
           <div class="icon">🧭</div>
           <h4>Точность</h4>
-          <p class="todo">Повороты по гироскопу и движение по линии с П/ПИД-регулятором, чтобы робот ехал одинаково при любом заряде батареи.</p>
+          <p>Перед поворотом робот сбрасывает угол гироскопа и ждёт, пока датчик стабилизируется, а потом поворачивается до нужного угла.</p>
         </article>
         <article class="card">
           <div class="icon">⏱️</div>
-          <h4>Скорость</h4>
-          <p class="todo">Все миссии разбиты на N запусков, запуск выбирается одной кнопкой.</p>
+          <h4>Скорость или точность</h4>
+          <p>Для разных миссий есть быстрый поворот <code>turn100</code> (скорость 400) и медленный точный <code>turn50</code> (скорость 70).</p>
         </article>
       </div>
 
-      <h3>Пример кода</h3>
-      <p class="todo">Замените этот пример фрагментом вашей программы.</p>
-<pre class="code"><code># Пример: поворот по гироскопу (LEGO SPIKE Prime, Python)
-from hub import motion_sensor, port
-import motor_pair, runloop
+      <h3>Фрагмент нашей программы</h3>
+<pre class="code"><code>from hub import motion_sensor, port
+import motor_pair, runloop, sys, motor
 
 motor_pair.pair(motor_pair.PAIR_1, port.A, port.B)
 
-async def turn(angle, speed=200):
+def deg(distance):
+    # сантиметры → градусы поворота колеса (окружность 17,5 см)
+    return int((distance / 17.5) * 360)
+
+async def turn(rotation):
     motion_sensor.reset_yaw(0)
-    # tilt_angles()[0] — рыскание (yaw) в десятых долях градуса
-    while abs(motion_sensor.tilt_angles()[0]) &lt; angle * 10:
-        motor_pair.move_tank(motor_pair.PAIR_1, speed, -speed)
-        await runloop.sleep_ms(5)
-    motor_pair.stop(motor_pair.PAIR_1)</code></pre>
-      <p class="todo">Ссылка на весь код: <a href="#">github.com/…</a></p>
+    await runloop.until(motion_sensor.stable)
+    if rotation &gt; 0:
+        while motion_sensor.tilt_angles()[0] &lt; rotation * 10:
+            motor_pair.move_tank(motor_pair.PAIR_1, -200, 200)
+        motor_pair.stop(motor_pair.PAIR_1)
+    if rotation &lt; 0:
+        while motion_sensor.tilt_angles()[0] &gt; rotation * 10:
+            motor_pair.move_tank(motor_pair.PAIR_1, 200, -200)
+        motor_pair.stop(motor_pair.PAIR_1)
+
+async def turn50(rotation):
+    motion_sensor.reset_yaw(0)
+    if rotation &gt; 0:
+        while motion_sensor.tilt_angles()[0] &lt; rotation * 10:
+            motor_pair.move_tank(motor_pair.PAIR_1, -70, 70)
+        motor_pair.stop(motor_pair.PAIR_1)
+    if rotation &lt; 0:
+        while motion_sensor.tilt_angles()[0] &gt; rotation * 10:
+            motor_pair.move_tank(motor_pair.PAIR_1, 70, -70)
+        motor_pair.stop(motor_pair.PAIR_1)</code></pre>
     </section>
 
     <!-- ===================== ИННОВАЦИОННЫЙ ПРОЕКТ ===================== -->
     <section id="project" class="section">
       <h2>Инновационный проект</h2>
-      <p class="section-lead todo">Название проекта и тема сезона.</p>
+      <p class="section-lead">Тема сезона — <b>UNEARTHED</b>: археология и то, как люди находят и изучают прошлое. <span class="todo">Название нашего проекта.</span></p>
 
       <div class="project-flow">
         <article class="card step-card">
           <span class="num">1</span>
           <h4>Проблема</h4>
-          <p class="todo">Какую проблему мы нашли и почему она важна.</p>
+          <p class="todo">Какую проблему археологов мы нашли и почему она важна.</p>
         </article>
         <article class="card step-card">
           <span class="num">2</span>
           <h4>Исследование</h4>
-          <p class="todo">С кем говорили (эксперты, учёные), что прочитали, что узнали.</p>
+          <p>Мы провели онлайн-встречу с археологом, чтобы узнать, как устроена его работа, и посетили музеи во время сборов.</p>
         </article>
         <article class="card step-card">
           <span class="num">3</span>
@@ -260,17 +326,17 @@ async def turn(angle, speed=200):
         <article class="card step-card">
           <span class="num">5</span>
           <h4>Мы поделились</h4>
-          <p class="todo">Кому рассказали о проекте: школа, эксперты, команды из других стран.</p>
+          <p>Мы рассказываем о проекте в Instagram и на встречах с командами из других стран<span class="todo">, а также…</span></p>
         </article>
       </div>
-      <div class="photo todo">📷 Фото прототипа или презентации проекта</div>
     </section>
   </main>
 
   <footer class="footer">
-    <p><b>Aqsonix</b> · Актобе<span class="todo">, школа …</span></p>
-    <p class="todo">Instagram · Telegram · email</p>
-    <p class="small">FIRST® и FIRST® LEGO® League — товарные знаки FIRST и LEGO Group. Сайт сделан командой Aqsonix.</p>
+    <img src="images/logo.jpg" alt="" width="56" height="56">
+    <p><b>AqSonix Robotics</b> · Aqtobe BIL, Актобе, Казахстан</p>
+    <p>Instagram: <a href="https://www.instagram.com/aqsonix_fll_challenge/" target="_blank" rel="noopener">@aqsonix_fll_challenge</a></p>
+    <p class="small">FIRST® и FIRST® LEGO® League — товарные знаки FIRST и LEGO Group.</p>
   </footer>
 
   <script src="script.js"></script>
