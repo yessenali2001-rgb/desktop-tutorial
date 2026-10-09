@@ -1,5 +1,37 @@
-# Welcome to GitHub Desktop!
+# Сайт AqSonix Robotics
 
-This is your README. READMEs are where you can communicate what your project is and how to use it.
+Одностраничный сайт команды FIRST LEGO League Challenge **AqSonix Robotics** (Aqtobe BIL, Актобе) с разделами:
 
-Write your name on line 6, save it, and then head back to GitHub Desktop.
+- **О команде**: история, цифры, участники, наставник и достижения;
+- **Core Values**: шесть ценностей FIRST (Discovery, Innovation, Impact,
+  Inclusion, Teamwork, Fun) с примерами команды и отдельный блок
+  **«Встречи с международными командами»**;
+- **Дизайн робота**: конструкция, датчики, этапы проектирования;
+- **Код робота**: принципы программы и фрагмент кода команды;
+- **Инновационный проект**: проблема → исследование → решение → тесты → как поделились.
+
+Сайт работает без сервера и сборки: это обычные `index.html`, `style.css` и
+`script.js`. Поддерживает телефоны и тёмную тему.
+
+## Как заполнить
+
+Всё, что на странице выделено **жёлтым пунктиром**, — места для ваших данных.
+
+1. Откройте `index.html` и найдите `class="todo"`.
+2. Замените текст своим и удалите `class="todo"` (или слово `todo` из списка классов).
+3. Фото положите в папку `images/` и замените блок
+   `<div class="photo todo">…</div>` на
+   `<img class="photo" src="images/имя-файла.jpg" alt="описание">`.
+4. Карточки участников и встреч с международными командами копируются целиком:
+   скопируйте блок `<article class="card member">…</article>` или
+   `<article class="meeting">…</article>` и измените текст.
+
+Чтобы посмотреть результат, просто откройте `index.html` в браузере.
+
+## Как опубликовать (бесплатно, GitHub Pages)
+
+1. Залейте изменения в ветку `main`.
+2. На GitHub откройте **Settings → Pages**.
+3. В **Source** выберите **Deploy from a branch**, ветку `main` и папку `/ (root)`, нажмите **Save**.
+4. Через 1–2 минуты сайт откроется по адресу
+   `https://<ваш-логин>.github.io/desktop-tutorial/`.
