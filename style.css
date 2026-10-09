@@ -232,3 +232,15 @@ img.photo.wide { max-height: 520px; object-fit: contain; background: var(--surfa
 .footer b { color: var(--white); }
 .footer img { border-radius: 50%; border: 3px solid var(--red); }
 .footer .small { font-size: .8rem; opacity: .7; }
+
+/* Competition results */
+.results { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin: 1.2rem 0; }
+.result {
+  display: flex; flex-direction: column; gap: .2rem; padding: 1.1rem 1.2rem;
+  border-radius: var(--radius); color: var(--white); background: var(--red);
+  border-bottom: 5px solid var(--black);
+}
+.result b { font-size: 1.6rem; font-weight: 800; }
+.result small { opacity: .85; font-weight: 600; }
+.result.jury { background: var(--black); border-bottom-color: var(--red); }
+.small-note { font-size: .92rem; color: var(--muted); margin: 0; }
