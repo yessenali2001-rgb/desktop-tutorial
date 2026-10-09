@@ -284,3 +284,21 @@ img.photo.wide { max-height: 520px; object-fit: contain; background: var(--surfa
   .journey .badge { grid-row: span 4; }
   .journey .level { justify-self: start; margin-top: 0; }
 }
+
+/* Team uniforms */
+.uniforms { display: grid; gap: 1.2rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.uniform {
+  margin: 0; overflow: hidden; border-radius: var(--radius);
+  border: 3px solid var(--red); background: var(--black); display: flex; flex-direction: column;
+}
+.uniform img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; transition: transform .4s; }
+.uniform:hover img { transform: scale(1.03); }
+.uniform figcaption {
+  padding: .9rem 1rem 1.1rem; color: var(--white); display: flex; flex-direction: column; gap: .35rem;
+  border-top: 4px solid var(--red); flex: 1;
+}
+.uniform figcaption b {
+  align-self: flex-start; background: var(--red); padding: .15rem .6rem; border-radius: 4px;
+  text-transform: uppercase; font-size: .85rem; letter-spacing: .04em;
+}
+.uniform figcaption span { font-size: .92rem; line-height: 1.45; color: #e6e6e6; }
