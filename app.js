@@ -257,6 +257,27 @@ async function demoApi(action, payload) {
     }
     return { ok: true, id: target.id, [key]: JSON.parse(JSON.stringify(list)) };
   }
+  if (action === "addEnglishMany") {
+    if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
+    (payload.results || []).forEach((x) => {
+      const target = D.students.find((st) => st.id === x.id);
+      if (!target) throw new Error("Ученик не найден: " + x.id);
+      if (!x.date || !x.score) throw new Error("Укажите дату и балл");
+      const { id, ...item } = x;
+      (target.english = target.english || []).push(item);
+    });
+    return { ok: true, english: Object.fromEntries(D.students.map((st) => [st.id, JSON.parse(JSON.stringify(st.english || []))])) };
+  }
+  if (action === "saveGallup") {
+    if (parent) throw new Error("Результаты Gallup вносит сам ученик или учитель");
+    const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
+    if (!target) throw new Error("Ученик не найден");
+    const g = payload.gallup || {};
+    const themes = (g.themes || []).map((t) => String(t).trim()).filter(Boolean);
+    if (new Set(themes.map((t) => t.toLowerCase())).size !== themes.length) throw new Error("Таланты не должны повторяться");
+    target.gallup = themes.length ? { date: g.date || "", themes } : null;
+    return { ok: true, id: target.id, gallup: target.gallup && { ...target.gallup, themes: [...themes] } };
+  }
   if (action === "savePlan") {
     if (parent) throw new Error("Анкету заполняет сам ученик или учитель");
     const target = D.students.find((x) => x.id === (isTeacher ? payload.id : s.id));
@@ -545,6 +566,7 @@ function renderStudent(s, byTeacher) {
     ["books", "📖 Книги"],
     ["duty", "🧹 Кезекшілік"],
     ["tests", "🧠 Тесты"],
+    ["gallup", "💪 Gallup"],
   ];
   if (byTeacher) tabs.push(["meetings", "🤝 Встречи"]); // встречи видят только учитель и воспитатель
   tabs.push(["resources", "📚 Ресурсы"]);
@@ -567,6 +589,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "admission") body = admissionHtml(s);
   if (state.tab === "activities") body = activitiesHtml(s);
   if (state.tab === "english") body = englishHtml(s);
+  if (state.tab === "gallup") body = gallupHtml(s);
   if (state.tab === "words") body = isParent ? wordsWhoHtml("👦 Прогресс ребёнка") + wordsHtml(state.wself ? meLearner() : s) : wordsHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
@@ -641,6 +664,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "schedule") bindSchedule();
   if (state.tab === "activities") bindActivities(s);
   if (state.tab === "english") bindEnglish(s);
+  if (state.tab === "gallup") bindGallup(s);
   if (state.tab === "words") {
     if (isParent) bindWordsWho();
     bindWords(isParent && state.wself ? meLearner() : s);
@@ -1514,6 +1538,7 @@ function renderTeacher() {
     ["duty", "🧹 Кезекшілік"],
     ["admission-all", "🎓 Поступление"],
     ["activities-all", "⭐ Активности"],
+    ["ielts-all", "🇬🇧 IELTS"],
     ["words-all", "🔤 Слова"],
     ...(CONFIG.TELEGRAM ? [["tg", "🔔 Telegram"]] : []),
     ["grades-all", "📊 Оценки"],
@@ -1522,6 +1547,7 @@ function renderTeacher() {
     ["exams-all", "📝 Экзамены"],
     ["books-all", "📖 Книги"],
     ["tests-all", "🧠 Тесты"],
+    ["gallup-all", "💪 Gallup"],
     ["schedule", "📅 Расписание"],
     ["resources", "📚 Ресурсы"],
   ];
@@ -1540,6 +1566,8 @@ function renderTeacher() {
   if (state.tab === "duty") body = dutyHtml();
   if (state.tab === "admission-all") body = admissionAllHtml();
   if (state.tab === "activities-all") body = activitiesAllHtml();
+  if (state.tab === "ielts-all") body = ieltsAllHtml();
+  if (state.tab === "gallup-all") body = gallupAllHtml();
   if (state.tab === "tg") body = teacherTgHtml();
   if (state.tab === "words-all") body = wordsWhoHtml("📊 Класс") + (state.wself ? wordsHtml(meLearner()) : wordsAllHtml());
   if (state.tab === "idp-all") body = idpAllHtml();
@@ -1564,6 +1592,7 @@ function renderTeacher() {
   bindSubjectFilter();
   bindPeriods();
   if (state.tab === "mark") bindMark();
+  if (state.tab === "ielts-all") bindIeltsAll();
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
   if (state.tab === "words-all") {
@@ -2728,8 +2757,48 @@ function bindActivities(s) {
 const ENGLISH_EXAMS = ["Пробный IELTS", "IELTS", "KET", "PET", "FCE", "TOEFL", "Duolingo", "Другое"];
 const CEFR = ["A1", "A2", "B1", "B2", "C1", "C2"];
 
+// Перевод правильных ответов (из 40) в балл IELTS: [от скольких ответов, балл]. Reading — Academic
+const IELTS_RAW = {
+  l: [[39, 9], [37, 8.5], [35, 8], [32, 7.5], [30, 7], [26, 6.5], [23, 6], [18, 5.5], [16, 5], [13, 4.5], [10, 4], [8, 3.5], [6, 3], [4, 2.5], [2, 2], [1, 1], [0, 0]],
+  r: [[39, 9], [37, 8.5], [35, 8], [33, 7.5], [30, 7], [27, 6.5], [23, 6], [19, 5.5], [15, 5], [13, 4.5], [10, 4], [8, 3.5], [6, 3], [4, 2.5], [2, 2], [1, 1], [0, 0]],
+};
+// Балл части: «6.5» / «6,5» — уже балл; «28» или «28/40» в Listening и Reading — правильные ответы.
+// Возвращает {band, raw} или null, если значение не похоже на балл
+function ieltsPart(v, part) {
+  const t = String(v ?? "").trim().replace(",", ".");
+  if (!t) return null;
+  const frac = t.match(/^(\d{1,2})\s*\/\s*40$/);
+  const n = frac ? Number(frac[1]) : Number(t);
+  if (!isFinite(n) || n < 0) return null;
+  const isRaw = frac || (n > 9 && Number.isInteger(n));
+  if (isRaw) {
+    if (!IELTS_RAW[part] || n > 40) return null;
+    return { band: IELTS_RAW[part].find(([min]) => n >= min)[1], raw: n };
+  }
+  return n <= 9 && Number.isInteger(n * 2) ? { band: n, raw: null } : null;
+}
+// Общий балл по правилам IELTS: среднее четырёх частей; .25 округляется до .5, .75 — до следующего целого
+function ieltsRound(avg) {
+  const base = Math.floor(avg + 1e-9);
+  const f = avg - base;
+  return f < 0.25 - 1e-9 ? base : f < 0.75 - 1e-9 ? base + 0.5 : base + 1;
+}
+function ieltsOverall(x) {
+  const parts = ["l", "r", "w", "s"].map((k) => ieltsPart(x[k], k));
+  if (parts.some((p) => !p)) return null;
+  return ieltsRound(parts.reduce((a, p) => a + p.band, 0) / 4);
+}
+const fmtBand = (b) => (b == null ? "" : Number(b).toFixed(1));
+// Балл записи: если есть все четыре части — считаем сами, иначе берём введённый общий балл
+function ieltsScore(x) {
+  if (!/ielts/i.test(x.exam)) return 0;
+  const calc = ieltsOverall(x);
+  if (calc != null) return calc;
+  const p = ieltsPart(x.score, "");
+  return p && p.band > 0 ? p.band : 0;
+}
 function isIelts(x) {
-  return /ielts/i.test(x.exam) && Number(String(x.score).replace(",", ".")) > 0 && Number(String(x.score).replace(",", ".")) <= 9;
+  return ieltsScore(x) > 0;
 }
 function ieltsToCefr(b) {
   return b >= 8.5 ? "C2" : b >= 7 ? "C1" : b >= 5.5 ? "B2" : b >= 4 ? "B1" : b >= 3 ? "A2" : "A1";
@@ -2738,7 +2807,7 @@ function ieltsToCefr(b) {
 function bestCefr(s) {
   const found = [];
   (s.english || []).forEach((x) => {
-    if (isIelts(x)) found.push(ieltsToCefr(Number(String(x.score).replace(",", "."))));
+    if (isIelts(x)) found.push(ieltsToCefr(ieltsScore(x)));
     const m = `${x.note} ${x.score}`.match(/\b([ABC][12])\b/);
     if (m) found.push(m[1]);
   });
@@ -2772,7 +2841,7 @@ function ieltsChart(points, target) {
       ${target ? `<line x1="${L}" x2="${W - R}" y1="${y(target)}" y2="${y(target)}" class="ch-target"/><text x="${W - R}" y="${y(target) - 6}" class="ch-axis" text-anchor="end">цель ${target}</text>` : ""}
       <path d="${path}" class="ch-line"/>
       ${points.map((p) => `<circle cx="${x(p.date)}" cy="${y(p.v)}" r="5" class="ch-dot"/>`).join("")}
-      <text x="${x(last.date)}" y="${y(last.v) - 12}" class="ch-label" text-anchor="${points.length > 1 ? "end" : "middle"}">${last.v}</text>
+      <text x="${x(last.date)}" y="${y(last.v) - 12}" class="ch-label" text-anchor="${points.length > 1 ? "end" : "middle"}">${fmtBand(last.v)}</text>
       ${points.map((p) => `<text x="${x(p.date)}" y="${H - 8}" class="ch-axis" text-anchor="middle">${fmtShortDate(p.date)}</text>`).join("")}
       ${points.map((p, i) => `<circle cx="${x(p.date)}" cy="${y(p.v)}" r="16" class="ch-hit" data-pt="${i}"/>`).join("")}
     </svg>
@@ -2790,7 +2859,7 @@ function bindIeltsChart(points) {
   wrap.querySelectorAll(".ch-hit").forEach((c) => {
     const show = () => {
       const p = points[Number(c.dataset.pt)];
-      tip.innerHTML = `<b>${esc(String(p.v))}</b> · ${esc(p.exam)}<br><span class="muted">${fmtDate(p.date)}${p.detail ? " · " + esc(p.detail) : ""}</span>`;
+      tip.innerHTML = `<b>${fmtBand(p.v)}</b> · ${esc(p.exam)}<br><span class="muted">${fmtDate(p.date)}${p.detail ? " · " + esc(p.detail) : ""}</span>`;
       const box = wrap.getBoundingClientRect(), r = c.getBoundingClientRect();
       tip.hidden = false;
       tip.style.left = Math.min(box.width - tip.offsetWidth - 4, Math.max(4, r.left - box.left + r.width / 2 - tip.offsetWidth / 2)) + "px";
@@ -2804,8 +2873,33 @@ function bindIeltsChart(points) {
 function ieltsPoints(s) {
   return (s.english || [])
     .filter(isIelts)
-    .map((x) => ({ date: x.date, v: Number(String(x.score).replace(",", ".")), exam: x.exam, detail: [x.l && `L ${x.l}`, x.r && `R ${x.r}`, x.w && `W ${x.w}`, x.s && `S ${x.s}`].filter(Boolean).join(" · ") }))
+    .map((x) => ({ date: x.date, v: ieltsScore(x), exam: x.exam, detail: ieltsPartsText(x) }))
     .sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+function ieltsPartsText(x) {
+  return ["l", "r", "w", "s"]
+    .map((k) => {
+      const p = ieltsPart(x[k], k);
+      return p ? `${k.toUpperCase()} ${fmtBand(p.band)}${p.raw != null ? ` (${p.raw}/40)` : ""}` : x[k] ? `${k.toUpperCase()} ${x[k]}` : "";
+    })
+    .filter(Boolean)
+    .join(" · ");
+}
+// Ячейка части в таблице: балл и, если вводили ответы, «28/40» мелко
+function ieltsPartCell(x, k) {
+  if (!/ielts/i.test(x.exam)) return esc(x[k]);
+  const p = ieltsPart(x[k], k);
+  if (!p) return esc(x[k]);
+  return `${fmtBand(p.band)}${p.raw != null ? `<br><span class="small muted">${p.raw}/40</span>` : ""}`;
+}
+// Общий балл в таблице: посчитанный по частям; если вручную вписали другой — показываем и его
+function ieltsScoreCell(x) {
+  const calc = /ielts/i.test(x.exam) ? ieltsOverall(x) : null;
+  if (calc == null) return `<b>${esc(x.score)}</b>`;
+  const typed = ieltsPart(x.score, "");
+  const differs = typed && typed.band !== calc;
+  return `<b>${fmtBand(calc)}</b>${differs ? `<br><span class="small muted" title="Общий балл посчитан по четырём частям по правилам IELTS">введено ${esc(x.score)}</span>` : ""}`;
 }
 
 function englishHtml(s) {
@@ -2820,7 +2914,7 @@ function englishHtml(s) {
     <div class="eyebrow">Ағылшын тілі</div>
     <h2>🇬🇧 Английский</h2>
     <div class="highlights" style="margin:0 0 14px">
-      <div class="hl"><span class="hl-icon">🎯</span><div><div class="eyebrow">Лучший IELTS</div><div><b>${best || "—"}</b>${target ? ` <span class="small muted">цель ${target}</span>` : ""}</div></div></div>
+      <div class="hl"><span class="hl-icon">🎯</span><div><div class="eyebrow">Лучший IELTS</div><div><b>${best ? fmtBand(best) : "—"}</b>${target ? ` <span class="small muted">цель ${target}</span>` : ""}</div></div></div>
       <div class="hl ${target && best >= target ? "hl-today" : ""}"><span class="hl-icon">📈</span><div><div class="eyebrow">${target ? "До цели" : "Уровень CEFR"}</div><div>${
         target ? (best >= target ? "<b>цель достигнута ✓</b>" : best ? `<b>${(target - best).toFixed(1)}</b> балла` : "сдайте пробный IELTS") : `<b>${cefr || "—"}</b>`
       }</div></div></div>
@@ -2835,9 +2929,10 @@ function englishHtml(s) {
             <tr><th>Дата</th><th>Экзамен</th><th class="num">Балл</th><th class="num">L</th><th class="num">R</th><th class="num">W</th><th class="num">S</th><th>Примечание</th><th></th></tr>
             ${list
               .map(
-                ({ x, i }) => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.exam)}</td><td class="num"><b>${esc(x.score)}</b></td><td class="num">${esc(x.l)}</td><td class="num">${esc(x.r)}</td><td class="num">${esc(x.w)}</td><td class="num">${esc(
-                  x.s
-                )}</td><td class="small">${esc(x.note)}</td><td>${canEdit ? `<button class="book-del" data-eng-del="${i}" title="Удалить">✕</button>` : ""}</td></tr>`
+                ({ x, i }) => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.exam)}</td><td class="num">${ieltsScoreCell(x)}</td><td class="num">${ieltsPartCell(x, "l")}</td><td class="num">${ieltsPartCell(x, "r")}</td><td class="num">${ieltsPartCell(
+                  x,
+                  "w"
+                )}</td><td class="num">${ieltsPartCell(x, "s")}</td><td class="small">${esc(x.note)}</td><td>${canEdit ? `<button class="book-del" data-eng-del="${i}" title="Удалить">✕</button>` : ""}</td></tr>`
               )
               .join("")}
             ${ket.map((x) => `<tr><td class="muted">—</td><td>${esc(x.name)}</td><td class="num" colspan="5">${esc(x.value)}</td><td class="small muted">из вкладки «Экзамены»</td><td></td></tr>`).join("")}
@@ -2850,12 +2945,13 @@ function englishHtml(s) {
             <h3 class="wide">➕ Добавить результат</h3>
             <label>Дата<input type="date" id="eng-date" value="${todayIso()}" required></label>
             <label>Экзамен<select id="eng-exam">${ENGLISH_EXAMS.map((x) => `<option>${esc(x)}</option>`).join("")}</select></label>
-            <label>Общий балл<input id="eng-score" maxlength="20" placeholder="например, 5.5 или 146" required></label>
+            <label>Общий балл<input id="eng-score" maxlength="20" placeholder="например, 5.5 или 146"></label>
             <label>Уровень / примечание<input id="eng-note" maxlength="100" placeholder="например, B1 Pass with Merit"></label>
             <div class="wide eng-parts">
               <label>Listening<input id="eng-l" maxlength="10"></label><label>Reading<input id="eng-r" maxlength="10"></label>
               <label>Writing<input id="eng-w" maxlength="10"></label><label>Speaking<input id="eng-s" maxlength="10"></label>
             </div>
+            <p class="wide small muted" id="eng-calc">IELTS: Listening и Reading можно вводить баллом (6.5) или числом правильных ответов из 40 (например, 28). Когда заполнены все четыре части, общий балл считается сам по правилам IELTS.</p>
             <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="eng-save">Добавить</button><span class="small" id="eng-msg"></span></div>
           </form>`
         : ""
@@ -2868,10 +2964,35 @@ function bindEnglish(s) {
   const form = document.getElementById("eng-form");
   if (!form) return;
   const val = (id) => document.getElementById(id).value.trim();
+  const parts = () => ({ exam: val("eng-exam"), l: val("eng-l"), r: val("eng-r"), w: val("eng-w"), s: val("eng-s") });
+  // Общий балл IELTS подставляется сам, как только заполнены все четыре части
+  const recalc = () => {
+    const x = parts();
+    const calc = /ielts/i.test(x.exam) ? ieltsOverall(x) : null;
+    const hint = document.getElementById("eng-calc");
+    if (calc != null) {
+      document.getElementById("eng-score").value = fmtBand(calc);
+      hint.innerHTML = `Общий балл по правилам IELTS: <b>${fmtBand(calc)}</b> (${esc(ieltsPartsText(x))})`;
+    }
+  };
+  ["eng-exam", "eng-l", "eng-r", "eng-w", "eng-s"].forEach((id) => document.getElementById(id).addEventListener("input", recalc));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const result = { date: val("eng-date"), exam: val("eng-exam"), score: val("eng-score").replace(",", "."), note: val("eng-note"), l: val("eng-l"), r: val("eng-r"), w: val("eng-w"), s: val("eng-s") };
-    if (!result.date || !result.score) return;
+    const result = { date: val("eng-date"), ...parts(), score: val("eng-score").replace(",", "."), note: val("eng-note") };
+    const calc = /ielts/i.test(result.exam) ? ieltsOverall(result) : null;
+    if (calc != null) result.score = fmtBand(calc);
+    const msg = document.getElementById("eng-msg");
+    if (!result.date || !result.score) {
+      msg.textContent = "Введите общий балл или все четыре части IELTS";
+      msg.style.color = "var(--red)";
+      return;
+    }
+    const bad = /ielts/i.test(result.exam) && ["l", "r", "w", "s"].find((k) => result[k] && !ieltsPart(result[k], k));
+    if (bad) {
+      msg.textContent = `Проверьте ${{ l: "Listening", r: "Reading", w: "Writing", s: "Speaking" }[bad]}: балл от 0 до 9 с шагом 0.5${"lr".includes(bad) ? " или ответы из 40" : ""}`;
+      msg.style.color = "var(--red)";
+      return;
+    }
     document.getElementById("eng-save").disabled = true;
     runStudentEdit(s, "addEnglish", { result }, "english", "eng-msg", "Добавлено ✓");
   });
@@ -2895,10 +3016,264 @@ function activitiesAllHtml() {
           const pts = ieltsPoints(s);
           return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="num">${(s.activities || []).length || '<span class="pill absent">0</span>'}</td><td class="num">${t.total || "—"}</td><td class="num">${
             t.byType["Волонтёрство"] || "—"
-          }</td><td class="num">${pts.length ? Math.max(...pts.map((p) => p.v)) : "—"}</td><td>${bestCefr(s) || "—"}</td></tr>`;
+          }</td><td class="num">${pts.length ? fmtBand(Math.max(...pts.map((p) => p.v))) : "—"}</td><td>${bestCefr(s) || "—"}</td></tr>`;
         })
         .join("")}
     </table></div></div>`;
+}
+
+// Учитель: пробный IELTS всего класса — последние результаты и ввод баллов сразу для всех
+function ieltsAllHtml() {
+  const list = sortedStudents();
+  const lasts = [];
+  const rows = list
+    .map((s, i) => {
+      const pts = ieltsPoints(s);
+      const last = pts[pts.length - 1];
+      const prev = pts[pts.length - 2];
+      if (last) lasts.push(last.v);
+      const best = pts.length ? Math.max(...pts.map((p) => p.v)) : 0;
+      const diff = last && prev ? last.v - prev.v : null;
+      const diffHtml = diff == null ? "—" : diff > 0 ? `<span class="up">+${fmtBand(diff)}</span>` : diff < 0 ? `<span class="down">${fmtBand(diff)}</span>` : "0";
+      return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="num">${last ? `<b>${fmtBand(last.v)}</b>` : "—"}</td><td class="small">${
+        last ? `${fmtDate(last.date)}${last.detail ? `<br><span class="muted">${esc(last.detail)}</span>` : ""}` : ""
+      }</td><td class="num">${diffHtml}</td><td class="num">${best ? fmtBand(best) : "—"}</td><td class="num">${pts.length || "—"}</td></tr>`;
+    })
+    .join("");
+  const avg = lasts.length ? lasts.reduce((a, v) => a + v, 0) / lasts.length : 0;
+  const input = (s, k) => `<td><input class="ie-in" data-ie="${s.id}" data-k="${k}" inputmode="decimal" maxlength="5" aria-label="${esc(s.name)} ${k}"></td>`;
+  return `<div class="card"><div class="eyebrow">Ағылшын тілі</div><h2>🇬🇧 Пробный IELTS — класс</h2>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl"><span class="hl-icon">📝</span><div><div class="eyebrow">Сдавали</div><div><b>${lasts.length}</b> из ${list.length}</div></div></div>
+      <div class="hl"><span class="hl-icon">📊</span><div><div class="eyebrow">Средний последний балл</div><div><b>${avg ? avg.toFixed(2) : "—"}</b></div></div></div>
+    </div>
+    <p class="small muted">Общий балл считается по правилам IELTS: среднее четырёх частей, .25 округляется до .5, .75 — до следующего целого. Listening и Reading можно вводить числом правильных ответов из 40.</p>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th><th class="num">Последний</th><th>Дата и части</th><th class="num">Изменение</th><th class="num">Лучший</th><th class="num">Попыток</th></tr>
+      ${rows}
+    </table></div></div>
+  <div class="card"><h2>➕ Внести пробный IELTS всему классу</h2>
+    <form id="ie-form">
+      <div class="plan-form" style="margin-bottom:12px">
+        <label>Дата<input type="date" id="ie-date" value="${todayIso()}" required></label>
+        <label>Экзамен<select id="ie-exam"><option>Пробный IELTS</option><option>IELTS</option></select></label>
+      </div>
+      <p class="small muted">Заполните только тех, кто сдавал. Listening и Reading — балл (6.5) или ответы из 40 (28). «Общий» можно оставить пустым — посчитается сам.</p>
+      <div class="table-wrap"><table class="ie-grid">
+        <tr><th>Ученик</th><th>Listening</th><th>Reading</th><th>Writing</th><th>Speaking</th><th class="num">Общий</th></tr>
+        ${list
+          .map((s) => `<tr data-row="${s.id}"><td>${esc(s.name)}</td>${input(s, "l")}${input(s, "r")}${input(s, "w")}${input(s, "s")}<td class="num"><input class="ie-in" data-ie="${s.id}" data-k="score" inputmode="decimal" maxlength="4" aria-label="${esc(s.name)} общий"><div class="small muted" id="ie-tot-${s.id}"></div></td></tr>`)
+          .join("")}
+      </table></div>
+      <div class="save-bar" style="position:static;border:none;padding:10px 0 0"><button class="btn" type="submit" id="ie-save">Сохранить результаты</button><span class="small" id="ie-msg"></span></div>
+    </form>
+  </div>`;
+}
+
+function bindIeltsAll() {
+  const form = document.getElementById("ie-form");
+  if (!form) return;
+  const rowData = (id) => {
+    const x = { id };
+    form.querySelectorAll(`[data-ie="${id}"]`).forEach((el) => (x[el.dataset.k] = el.value.trim().replace(",", ".")));
+    return x;
+  };
+  const check = (id) => {
+    const x = rowData(id);
+    let ok = true;
+    form.querySelectorAll(`[data-ie="${id}"]`).forEach((el) => {
+      const k = el.dataset.k;
+      const bad = el.value.trim() && !ieltsPart(el.value, k === "score" ? "" : k);
+      el.classList.toggle("bad", !!bad);
+      if (bad) ok = false;
+    });
+    const calc = ieltsOverall(x);
+    document.getElementById("ie-tot-" + id).textContent = calc != null ? `= ${fmtBand(calc)}` : "";
+    return { x, ok, calc };
+  };
+  form.addEventListener("input", (e) => e.target.dataset.ie && check(e.target.dataset.ie));
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("ie-msg");
+    const fail = (t) => ((msg.textContent = t), (msg.style.color = "var(--red)"));
+    const date = document.getElementById("ie-date").value;
+    const exam = document.getElementById("ie-exam").value;
+    const results = [];
+    const problems = [];
+    DATA.students.forEach((s) => {
+      const { x, ok, calc } = check(s.id);
+      if (!["l", "r", "w", "s", "score"].some((k) => x[k])) return;
+      const score = calc != null ? fmtBand(calc) : x.score;
+      if (!ok || !score) problems.push(s.name);
+      else results.push({ id: s.id, date, exam, score, l: x.l, r: x.r, w: x.w, s: x.s, note: "" });
+    });
+    if (!date) return fail("Укажите дату");
+    if (problems.length) return fail(`Проверьте: ${problems.join(", ")} — нужны все 4 части или общий балл (0–9, шаг 0.5)`);
+    if (!results.length) return fail("Введите баллы хотя бы одному ученику");
+    if (!confirm(`Сохранить ${exam} от ${fmtDate(date)} для ${results.length} уч.?`)) return;
+    document.getElementById("ie-save").disabled = true;
+    msg.textContent = "Сохранение…";
+    msg.style.color = "";
+    api("addEnglishMany", { results })
+      .then((res) => {
+        DATA.students.forEach((s) => (s.english = res.english[s.id] || []));
+        render();
+        const m = document.getElementById("ie-msg");
+        if (m) {
+          m.textContent = `Сохранено ✓ (${results.length} уч.)`;
+          m.style.color = "var(--green)";
+        }
+      })
+      .catch((ex) => {
+        fail("Ошибка: " + ex.message);
+        document.getElementById("ie-save").disabled = false;
+      });
+  });
+}
+
+// ---------- Gallup (CliftonStrengths): сильные стороны ученика ----------
+let gallupIndex = null;
+const gallupNorm = (t) => String(t || "").toLowerCase().replace(/ё/g, "е").replace(/[^a-zа-я0-9]/g, "");
+// Тема по названию: английскому, русскому или «Достигатор (Achiever)» из подсказки
+function gallupTheme(name) {
+  if (!gallupIndex) {
+    gallupIndex = {};
+    (typeof GALLUP_THEMES === "undefined" ? [] : GALLUP_THEMES).forEach(([en, ru, domain, about, tip]) => {
+      const t = { en, ru, domain, about, tip, d: GALLUP_DOMAINS[domain] };
+      gallupIndex[gallupNorm(en)] = gallupIndex[gallupNorm(ru)] = t;
+    });
+  }
+  const raw = String(name || "");
+  const m = raw.match(/^(.*?)\s*\((.*)\)\s*$/);
+  return gallupIndex[gallupNorm(raw)] || (m && (gallupIndex[gallupNorm(m[1])] || gallupIndex[gallupNorm(m[2])])) || null;
+}
+function gallupChip(name) {
+  const t = gallupTheme(name);
+  return t ? `<span class="gchip" style="--dc:${t.d.color}" title="${esc(t.en)} · ${esc(t.d.name)}">${esc(t.ru)}</span>` : `<span class="gchip">${esc(name)}</span>`;
+}
+// Сколько талантов из первой пятёрки в каждом домене; ведущий — где больше (при равенстве — где талант выше)
+function gallupDomains(themes) {
+  const counts = Object.fromEntries(Object.keys(GALLUP_DOMAINS).map((k) => [k, 0]));
+  let lead = "";
+  themes.slice(0, 5).forEach((n) => {
+    const t = gallupTheme(n);
+    if (!t) return;
+    counts[t.domain]++;
+    if (!lead || counts[t.domain] > counts[lead]) lead = t.domain;
+  });
+  return { counts, lead };
+}
+function gallupDomainBars(counts, total) {
+  return `<div class="gdomains">${Object.entries(GALLUP_DOMAINS)
+    .map(([k, d]) => `<div class="gdom" style="--dc:${d.color}"><div class="gdom-head"><span>${d.icon} <b>${d.name}</b></span><b>${counts[k]}</b></div><div class="gdom-bar"><span style="width:${total ? (counts[k] / total) * 100 : 0}%"></span></div><div class="small muted">${d.about}</div></div>`)
+    .join("")}</div>`;
+}
+
+function gallupHtml(s) {
+  const g = s.gallup;
+  const canEdit = state.user.role !== "parent";
+  const themes = (g && g.themes) || [];
+  const { counts, lead } = gallupDomains(themes);
+  const top = themes.slice(0, 5);
+  const view = themes.length
+    ? `<div class="highlights" style="margin:0 0 14px">
+        <div class="hl"><span class="hl-icon">🏆</span><div><div class="eyebrow">Самый сильный талант</div><div><b>${esc(gallupTheme(themes[0])?.ru || themes[0])}</b></div></div></div>
+        ${lead ? `<div class="hl"><span class="hl-icon">${GALLUP_DOMAINS[lead].icon}</span><div><div class="eyebrow">Ведущий домен</div><div><b>${GALLUP_DOMAINS[lead].name}</b> <span class="small muted">${GALLUP_DOMAINS[lead].about}</span></div></div></div>` : ""}
+      </div>
+      <h3>Топ-5 талантов${g.date ? ` <span class="small muted">· тест ${fmtDate(g.date)}</span>` : ""}</h3>
+      <div class="gcards">${top
+        .map((n, i) => {
+          const t = gallupTheme(n);
+          return `<div class="gcard" style="--dc:${t ? t.d.color : "var(--border)"}"><div class="gcard-rank">${i + 1}</div><div><div class="gcard-name">${esc(t ? t.ru : n)}${t ? ` <span class="small muted">${esc(t.en)}</span>` : ""}</div>${
+            t ? `<div class="small" style="color:var(--dc)">${t.d.icon} ${t.d.name}</div><p>${esc(t.about)}</p><p class="small">💡 ${esc(t.tip)}</p>` : ""
+          }</div></div>`;
+        })
+        .join("")}</div>
+      ${themes.length > 5 ? `<h3>Таланты 6–${themes.length}</h3><div class="chips">${themes.slice(5).map(gallupChip).join("")}</div>` : ""}
+      <h3>Домены в топ-5</h3>${gallupDomainBars(counts, top.length)}`
+    : `<p class="muted">Результатов Gallup пока нет.${canEdit ? " Впишите таланты из отчёта Gallup ниже: 1 — самый сильный." : ""}</p>`;
+  const form = canEdit
+    ? `<form class="plan-form" id="gallup-form" style="margin-top:18px">
+        <h3 class="wide">✏️ ${themes.length ? "Изменить" : "Внести"} результаты</h3>
+        <label>Дата теста<input type="date" id="gl-date" value="${esc((g && g.date) || "")}"></label>
+        <p class="wide small muted">Пишите по-русски или по-английски, как в отчёте (например, «Achiever» или «Достигатор»). Достаточно первых пяти.</p>
+        ${Array.from({ length: 10 }, (_, i) => `<label>${i + 1}${i < 5 ? " ⭐" : ""}<input list="gallup-list" class="gl-in" maxlength="40" value="${esc(themes[i] ? gallupTheme(themes[i])?.ru || themes[i] : "")}"></label>`).join("")}
+        <datalist id="gallup-list">${(typeof GALLUP_THEMES === "undefined" ? [] : GALLUP_THEMES).map(([en, ru]) => `<option value="${esc(ru)}">${esc(en)}</option>`).join("")}</datalist>
+        <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="gl-save">Сохранить</button><span class="small" id="gl-msg"></span></div>
+      </form>`
+    : "";
+  return `<div class="card"><div class="eyebrow">Gallup CliftonStrengths</div><h2>💪 Сильные стороны</h2>
+    <p class="small muted">Тест Gallup показывает природные таланты — то, что получается легче всего. Лучше развивать сильные стороны, чем исправлять слабые.</p>
+    ${view}${form}</div>`;
+}
+
+function bindGallup(s) {
+  const form = document.getElementById("gallup-form");
+  if (!form) return;
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const msg = document.getElementById("gl-msg");
+    const names = [...form.querySelectorAll(".gl-in")].map((el) => el.value.trim()).filter(Boolean);
+    const themes = names.map((n) => gallupTheme(n)?.en || n);
+    const unknown = names.filter((n) => !gallupTheme(n));
+    const dup = themes.find((t, i) => themes.findIndex((x) => x.toLowerCase() === t.toLowerCase()) !== i);
+    if (dup) {
+      msg.textContent = `Талант «${gallupTheme(dup)?.ru || dup}» указан дважды`;
+      msg.style.color = "var(--red)";
+      return;
+    }
+    if (unknown.length && !confirm(`Не нашёл таланты: ${unknown.join(", ")}. Всё равно сохранить?`)) return;
+    if (!themes.length && !confirm("Удалить результаты Gallup?")) return;
+    document.getElementById("gl-save").disabled = true;
+    runStudentEdit(s, "saveGallup", { gallup: { date: document.getElementById("gl-date").value, themes } }, "gallup", "gl-msg", "Сохранено ✓");
+  });
+}
+
+// Учитель: Gallup всего класса — домены, частые таланты и топ-5 каждого
+function gallupAllHtml() {
+  const list = sortedStudents();
+  const done = list.filter((s) => s.gallup && s.gallup.themes.length);
+  const counts = Object.fromEntries(Object.keys(GALLUP_DOMAINS).map((k) => [k, 0]));
+  const freq = {};
+  let total = 0;
+  done.forEach((s) =>
+    s.gallup.themes.slice(0, 5).forEach((n) => {
+      const t = gallupTheme(n);
+      const key = t ? t.en : n;
+      freq[key] = (freq[key] || 0) + 1;
+      if (t) counts[t.domain]++, total++;
+    })
+  );
+  const topThemes = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const max = topThemes.length ? topThemes[0][1] : 1;
+  return `<div class="card"><div class="eyebrow">Gallup CliftonStrengths</div><h2>💪 Сильные стороны класса</h2>
+    <div class="highlights" style="margin:0 0 14px"><div class="hl"><span class="hl-icon">📝</span><div><div class="eyebrow">Внесли результаты</div><div><b>${done.length}</b> из ${list.length}</div></div></div></div>
+    ${
+      done.length
+        ? `<h3>Домены класса (по топ-5 каждого)</h3>${gallupDomainBars(counts, total)}
+      <h3>Частые таланты в топ-5</h3>
+      <div class="rank">${topThemes
+        .map(([n, c], i) => {
+          const t = gallupTheme(n);
+          return `<div class="rank-row"><span class="rank-pos">${i + 1}</span><span class="rank-name">${esc(t ? t.ru : n)}</span><span class="rank-bar"><span style="width:${(c / max) * 100}%;${t ? `background:${t.d.color}` : ""}"></span></span><span class="rank-val">${c}</span></div>`;
+        })
+        .join("")}</div>`
+        : ""
+    }
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th><th>Топ-5 талантов</th><th>Ведущий домен</th></tr>
+      ${list
+        .map((s, i) => {
+          const th = (s.gallup && s.gallup.themes) || [];
+          const lead = gallupDomains(th).lead;
+          return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="wrap">${th.length ? `<div class="chips">${th.slice(0, 5).map(gallupChip).join("")}</div>` : '<span class="muted">—</span>'}</td><td>${
+            lead ? `${GALLUP_DOMAINS[lead].icon} ${GALLUP_DOMAINS[lead].name}` : "—"
+          }</td></tr>`;
+        })
+        .join("")}
+    </table></div>
+    <p class="small muted">Внести результаты: откройте ученика → вкладка «💪 Gallup» (ученик может и сам). Или вставьте прямо в лист «Gallup» таблицы: ID | Дата теста | Талант 1 … Талант 10.</p>
+  </div>`;
 }
 
 // ---------- резюме ученика (открывается в новом окне, сохраняется как PDF через «Печать») ----------
@@ -2913,7 +3288,7 @@ function resumeHtml(s) {
     .join("");
   const olymp = (s.olympiads || []).filter((x) => cellValue(x.value) && !/^жазбады$/i.test(cellValue(x.value))).map((x) => `<li>${esc(x.name)}: <b>${esc(x.value)}</b></li>`).join("");
   const exams = (s.exams || []).filter((x) => cellValue(x.value) && !/по предметам/i.test(x.name)).map((x) => `<li>${esc(x.name)}: <b>${esc(x.value)}</b></li>`).join("");
-  const eng = [...(s.english || [])].sort((a, b) => (a.date < b.date ? 1 : -1)).map((x) => `<li>${esc(x.exam)} — <b>${esc(x.score)}</b>${x.note ? ` (${esc(x.note)})` : ""}, ${fmtDate(x.date)}</li>`).join("");
+  const eng = [...(s.english || [])].sort((a, b) => (a.date < b.date ? 1 : -1)).map((x) => `<li>${esc(x.exam)} — <b>${isIelts(x) ? fmtBand(ieltsScore(x)) : esc(x.score)}</b>${isIelts(x) && ieltsPartsText(x) ? ` <span class="m">(${esc(ieltsPartsText(x))})</span>` : ""}${x.note ? ` (${esc(x.note)})` : ""}, ${fmtDate(x.date)}</li>`).join("");
   const acts = (s.activities || [])
     .map((a) => `<li><b>${esc(a.title)}</b> <span class="m">· ${esc(a.type)}${a.period ? " · " + esc(a.period) : ""}${activityHours(a) ? ` · ≈ ${activityHours(a)} ч` : ""}</span>${a.role ? `<br>${esc(a.role)}` : ""}</li>`)
     .join("");
@@ -2948,12 +3323,13 @@ function resumeHtml(s) {
   </div></header>
   <div class="row" style="margin-top:12px">
     ${gradeRows ? `<div class="kv">Средний балл<br><b>${gradeSummary((s.grades || []).filter((g) => g.period === periods[0]))?.avg.toFixed(2) || "—"}</b></div>` : ""}
-    ${best ? `<div class="kv">Лучший IELTS<br><b>${best}</b></div>` : ""}
+    ${best ? `<div class="kv">Лучший IELTS<br><b>${fmtBand(best)}</b></div>` : ""}
     ${cefr ? `<div class="kv">Английский (CEFR)<br><b>${cefr}</b></div>` : ""}
     ${t.total ? `<div class="kv">Часы активностей<br><b>${t.total}</b></div>` : ""}
     ${books.length ? `<div class="kv">Прочитано книг<br><b>${books.length}</b></div>` : ""}
   </div>
   ${block("Успеваемость", gradeRows ? `<table>${gradeRows}</table>` : "")}
+  ${block("Сильные стороны (Gallup)", s.gallup && s.gallup.themes.length ? `<p>${s.gallup.themes.slice(0, 5).map((n, i) => `${i + 1}. <b>${esc(gallupTheme(n)?.ru || n)}</b>${gallupTheme(n) ? ` <span class="m">(${esc(gallupTheme(n).en)})</span>` : ""}`).join(" · ")}</p>` : "")}
   ${block("Олимпиады", olymp ? `<ul>${olymp}</ul>` : "")}
   ${block("Английский язык", eng ? `<ul>${eng}</ul>` : "")}
   ${block("Экзамены и тесты", exams ? `<ul>${exams}</ul>` : "")}

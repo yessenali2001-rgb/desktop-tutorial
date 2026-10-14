@@ -557,3 +557,23 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .read-upd { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .read-upd input { width: 90px; }
 .wwho { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 14px; }
+
+/* Пробный IELTS: ввод всему классу */
+.ie-grid td { padding: 4px 6px; }
+.ie-grid input { width: 72px; padding: 6px 8px; font: inherit; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.ie-grid input.bad { border-color: var(--red); background: var(--red-soft); }
+.up { color: var(--green); font-weight: 700; }
+.down { color: var(--red); font-weight: 700; }
+
+/* Gallup */
+.gchip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 13px; background: var(--accent-soft); border-left: 4px solid var(--dc, var(--border)); }
+.gcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.gcard { display: flex; gap: 12px; border: 1px solid var(--border); border-top: 4px solid var(--dc); border-radius: var(--radius); padding: 12px 14px; background: var(--card); }
+.gcard p { margin: 6px 0 0; }
+.gcard-rank { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #fff; background: var(--dc); }
+.gcard-name { font-weight: 700; font-size: 16px; }
+.gdomains { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.gdom { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+.gdom-head { display: flex; justify-content: space-between; gap: 8px; }
+.gdom-bar { height: 8px; background: var(--accent-soft); border-radius: 4px; margin: 6px 0; overflow: hidden; }
+.gdom-bar span { display: block; height: 100%; background: var(--dc); border-radius: 4px; }

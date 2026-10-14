@@ -299,7 +299,7 @@ const DEMO_DATA = {
   // Родитель входит, выбрав ребёнка и введя телефон мамы (momPhone) или папы (dadPhone).
   students: [
   {
-    "plan": {"career": "Программист", "dir1": "IT и программирование", "dir2": "Инженерия и технологии", "where": "За рубежом", "country": "", "city": "", "grant": "Да", "lang": "Английский", "english": "IELTS 5.5", "target": "115", "about": "Люблю информатику и робототехнику", "updated": "2026-09-20"}, "activities": [{"type": "Волонтёрство", "title": "Помощь в детском доме", "role": "Занятия по математике с младшими", "hours": 2, "weeks": 20, "period": "2025–2026", "added": "2026-09-10"}, {"type": "Кружок", "title": "Робототехника", "role": "Сборка и программирование роботов, команда на олимпиаде", "hours": 4, "weeks": 34, "period": "2024–2026", "added": "2026-09-10"}, {"type": "Конкурс", "title": "Хакатон школы", "role": "Капитан команды, 2 место", "hours": 16, "weeks": 1, "period": "март 2026", "added": "2026-09-11"}], "english": [{"date": "2025-05-20", "exam": "Пробный IELTS", "score": "4.5", "l": "5", "r": "4.5", "w": "4", "s": "4.5", "note": ""}, {"date": "2025-12-15", "exam": "Пробный IELTS", "score": "5.0", "l": "5.5", "r": "5", "w": "4.5", "s": "5", "note": ""}, {"date": "2026-05-18", "exam": "Пробный IELTS", "score": "5.5", "l": "6", "r": "5.5", "w": "5", "s": "5.5", "note": ""}, {"date": "2026-06-01", "exam": "PET", "score": "146", "l": "", "r": "", "w": "", "s": "", "note": "B1, Pass with Merit"}], "id": "S01",
+    "plan": {"career": "Программист", "dir1": "IT и программирование", "dir2": "Инженерия и технологии", "where": "За рубежом", "country": "", "city": "", "grant": "Да", "lang": "Английский", "english": "IELTS 5.5", "target": "115", "about": "Люблю информатику и робототехнику", "updated": "2026-09-20"}, "activities": [{"type": "Волонтёрство", "title": "Помощь в детском доме", "role": "Занятия по математике с младшими", "hours": 2, "weeks": 20, "period": "2025–2026", "added": "2026-09-10"}, {"type": "Кружок", "title": "Робототехника", "role": "Сборка и программирование роботов, команда на олимпиаде", "hours": 4, "weeks": 34, "period": "2024–2026", "added": "2026-09-10"}, {"type": "Конкурс", "title": "Хакатон школы", "role": "Капитан команды, 2 место", "hours": 16, "weeks": 1, "period": "март 2026", "added": "2026-09-11"}], "english": [{"date": "2025-05-20", "exam": "Пробный IELTS", "score": "4.5", "l": "5", "r": "4.5", "w": "4", "s": "4.5", "note": ""}, {"date": "2025-12-15", "exam": "Пробный IELTS", "score": "5.0", "l": "5.5", "r": "5", "w": "4.5", "s": "5", "note": ""}, {"date": "2026-05-18", "exam": "Пробный IELTS", "score": "5.5", "l": "6", "r": "5.5", "w": "5", "s": "5.5", "note": ""}, {"date": "2026-06-01", "exam": "PET", "score": "146", "l": "", "r": "", "w": "", "s": "", "note": "B1, Pass with Merit"}], "gallup": {"date": "2026-09-15", "themes": ["Learner", "Analytical", "Achiever", "Strategic", "Competition", "Focus", "Input", "Ideation", "Responsibility", "Relator"]}, "id": "S01",
     "name": "Алиев Арман",
     "pin": "5577",
     "momPhone": "8 777 345 61 39",
@@ -959,7 +959,7 @@ const DEMO_DATA = {
     ]
   },
   {
-    "plan": {"career": "Врач", "dir1": "Медицина", "dir2": "Биология, химия, экология", "where": "За рубежом", "country": "Корея", "city": "", "grant": "Да", "lang": "Не важно", "english": "", "target": "110", "about": "", "updated": "2026-09-21"}, "activities": [{"type": "Спорт", "title": "Футбол", "role": "Школьная команда", "hours": 5, "weeks": 30, "period": "2023–2026", "added": "2026-09-12"}], "id": "S02",
+    "plan": {"career": "Врач", "dir1": "Медицина", "dir2": "Биология, химия, экология", "where": "За рубежом", "country": "Корея", "city": "", "grant": "Да", "lang": "Не важно", "english": "", "target": "110", "about": "", "updated": "2026-09-21"}, "activities": [{"type": "Спорт", "title": "Футбол", "role": "Школьная команда", "hours": 5, "weeks": 30, "period": "2023–2026", "added": "2026-09-12"}], "gallup": {"date": "2026-09-15", "themes": ["Empathy", "Developer", "Harmony", "Responsibility", "Discipline"]}, "id": "S02",
     "name": "Ахметов Айбек",
     "pin": "3117",
     "momPhone": "8 705 983 25 68",
@@ -1613,7 +1613,7 @@ const DEMO_DATA = {
     ]
   },
   {
-    "plan": {"career": "Дипломат", "dir1": "Международные отношения", "dir2": "Право", "where": "За рубежом", "country": "США", "city": "", "grant": "Да", "lang": "Английский", "english": "IELTS 6.0", "target": "", "about": "Интересуюсь историей и языками", "updated": "2026-09-22"}, "id": "S03",
+    "plan": {"career": "Дипломат", "dir1": "Международные отношения", "dir2": "Право", "where": "За рубежом", "country": "США", "city": "", "grant": "Да", "lang": "Английский", "english": "IELTS 6.0", "target": "", "about": "Интересуюсь историей и языками", "updated": "2026-09-22"}, "gallup": {"date": "2026-09-15", "themes": ["Communication", "Woo", "Context", "Futuristic", "Includer", "Activator"]}, "id": "S03",
     "name": "Беков Данияр",
     "pin": "9335",
     "momPhone": "8 702 176 84 21",
@@ -2243,7 +2243,7 @@ const DEMO_DATA = {
     ]
   },
   {
-    "id": "S04",
+    "gallup": {"date": "2026-09-15", "themes": ["Competition", "Activator", "Self-Assurance", "Achiever", "Adaptability"]}, "id": "S04",
     "name": "Габдуллин Ерлан",
     "pin": "8620",
     "momPhone": "8 777 399 74 18",

@@ -30,6 +30,7 @@ const SHEETS = {
   wordProgress: "Слова — прогресс",
   customWords: "Свои слова",
   reading: "Читаю сейчас",
+  gallup: "Gallup",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -56,6 +57,7 @@ const HEADERS = {
   wordProgress: ["Кто (ID ученика, S01:мама, Учитель…)", "Набор (id)", "Название", "Прогресс (JSON, не менять)", "Выучено", "Слов", "Лучший тест, %", "Тестов", "Произнесено", "Обновлено"],
   customWords: ["Набор", "Слово", "Транскрипция", "Перевод", "Пример", "Қазақша"],
   reading: ["ID ученика", "Книга", "Автор", "Страниц всего", "Прочитано страниц", "Начал", "Обновлено"],
+  gallup: ["ID ученика", "Дата теста", "Талант 1", "Талант 2", "Талант 3", "Талант 4", "Талант 5", "Талант 6", "Талант 7", "Талант 8", "Талант 9", "Талант 10"],
   tg: ["Chat ID", "ID ученика", "Кто", "Имя в Telegram", "Подключено"],
   duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
@@ -242,6 +244,14 @@ function handle_(req) {
     case "addEnglish": {
       const id = targetId_(user, req.id, "Результаты добавляет сам ученик или учитель");
       return { ok: true, id: id, english: addEnglish_(id, req.result) };
+    }
+    case "addEnglishMany":
+      // Пробный IELTS всему классу сразу — только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, english: addEnglishMany_(req.results) };
+    case "saveGallup": {
+      const id = targetId_(user, req.id, "Результаты Gallup вносит сам ученик или учитель");
+      return { ok: true, id: id, gallup: saveGallup_(id, req.gallup) };
     }
     case "deleteEnglish": {
       const id = targetId_(user, req.id, "Результаты удаляет сам ученик или учитель");
@@ -524,6 +534,7 @@ function context_() {
     english: readEnglish_(),
     words: readWordProgress_(),
     reading: readReading_(),
+    gallup: readGallup_(),
   };
 }
 
@@ -544,6 +555,7 @@ function publicStudent_(s, ctx) {
     english: ctx.english[s.id] || [],
     words: ctx.words[s.id] || {},
     reading: ctx.reading[s.id] || null,
+    gallup: ctx.gallup[s.id] || null,
   };
 }
 
@@ -1046,18 +1058,25 @@ function readEnglish_() {
     (res[id] = res[id] || []).push({
       date: iso_(r[1]),
       exam: clean_(r[2]),
-      score: clean_(r[3]),
-      l: clean_(r[4]),
-      r: clean_(r[5]),
-      w: clean_(r[6]),
-      s: clean_(r[7]),
+      score: band_(r[3]),
+      l: band_(r[4]),
+      r: band_(r[5]),
+      w: band_(r[6]),
+      s: band_(r[7]),
       note: clean_(r[8]),
     });
   });
   return res;
 }
 
-function addEnglish_(id, x) {
+// Балл из ячейки. Если лист «Английский» вставили без текстового формата, таблица с русскими
+// настройками превращает «5.5» в дату 05.05 и «6.5» в 06.05 — возвращаем такие даты обратно в балл
+function band_(v) {
+  if (isDate_(v) && v.getMonth() === 4 && v.getDate() <= 9) return v.getDate() + ".5";
+  return clean_(v).replace(",", ".");
+}
+
+function englishRow_(id, x) {
   x = x || {};
   const date = String(x.date || "").trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Укажите дату экзамена");
@@ -1065,7 +1084,33 @@ function addEnglish_(id, x) {
   if (!exam) throw new Error("Укажите экзамен");
   const score = safeText_(x.score, 20);
   if (!score) throw new Error("Укажите общий балл");
-  const row = [id, Utilities.parseDate(date, tz_(), "yyyy-MM-dd"), exam, score, safeText_(x.l, 10), safeText_(x.r, 10), safeText_(x.w, 10), safeText_(x.s, 10), safeText_(x.note, 100)];
+  return [id, Utilities.parseDate(date, tz_(), "yyyy-MM-dd"), exam, score, safeText_(x.l, 10), safeText_(x.r, 10), safeText_(x.w, 10), safeText_(x.s, 10), safeText_(x.note, 100)];
+}
+
+// results: [{id, date, exam, score, l, r, w, s, note}] — по строке на ученика. Возвращает { "S01": [...] } для всех учеников
+function addEnglishMany_(results) {
+  if (!Array.isArray(results) || !results.length) throw new Error("Нет результатов для сохранения");
+  if (results.length > 60) throw new Error("Слишком много строк за раз");
+  const known = {};
+  readStudents_().forEach((s) => (known[s.id] = true));
+  const rows = results.map((x) => {
+    const id = String((x && x.id) || "").trim().toUpperCase();
+    if (!known[id]) throw new Error("Ученик не найден: " + id);
+    return englishRow_(id, x);
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("english", 2, [4, 5]);
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  } finally {
+    lock.releaseLock();
+  }
+  return readEnglish_();
+}
+
+function addEnglish_(id, x) {
+  const row = englishRow_(id, x);
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
@@ -1096,6 +1141,48 @@ function deleteEnglish_(id, x) {
     lock.releaseLock();
   }
   throw new Error("Результат не найден. Обновите страницу.");
+}
+
+// ===================== Gallup (CliftonStrengths) =====================
+// Лист «Gallup»: ID | Дата теста | Талант 1 … Талант 10 — по строке на ученика, таланты по порядку (1 — самый сильный).
+// Названия можно писать по-английски или по-русски, как в отчёте Gallup. Лист создаётся сам при первой записи.
+
+// { "S01": {date, themes: ["Achiever", …]} }
+function readGallup_() {
+  const res = {};
+  rows_("gallup", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    const themes = r.slice(2, 12).map(clean_).filter(Boolean);
+    if (id && themes.length) res[id] = { date: iso_(r[1]), themes: themes };
+  });
+  return res;
+}
+
+// g: {date, themes: [...]}; пустой список талантов — удалить результат
+function saveGallup_(id, g) {
+  g = g || {};
+  const themes = (Array.isArray(g.themes) ? g.themes : []).map((t) => safeText_(t, 40)).filter(Boolean);
+  if (themes.length > 10) throw new Error("Не больше 10 талантов");
+  if (new Set(themes.map((t) => t.toLowerCase())).size !== themes.length) throw new Error("Таланты не должны повторяться");
+  const date = String(g.date || "").trim();
+  if (themes.length && date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Неверная дата");
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("gallup", 2);
+    const row = readingRow_(sh, id);
+    if (!themes.length) {
+      if (row > 0) sh.deleteRow(row);
+    } else {
+      const data = [id, date ? Utilities.parseDate(date, tz_(), "yyyy-MM-dd") : ""].concat(themes);
+      while (data.length < 12) data.push("");
+      if (row > 0) sh.getRange(row, 1, 1, data.length).setValues([data]);
+      else sh.appendRow(data);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return readGallup_()[id] || null;
 }
 
 // ===================== Telegram-уведомления =====================
