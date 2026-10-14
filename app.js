@@ -3149,7 +3149,7 @@ function gallupTheme(name) {
 }
 function gallupChip(name) {
   const t = gallupTheme(name);
-  return t ? `<span class="gchip" style="--dc:${t.d.color}" title="${esc(t.en)} · ${esc(t.d.name)}">${esc(t.ru)}</span>` : `<span class="gchip">${esc(name)}</span>`;
+  return t ? `<span class="gchip" style="--dc:${t.d.color}" title="${esc(t.ru)} · ${esc(t.d.name)}">${esc(t.en)}</span>` : `<span class="gchip">${esc(name)}</span>`;
 }
 // Сколько талантов из первой пятёрки в каждом домене; ведущий — где больше (при равенстве — где талант выше)
 function gallupDomains(themes) {
@@ -3165,7 +3165,7 @@ function gallupDomains(themes) {
 }
 function gallupDomainBars(counts, total) {
   return `<div class="gdomains">${Object.entries(GALLUP_DOMAINS)
-    .map(([k, d]) => `<div class="gdom" style="--dc:${d.color}"><div class="gdom-head"><span>${d.icon} <b>${d.name}</b></span><b>${counts[k]}</b></div><div class="gdom-bar"><span style="width:${total ? (counts[k] / total) * 100 : 0}%"></span></div><div class="small muted">${d.about}</div></div>`)
+    .map(([k, d]) => `<div class="gdom" style="--dc:${d.color}"><div class="gdom-head"><span>${d.icon} <b>${d.en}</b> <span class="small muted">${d.name}</span></span><b>${counts[k]}</b></div><div class="gdom-bar"><span style="width:${total ? (counts[k] / total) * 100 : 0}%"></span></div><div class="small muted">${d.about}</div></div>`)
     .join("")}</div>`;
 }
 
@@ -3179,10 +3179,10 @@ function gallupMapHtml(themes) {
   return `<div class="gmap">${Object.entries(GALLUP_DOMAINS)
     .map(([k, d]) => {
       const list = GALLUP_THEMES.filter((t) => t[2] === k).sort((a, b) => (rank[a[0]] || 99) - (rank[b[0]] || 99));
-      return `<div class="gmap-row" style="--dc:${d.color}"><div class="gmap-dom">${d.icon} ${d.name}</div><div class="gmap-items">${list
+      return `<div class="gmap-row" style="--dc:${d.color}"><div class="gmap-dom">${d.icon} ${d.en} <span class="small muted">${d.name}</span></div><div class="gmap-items">${list
         .map(([en, ru]) => {
           const r = rank[en];
-          return `<span class="gmap-t ${r && r <= 10 ? "top" : ""} ${r ? "" : "none"}" title="${esc(en)}"><b>${r || "—"}</b>${esc(ru)}</span>`;
+          return `<span class="gmap-t ${r && r <= 10 ? "top" : ""} ${r ? "" : "none"}" title="${esc(ru)}"><b>${r || "—"}</b>${esc(en)}</span>`;
         })
         .join("")}</div></div>`;
     })
@@ -3197,15 +3197,15 @@ function gallupHtml(s) {
   const top = themes.slice(0, 5);
   const view = themes.length
     ? `<div class="highlights" style="margin:0 0 14px">
-        <div class="hl"><span class="hl-icon">🏆</span><div><div class="eyebrow">Самый сильный талант</div><div><b>${esc(gallupTheme(themes[0])?.ru || themes[0])}</b></div></div></div>
-        ${lead ? `<div class="hl"><span class="hl-icon">${GALLUP_DOMAINS[lead].icon}</span><div><div class="eyebrow">Ведущий домен</div><div><b>${GALLUP_DOMAINS[lead].name}</b> <span class="small muted">${GALLUP_DOMAINS[lead].about}</span></div></div></div>` : ""}
+        <div class="hl"><span class="hl-icon">🏆</span><div><div class="eyebrow">Самый сильный талант</div><div><b>${esc(gallupTheme(themes[0])?.en || themes[0])}</b>${gallupTheme(themes[0]) ? ` <span class="small muted">${esc(gallupTheme(themes[0]).ru)}</span>` : ""}</div></div></div>
+        ${lead ? `<div class="hl"><span class="hl-icon">${GALLUP_DOMAINS[lead].icon}</span><div><div class="eyebrow">Ведущий домен</div><div><b>${GALLUP_DOMAINS[lead].en}</b> <span class="small muted">${GALLUP_DOMAINS[lead].name} — ${GALLUP_DOMAINS[lead].about}</span></div></div></div>` : ""}
       </div>
       <h3>Топ-5 талантов${g.date ? ` <span class="small muted">· тест ${fmtDate(g.date)}</span>` : ""}</h3>
       <div class="gcards">${top
         .map((n, i) => {
           const t = gallupTheme(n);
-          return `<div class="gcard" style="--dc:${t ? t.d.color : "var(--border)"}"><div class="gcard-rank">${i + 1}</div><div><div class="gcard-name">${esc(t ? t.ru : n)}${t ? ` <span class="small muted">${esc(t.en)}</span>` : ""}</div>${
-            t ? `<div class="small" style="color:var(--dc)">${t.d.icon} ${t.d.name}</div><p>${esc(t.about)}</p><p class="small">💡 ${esc(t.tip)}</p>` : ""
+          return `<div class="gcard" style="--dc:${t ? t.d.color : "var(--border)"}"><div class="gcard-rank">${i + 1}</div><div><div class="gcard-name">${esc(t ? t.en : n)}${t ? ` <span class="small muted">${esc(t.ru)}</span>` : ""}</div>${
+            t ? `<div class="small" style="color:var(--dc)">${t.d.icon} ${t.d.en}</div><p>${esc(t.about)}</p><p class="small">💡 ${esc(t.tip)}</p>` : ""
           }</div></div>`;
         })
         .join("")}</div>
@@ -3227,8 +3227,8 @@ function gallupHtml(s) {
           <button type="button" class="btn btn-ghost" id="gl-fill">Расставить места</button></details>
         <div class="gl-grid">${Object.entries(GALLUP_DOMAINS)
           .map(
-            ([k, d]) => `<div class="gl-dom" style="--dc:${d.color}"><div class="gmap-dom">${d.icon} ${d.name}</div>${GALLUP_THEMES.filter((t) => t[2] === k)
-              .map(([en, ru]) => `<label class="gl-row"><input class="gl-in" data-en="${esc(en)}" inputmode="numeric" maxlength="2" value="${rank[en] || ""}" aria-label="${esc(ru)}"><span>${esc(ru)} <span class="small muted">${esc(en)}</span></span></label>`)
+            ([k, d]) => `<div class="gl-dom" style="--dc:${d.color}"><div class="gmap-dom">${d.icon} ${d.en} <span class="small muted">${d.name}</span></div>${GALLUP_THEMES.filter((t) => t[2] === k)
+              .map(([en, ru]) => `<label class="gl-row"><input class="gl-in" data-en="${esc(en)}" inputmode="numeric" maxlength="2" value="${rank[en] || ""}" aria-label="${esc(ru)}"><span>${esc(en)} <span class="small muted">${esc(ru)}</span></span></label>`)
               .join("")}</div>`
           )
           .join("")}</div>
@@ -3265,8 +3265,8 @@ function bindGallup(s) {
       const v = el.value.trim();
       if (!v) continue;
       const r = Number(v);
-      if (!Number.isInteger(r) || r < 1 || r > 34) return fail(`Место должно быть числом от 1 до 34 (${gallupTheme(el.dataset.en).ru})`);
-      if (byRank[r]) return fail(`Место ${r} указано дважды: ${gallupTheme(byRank[r]).ru} и ${gallupTheme(el.dataset.en).ru}`);
+      if (!Number.isInteger(r) || r < 1 || r > 34) return fail(`Место должно быть числом от 1 до 34 (${el.dataset.en})`);
+      if (byRank[r]) return fail(`Место ${r} указано дважды: ${byRank[r]} и ${el.dataset.en}`);
       byRank[r] = el.dataset.en;
     }
     const n = Object.keys(byRank).length;
@@ -3305,7 +3305,7 @@ function gallupAllHtml() {
       <div class="rank">${topThemes
         .map(([n, c], i) => {
           const t = gallupTheme(n);
-          return `<div class="rank-row"><span class="rank-pos">${i + 1}</span><span class="rank-name">${esc(t ? t.ru : n)}</span><span class="rank-bar"><span style="width:${(c / max) * 100}%;${t ? `background:${t.d.color}` : ""}"></span></span><span class="rank-val">${c}</span></div>`;
+          return `<div class="rank-row"><span class="rank-pos">${i + 1}</span><span class="rank-name" title="${t ? esc(t.ru) : ""}">${esc(t ? t.en : n)}</span><span class="rank-bar"><span style="width:${(c / max) * 100}%;${t ? `background:${t.d.color}` : ""}"></span></span><span class="rank-val">${c}</span></div>`;
         })
         .join("")}</div>`
         : ""
@@ -3317,7 +3317,7 @@ function gallupAllHtml() {
           const th = (s.gallup && s.gallup.themes) || [];
           const lead = gallupDomains(th).lead;
           return `<tr><td class="muted">${i + 1}</td><td>${studentLink(s)}</td><td class="wrap">${th.length ? `<div class="chips">${th.slice(0, 5).map(gallupChip).join("")}</div>` : '<span class="muted">—</span>'}</td><td>${
-            lead ? `${GALLUP_DOMAINS[lead].icon} ${GALLUP_DOMAINS[lead].name}` : "—"
+            lead ? `${GALLUP_DOMAINS[lead].icon} ${GALLUP_DOMAINS[lead].en}` : "—"
           }</td></tr>`;
         })
         .join("")}
@@ -3379,7 +3379,7 @@ function resumeHtml(s) {
     ${books.length ? `<div class="kv">Прочитано книг<br><b>${books.length}</b></div>` : ""}
   </div>
   ${block("Успеваемость", gradeRows ? `<table>${gradeRows}</table>` : "")}
-  ${block("Сильные стороны (Gallup)", s.gallup && s.gallup.themes.length ? `<p>${s.gallup.themes.slice(0, 5).map((n, i) => `${i + 1}. <b>${esc(gallupTheme(n)?.ru || n)}</b>${gallupTheme(n) ? ` <span class="m">(${esc(gallupTheme(n).en)})</span>` : ""}`).join(" · ")}</p>` : "")}
+  ${block("Сильные стороны (Gallup)", s.gallup && s.gallup.themes.length ? `<p>${s.gallup.themes.slice(0, 5).map((n, i) => `${i + 1}. <b>${esc(gallupTheme(n)?.en || n)}</b>${gallupTheme(n) ? ` <span class="m">(${esc(gallupTheme(n).ru)})</span>` : ""}`).join(" · ")}</p>` : "")}
   ${block("Олимпиады", olymp ? `<ul>${olymp}</ul>` : "")}
   ${block("Английский язык", eng ? `<ul>${eng}</ul>` : "")}
   ${block("Экзамены и тесты", exams ? `<ul>${exams}</ul>` : "")}
