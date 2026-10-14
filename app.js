@@ -381,26 +381,54 @@ async function loadClassList() {
   return classList;
 }
 
+// ---------- приложение на телефоне (PWA) ----------
+// Android/Chrome присылает событие установки — сохраняем и показываем системное окно по кнопке.
+// На iPhone такого окна нет: показываем, куда нажать в Safari.
+let installEvent = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  installEvent = e;
+});
+function isStandalone() {
+  return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+}
+function installApp() {
+  if (installEvent) {
+    installEvent.prompt();
+    installEvent.userChoice.finally(() => (installEvent = null));
+    return;
+  }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  alert(
+    ios
+      ? "iPhone: откройте сайт в Safari → нажмите «Поделиться» (квадрат со стрелкой) → «На экран „Домой“» → «Добавить»."
+      : "Android: откройте сайт в Chrome → меню ⋮ (справа вверху) → «Добавить на главный экран» или «Установить приложение»."
+  );
+}
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) navigator.serviceWorker.register("sw.js").catch(() => {});
+
 // ---------- session ----------
-function saveSession() {
+// «Запомнить на этом телефоне» — вход хранится в localStorage (до «Выйти»), иначе только до закрытия вкладки
+function saveSession(remember) {
   try {
     sessionStorage.setItem("creds", JSON.stringify(creds));
+    if (remember) localStorage.setItem("creds", JSON.stringify(creds));
   } catch (e) {}
 }
 function loadSession() {
   try {
-    return JSON.parse(sessionStorage.getItem("creds"));
+    return JSON.parse(sessionStorage.getItem("creds") || localStorage.getItem("creds"));
   } catch (e) {
     return null;
   }
 }
 
-async function login(loginValue, pin, as) {
+async function login(loginValue, pin, as, remember) {
   creds = { login: loginValue, pin, as };
   const res = await api("login");
   DATA = res.data;
   state.user = res.role === "teacher" ? { role: "teacher", staff: res.staff || "Учитель" } : { role: res.role, id: res.id };
-  saveSession();
+  saveSession(remember);
 }
 
 function logout() {
@@ -409,6 +437,7 @@ function logout() {
   creds = null;
   try {
     sessionStorage.removeItem("creds");
+    localStorage.removeItem("creds");
   } catch (e) {}
   render();
 }
@@ -504,10 +533,14 @@ function renderLogin() {
           <label for="pin">${R.code}</label>
           <input id="pin" ${R.codeInput} required>
         </div>
+        <label class="remember small"><input type="checkbox" id="remember" ${isStandalone() ? "checked" : ""}> Запомнить меня на этом телефоне</label>
         <div class="error" id="login-error"></div>
         <button class="btn btn-block" type="submit" id="login-btn">Войти</button>
       </form>
+      ${isStandalone() ? "" : '<button type="button" class="btn btn-ghost btn-block install-btn" id="install-btn">📲 Установить на телефон</button>'}
     </div>`;
+  const ib = document.getElementById("install-btn");
+  if (ib) ib.addEventListener("click", installApp);
   app.querySelectorAll("[data-login-as]").forEach((b) =>
     b.addEventListener("click", () => {
       state.loginAs = b.dataset.loginAs;
@@ -522,7 +555,7 @@ function renderLogin() {
     btn.textContent = "Загрузка…";
     err.textContent = "";
     try {
-      await login(document.getElementById("login").value.trim(), document.getElementById("pin").value.trim(), role === "parent" ? "parent" : undefined);
+      await login(document.getElementById("login").value.trim(), document.getElementById("pin").value.trim(), role === "parent" ? "parent" : undefined, document.getElementById("remember").checked);
       render();
     } catch (ex) {
       creds = null;
@@ -4059,6 +4092,12 @@ document.getElementById("logout-btn").addEventListener("click", logout);
     try {
       await login(saved.login, saved.pin, saved.as);
     } catch (e) {
+      // нет интернета — не стираем сохранённый вход, предлагаем повторить; неверный PIN — выходим
+      if (!/неверн|не найден/i.test(e.message)) {
+        app.innerHTML = `<div class="card" style="max-width:420px;margin:60px auto;text-align:center"><p>Не удалось загрузить данные: ${esc(e.message)}</p><p class="small muted">Проверьте интернет.</p><button class="btn" onclick="location.reload()">Повторить</button> <button class="btn btn-ghost" id="retry-logout">Выйти</button></div>`;
+        document.getElementById("retry-logout").addEventListener("click", logout);
+        return;
+      }
       logout();
       return;
     }
