@@ -57,7 +57,7 @@ const HEADERS = {
   wordProgress: ["Кто (ID ученика, S01:мама, Учитель…)", "Набор (id)", "Название", "Прогресс (JSON, не менять)", "Выучено", "Слов", "Лучший тест, %", "Тестов", "Произнесено", "Обновлено"],
   customWords: ["Набор", "Слово", "Транскрипция", "Перевод", "Пример", "Қазақша"],
   reading: ["ID ученика", "Книга", "Автор", "Страниц всего", "Прочитано страниц", "Начал", "Обновлено"],
-  gallup: ["ID ученика", "Дата теста", "Талант 1", "Талант 2", "Талант 3", "Талант 4", "Талант 5", "Талант 6", "Талант 7", "Талант 8", "Талант 9", "Талант 10"],
+  gallup: ["ID ученика", "Дата теста"].concat(Array.from({ length: 34 }, (_, i) => "Талант " + (i + 1))),
   tg: ["Chat ID", "ID ученика", "Кто", "Имя в Telegram", "Подключено"],
   duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
@@ -1144,7 +1144,7 @@ function deleteEnglish_(id, x) {
 }
 
 // ===================== Gallup (CliftonStrengths) =====================
-// Лист «Gallup»: ID | Дата теста | Талант 1 … Талант 10 — по строке на ученика, таланты по порядку (1 — самый сильный).
+// Лист «Gallup»: ID | Дата теста | Талант 1 … Талант 34 — по строке на ученика, таланты по порядку (1 — самый сильный).
 // Названия можно писать по-английски или по-русски, как в отчёте Gallup. Лист создаётся сам при первой записи.
 
 // { "S01": {date, themes: ["Achiever", …]} }
@@ -1152,7 +1152,7 @@ function readGallup_() {
   const res = {};
   rows_("gallup", true).forEach((r) => {
     const id = String(r[0]).trim().toUpperCase();
-    const themes = r.slice(2, 12).map(clean_).filter(Boolean);
+    const themes = r.slice(2, 36).map(clean_).filter(Boolean);
     if (id && themes.length) res[id] = { date: iso_(r[1]), themes: themes };
   });
   return res;
@@ -1162,7 +1162,7 @@ function readGallup_() {
 function saveGallup_(id, g) {
   g = g || {};
   const themes = (Array.isArray(g.themes) ? g.themes : []).map((t) => safeText_(t, 40)).filter(Boolean);
-  if (themes.length > 10) throw new Error("Не больше 10 талантов");
+  if (themes.length > 34) throw new Error("Не больше 34 талантов");
   if (new Set(themes.map((t) => t.toLowerCase())).size !== themes.length) throw new Error("Таланты не должны повторяться");
   const date = String(g.date || "").trim();
   if (themes.length && date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Неверная дата");
@@ -1170,12 +1170,15 @@ function saveGallup_(id, g) {
   lock.waitLock(10000);
   try {
     const sh = ensureSheet_("gallup", 2);
+    // лист мог быть создан раньше с 10 колонками — дописываем заголовки до «Талант 34»
+    const h = HEADERS.gallup;
+    if (sh.getLastColumn() < h.length) sh.getRange(1, 1, 1, h.length).setValues([h]).setFontWeight("bold").setBackground("#e7ecff");
     const row = readingRow_(sh, id);
     if (!themes.length) {
       if (row > 0) sh.deleteRow(row);
     } else {
       const data = [id, date ? Utilities.parseDate(date, tz_(), "yyyy-MM-dd") : ""].concat(themes);
-      while (data.length < 12) data.push("");
+      while (data.length < HEADERS.gallup.length) data.push("");
       if (row > 0) sh.getRange(row, 1, 1, data.length).setValues([data]);
       else sh.appendRow(data);
     }

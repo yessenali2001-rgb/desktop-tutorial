@@ -3169,6 +3169,26 @@ function gallupDomainBars(counts, total) {
     .join("")}</div>`;
 }
 
+// Карта сильных сторон: 4 домена, в каждом таланты по месту; топ-10 закрашены, как в отчёте Gallup
+function gallupMapHtml(themes) {
+  const rank = {};
+  themes.forEach((n, i) => {
+    const t = gallupTheme(n);
+    if (t) rank[t.en] = i + 1;
+  });
+  return `<div class="gmap">${Object.entries(GALLUP_DOMAINS)
+    .map(([k, d]) => {
+      const list = GALLUP_THEMES.filter((t) => t[2] === k).sort((a, b) => (rank[a[0]] || 99) - (rank[b[0]] || 99));
+      return `<div class="gmap-row" style="--dc:${d.color}"><div class="gmap-dom">${d.icon} ${d.name}</div><div class="gmap-items">${list
+        .map(([en, ru]) => {
+          const r = rank[en];
+          return `<span class="gmap-t ${r && r <= 10 ? "top" : ""} ${r ? "" : "none"}" title="${esc(en)}"><b>${r || "—"}</b>${esc(ru)}</span>`;
+        })
+        .join("")}</div></div>`;
+    })
+    .join("")}</div>`;
+}
+
 function gallupHtml(s) {
   const g = s.gallup;
   const canEdit = state.user.role !== "parent";
@@ -3189,17 +3209,30 @@ function gallupHtml(s) {
           }</div></div>`;
         })
         .join("")}</div>
-      ${themes.length > 5 ? `<h3>Таланты 6–${themes.length}</h3><div class="chips">${themes.slice(5).map(gallupChip).join("")}</div>` : ""}
-      <h3>Домены в топ-5</h3>${gallupDomainBars(counts, top.length)}`
-    : `<p class="muted">Результатов Gallup пока нет.${canEdit ? " Впишите таланты из отчёта Gallup ниже: 1 — самый сильный." : ""}</p>`;
+      <h3>Домены в топ-5</h3>${gallupDomainBars(counts, top.length)}
+      ${themes.length > 5 ? `<h3>Карта сильных сторон <span class="small muted">· ${themes.length} из 34, закрашены первые 10</span></h3>${gallupMapHtml(themes)}` : ""}`
+    : `<p class="muted">Результатов Gallup пока нет.${canEdit ? " Впишите места талантов из отчёта Gallup ниже." : ""}</p>`;
+  const rank = {};
+  themes.forEach((n, i) => {
+    const t = gallupTheme(n);
+    if (t) rank[t.en] = i + 1;
+  });
   const form = canEdit
-    ? `<form class="plan-form" id="gallup-form" style="margin-top:18px">
-        <h3 class="wide">✏️ ${themes.length ? "Изменить" : "Внести"} результаты</h3>
-        <label>Дата теста<input type="date" id="gl-date" value="${esc((g && g.date) || "")}"></label>
-        <p class="wide small muted">Пишите по-русски или по-английски, как в отчёте (например, «Achiever» или «Достигатор»). Достаточно первых пяти.</p>
-        ${Array.from({ length: 10 }, (_, i) => `<label>${i + 1}${i < 5 ? " ⭐" : ""}<input list="gallup-list" class="gl-in" maxlength="40" value="${esc(themes[i] ? gallupTheme(themes[i])?.ru || themes[i] : "")}"></label>`).join("")}
-        <datalist id="gallup-list">${(typeof GALLUP_THEMES === "undefined" ? [] : GALLUP_THEMES).map(([en, ru]) => `<option value="${esc(ru)}">${esc(en)}</option>`).join("")}</datalist>
-        <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="gl-save">Сохранить</button><span class="small" id="gl-msg"></span></div>
+    ? `<form id="gallup-form" style="margin-top:18px">
+        <h3>✏️ ${themes.length ? "Изменить" : "Внести"} результаты</h3>
+        <div class="plan-form"><label>Дата теста<input type="date" id="gl-date" value="${esc((g && g.date) || "")}"></label></div>
+        <p class="small muted">Впишите место каждого таланта из отчёта (1 — самый сильный), как на «карте сильных сторон» Gallup. Можно заполнить только первые 5 или 10 мест.</p>
+        <details class="gl-paste"><summary class="small">или вставить список по порядку</summary>
+          <textarea id="gl-paste" rows="3" placeholder="Achiever, Significance, Analytical, …"></textarea>
+          <button type="button" class="btn btn-ghost" id="gl-fill">Расставить места</button></details>
+        <div class="gl-grid">${Object.entries(GALLUP_DOMAINS)
+          .map(
+            ([k, d]) => `<div class="gl-dom" style="--dc:${d.color}"><div class="gmap-dom">${d.icon} ${d.name}</div>${GALLUP_THEMES.filter((t) => t[2] === k)
+              .map(([en, ru]) => `<label class="gl-row"><input class="gl-in" data-en="${esc(en)}" inputmode="numeric" maxlength="2" value="${rank[en] || ""}" aria-label="${esc(ru)}"><span>${esc(ru)} <span class="small muted">${esc(en)}</span></span></label>`)
+              .join("")}</div>`
+          )
+          .join("")}</div>
+        <div class="save-bar" style="position:static;border:none;padding:10px 0 0"><button class="btn" type="submit" id="gl-save">Сохранить</button><span class="small" id="gl-msg"></span></div>
       </form>`
     : "";
   return `<div class="card"><div class="eyebrow">Gallup CliftonStrengths</div><h2>💪 Сильные стороны</h2>
@@ -3210,21 +3243,38 @@ function gallupHtml(s) {
 function bindGallup(s) {
   const form = document.getElementById("gallup-form");
   if (!form) return;
+  const msg = document.getElementById("gl-msg");
+  const fail = (t) => ((msg.textContent = t), (msg.style.color = "var(--red)"));
+  const inputs = [...form.querySelectorAll(".gl-in")];
+  document.getElementById("gl-fill").addEventListener("click", () => {
+    const names = document.getElementById("gl-paste").value.split(/[,;\n]+|\s*\d+[.)]\s*/).map((x) => x.trim()).filter(Boolean);
+    const unknown = names.filter((n) => !gallupTheme(n));
+    if (unknown.length) return fail(`Не нашёл таланты: ${unknown.join(", ")}`);
+    inputs.forEach((el) => (el.value = ""));
+    names.forEach((n, i) => {
+      const el = inputs.find((x) => x.dataset.en === gallupTheme(n).en);
+      if (el && !el.value) el.value = i + 1;
+    });
+    msg.textContent = `Расставлено мест: ${names.length}. Проверьте и нажмите «Сохранить».`;
+    msg.style.color = "";
+  });
   form.addEventListener("submit", (e) => {
     e.preventDefault();
-    const msg = document.getElementById("gl-msg");
-    const names = [...form.querySelectorAll(".gl-in")].map((el) => el.value.trim()).filter(Boolean);
-    const themes = names.map((n) => gallupTheme(n)?.en || n);
-    const unknown = names.filter((n) => !gallupTheme(n));
-    const dup = themes.find((t, i) => themes.findIndex((x) => x.toLowerCase() === t.toLowerCase()) !== i);
-    if (dup) {
-      msg.textContent = `Талант «${gallupTheme(dup)?.ru || dup}» указан дважды`;
-      msg.style.color = "var(--red)";
-      return;
+    const byRank = {};
+    for (const el of inputs) {
+      const v = el.value.trim();
+      if (!v) continue;
+      const r = Number(v);
+      if (!Number.isInteger(r) || r < 1 || r > 34) return fail(`Место должно быть числом от 1 до 34 (${gallupTheme(el.dataset.en).ru})`);
+      if (byRank[r]) return fail(`Место ${r} указано дважды: ${gallupTheme(byRank[r]).ru} и ${gallupTheme(el.dataset.en).ru}`);
+      byRank[r] = el.dataset.en;
     }
-    if (unknown.length && !confirm(`Не нашёл таланты: ${unknown.join(", ")}. Всё равно сохранить?`)) return;
-    if (!themes.length && !confirm("Удалить результаты Gallup?")) return;
+    const n = Object.keys(byRank).length;
+    const gap = Array.from({ length: n }, (_, i) => i + 1).find((r) => !byRank[r]);
+    if (gap) return fail(`Пропущено место ${gap}: места должны идти подряд с 1`);
+    if (!n && !confirm("Удалить результаты Gallup?")) return;
     document.getElementById("gl-save").disabled = true;
+    const themes = Array.from({ length: n }, (_, i) => byRank[i + 1]);
     runStudentEdit(s, "saveGallup", { gallup: { date: document.getElementById("gl-date").value, themes } }, "gallup", "gl-msg", "Сохранено ✓");
   });
 }
@@ -3272,7 +3322,7 @@ function gallupAllHtml() {
         })
         .join("")}
     </table></div>
-    <p class="small muted">Внести результаты: откройте ученика → вкладка «💪 Gallup» (ученик может и сам). Или вставьте прямо в лист «Gallup» таблицы: ID | Дата теста | Талант 1 … Талант 10.</p>
+    <p class="small muted">Внести результаты: откройте ученика → вкладка «💪 Gallup» (ученик может и сам). Или вставьте прямо в лист «Gallup» таблицы: ID | Дата теста | Талант 1 … Талант 34.</p>
   </div>`;
 }
 

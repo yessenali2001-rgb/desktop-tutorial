@@ -577,3 +577,21 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .gdom-head { display: flex; justify-content: space-between; gap: 8px; }
 .gdom-bar { height: 8px; background: var(--accent-soft); border-radius: 4px; margin: 6px 0; overflow: hidden; }
 .gdom-bar span { display: block; height: 100%; background: var(--dc); border-radius: 4px; }
+
+/* Gallup: карта всех 34 талантов и ввод мест */
+.gmap { display: flex; flex-direction: column; gap: 10px; }
+.gmap-row { display: grid; grid-template-columns: 150px 1fr; gap: 10px; border-left: 5px solid var(--dc); padding-left: 10px; }
+.gmap-dom { font-weight: 700; color: var(--dc); }
+.gmap-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.gmap-t { display: inline-flex; gap: 6px; align-items: baseline; padding: 4px 10px; border-radius: 8px; font-size: 13px; background: color-mix(in srgb, var(--dc) 12%, transparent); color: var(--text); }
+.gmap-t b { color: var(--dc); }
+.gmap-t.top { background: var(--dc); color: #fff; }
+.gmap-t.top b { color: #fff; }
+.gmap-t.none { opacity: 0.5; }
+.gl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 10px; }
+.gl-dom { border-top: 4px solid var(--dc); padding-top: 6px; }
+.gl-row { display: flex; gap: 8px; align-items: center; margin: 4px 0; font-size: 14px; }
+.gl-row input { width: 48px; padding: 5px 6px; text-align: center; font: inherit; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+.gl-paste { margin: 8px 0; }
+.gl-paste textarea { width: 100%; box-sizing: border-box; margin: 6px 0; font: inherit; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); }
+@media (max-width: 600px) { .gmap-row { grid-template-columns: 1fr; } }
