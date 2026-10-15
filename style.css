@@ -601,3 +601,18 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .install-btn { margin-top: 10px; }
 /* Приложение на iPhone: шапка не залезает под вырез экрана */
 @supports (padding-top: env(safe-area-inset-top)) { .topbar { padding-top: max(12px, env(safe-area-inset-top)); } }
+
+/* Gallup: совет взрослым и команды */
+.gteach { background: var(--accent-soft); border-radius: 8px; padding: 6px 8px; }
+.gteam-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 12px; }
+.gteam-bar .seg-btn { border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; }
+.gteam-bar .btn { margin-left: auto; }
+.gteams { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.gteam { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; }
+.gteam-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.gdot { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; margin-left: 3px; font-size: 13px; background: color-mix(in srgb, var(--dc) 22%, transparent); border: 2px solid var(--dc); }
+.gdot.off { opacity: 0.25; filter: grayscale(1); }
+.gteam-m { padding: 6px 0; border-top: 1px dashed var(--border); }
+.gteam-m .chips { margin-top: 4px; gap: 4px; }
+.gteam-ok { color: var(--green); }
+.gteam-bar .seg-btn.active { background: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); font-weight: 700; }

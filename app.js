@@ -1626,6 +1626,7 @@ function renderTeacher() {
   bindPeriods();
   if (state.tab === "mark") bindMark();
   if (state.tab === "ielts-all") bindIeltsAll();
+  if (state.tab === "gallup-all") bindGallupAll();
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
   if (state.tab === "words-all") {
@@ -3171,8 +3172,8 @@ const gallupNorm = (t) => String(t || "").toLowerCase().replace(/ё/g, "е").rep
 function gallupTheme(name) {
   if (!gallupIndex) {
     gallupIndex = {};
-    (typeof GALLUP_THEMES === "undefined" ? [] : GALLUP_THEMES).forEach(([en, ru, domain, about, tip]) => {
-      const t = { en, ru, domain, about, tip, d: GALLUP_DOMAINS[domain] };
+    (typeof GALLUP_THEMES === "undefined" ? [] : GALLUP_THEMES).forEach(([en, ru, domain, about, tip, teach]) => {
+      const t = { en, ru, domain, about, tip, teach, d: GALLUP_DOMAINS[domain] };
       gallupIndex[gallupNorm(en)] = gallupIndex[gallupNorm(ru)] = t;
     });
   }
@@ -3238,7 +3239,7 @@ function gallupHtml(s) {
         .map((n, i) => {
           const t = gallupTheme(n);
           return `<div class="gcard" style="--dc:${t ? t.d.color : "var(--border)"}"><div class="gcard-rank">${i + 1}</div><div><div class="gcard-name">${esc(t ? t.en : n)}${t ? ` <span class="small muted">${esc(t.ru)}</span>` : ""}</div>${
-            t ? `<div class="small" style="color:var(--dc)">${t.d.icon} ${t.d.en}</div><p>${esc(t.about)}</p><p class="small">💡 ${esc(t.tip)}</p>` : ""
+            t ? `<div class="small" style="color:var(--dc)">${t.d.icon} ${t.d.en}</div><p>${esc(t.about)}</p><p class="small">💡 ${esc(t.tip)}</p>${t.teach ? `<p class="small gteach">👩‍🏫 <b>Учителю и родителям:</b> ${esc(t.teach)}</p>` : ""}` : ""
           }</div></div>`;
         })
         .join("")}</div>
@@ -3312,6 +3313,84 @@ function bindGallup(s) {
   });
 }
 
+// ---------- Gallup: команды и пары для проектов ----------
+// Цель — чтобы в каждой команде были все 4 домена (кто делает, кто ведёт, кто сплачивает, кто думает).
+// Вес домена у ученика: талант на 1-м месте даёт 5, на 5-м — 1.
+function gallupWeights(s) {
+  const w = Object.fromEntries(Object.keys(GALLUP_DOMAINS).map((k) => [k, 0]));
+  s.gallup.themes.slice(0, 5).forEach((n, i) => {
+    const t = gallupTheme(n);
+    if (t) w[t.domain] += 5 - i;
+  });
+  return w;
+}
+// Простой генератор случайных чисел с seed — «Перемешать» даёт другой, но повторяемый вариант
+function seeded(seed) {
+  let x = seed * 9301 + 49297;
+  return () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+}
+function gallupTeams(list, size, seed) {
+  const rnd = seeded(seed);
+  const k = Math.max(1, Math.round(list.length / size));
+  const cap = Array.from({ length: k }, (_, i) => Math.floor(list.length / k) + (i < list.length % k ? 1 : 0));
+  const teams = Array.from({ length: k }, () => ({ members: [], w: Object.fromEntries(Object.keys(GALLUP_DOMAINS).map((d) => [d, 0])) }));
+  // сначала ученики с самым ярким доменом — их важнее развести по разным командам
+  const order = list
+    .map((s) => ({ s, w: gallupWeights(s), r: rnd() }))
+    .sort((a, b) => Math.max(...Object.values(b.w)) - Math.max(...Object.values(a.w)) || a.r - b.r);
+  order.forEach(({ s, w }) => {
+    let best = -1, bestScore = -Infinity;
+    teams.forEach((t, i) => {
+      if (t.members.length >= cap[i]) return;
+      // выгода: насколько ученик закрывает слабые домены команды
+      const gain = Object.keys(w).reduce((a, d) => a + Math.min(w[d], Math.max(0, 6 - t.w[d])), 0);
+      const score = gain * 10 - t.members.length * 3 + rnd();
+      if (score > bestScore) (bestScore = score), (best = i);
+    });
+    teams[best].members.push(s);
+    Object.keys(w).forEach((d) => (teams[best].w[d] += w[d]));
+  });
+  return teams;
+}
+function gallupTeamsHtml(done) {
+  const size = state.gteamSize || 4;
+  const seed = state.gteamSeed || 1;
+  const teams = gallupTeams(done, size, seed);
+  const missing = DATA.students.length - done.length;
+  return `<h3>👥 Команды и пары по Gallup</h3>
+    <p class="small muted">Сайт делит учеников так, чтобы в каждой команде были сильные стороны всех 4 доменов: кто доводит до результата, кто ведёт, кто сплачивает и кто придумывает. Подходит для проектов, дежурств и групповых заданий.</p>
+    <div class="gteam-bar">
+      <span class="small">В команде:</span>
+      ${[2, 3, 4, 5].map((n) => `<button class="seg-btn ${n === size ? "active" : ""}" data-gteam-size="${n}">${n === 2 ? "пары" : n}</button>`).join("")}
+      <button class="btn btn-ghost" id="gteam-shuffle">🔀 Другой вариант</button>
+    </div>
+    <div class="gteams">${teams
+      .map((t, i) => {
+        const lacks = Object.keys(GALLUP_DOMAINS).filter((d) => !t.w[d]);
+        return `<div class="gteam"><div class="gteam-head"><b>${size === 2 ? "Пара" : "Команда"} ${i + 1}</b><span>${Object.entries(GALLUP_DOMAINS)
+          .map(([d, x]) => `<span class="gdot ${t.w[d] ? "" : "off"}" style="--dc:${x.color}" title="${x.en}: ${t.w[d] ? "есть" : "нет"}">${x.icon}</span>`)
+          .join("")}</span></div>${t.members
+          .map((s) => `<div class="gteam-m">${studentLink(s)}<div class="chips">${s.gallup.themes.slice(0, 3).map(gallupChip).join("")}</div></div>`)
+          .join("")}${lacks.length ? `<p class="small muted">Не хватает: ${lacks.map((d) => GALLUP_DOMAINS[d].en).join(", ")}</p>` : '<p class="small gteam-ok">✓ все 4 домена</p>'}</div>`;
+      })
+      .join("")}</div>
+    ${missing ? `<p class="small muted">В подборе только ученики с результатами Gallup (${done.length}). Без результата: ${missing}.</p>` : ""}`;
+}
+function bindGallupAll() {
+  app.querySelectorAll("[data-gteam-size]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.gteamSize = Number(b.dataset.gteamSize);
+      render();
+    })
+  );
+  const sh = document.getElementById("gteam-shuffle");
+  if (sh)
+    sh.addEventListener("click", () => {
+      state.gteamSeed = (state.gteamSeed || 1) + 1;
+      render();
+    });
+}
+
 // Учитель: Gallup всего класса — домены, частые таланты и топ-5 каждого
 function gallupAllHtml() {
   const list = sortedStudents();
@@ -3343,6 +3422,8 @@ function gallupAllHtml() {
         .join("")}</div>`
         : ""
     }
+    ${done.length >= 2 ? gallupTeamsHtml(done) : ""}
+    <h3>Топ-5 каждого ученика</h3>
     <div class="table-wrap"><table>
       <tr><th>#</th><th>Ученик</th><th>Топ-5 талантов</th><th>Ведущий домен</th></tr>
       ${list
