@@ -31,6 +31,7 @@ const SHEETS = {
   customWords: "Свои слова",
   reading: "Читаю сейчас",
   gallup: "Gallup",
+  meals: "Питание",
 };
 
 // «Широкие» листы: ID | ФИО | колонка на каждый показатель. Колонки можно добавлять.
@@ -58,6 +59,7 @@ const HEADERS = {
   customWords: ["Набор", "Слово", "Транскрипция", "Перевод", "Пример", "Қазақша"],
   reading: ["ID ученика", "Книга", "Автор", "Страниц всего", "Прочитано страниц", "Начал", "Обновлено"],
   gallup: ["ID ученика", "Дата теста"].concat(Array.from({ length: 34 }, (_, i) => "Талант " + (i + 1))),
+  meals: ["ID ученика", "Дата", "Операция (Начислено / Оплачено)", "Сумма, ₸", "Комментарий", "Кто внёс"],
   tg: ["Chat ID", "ID ученика", "Кто", "Имя в Telegram", "Подключено"],
   duties: ["Дата", "Дежурство", "Ученики (ID через запятую)", "Ученики (ФИО)", "Кто назначил"],
   meetings: ["Дата", "Кто провёл", "Ученики (ID через запятую)", "Ученики (ФИО)", "Тема", "Итог / заметки"],
@@ -163,6 +165,8 @@ function handle_(req) {
     case "login": {
       const data = user.role === "teacher" ? teacherData_() : studentData_(user.id); // родитель видит то же, что и ребёнок
       if (user.role !== "student") data.myWords = readWordProgress_()[wordsKey_(user)] || {}; // свои слова взрослого
+      // Питание: родитель видит только записи своего ребёнка, ученик — ничего, учитель — всех
+      if (user.role === "parent") data.meals = readMeals_()[user.id] || [];
       return { ok: true, role: user.role, id: user.id, staff: user.staff, parent: user.parent, data: data };
     }
     case "saveLesson": {
@@ -249,6 +253,13 @@ function handle_(req) {
       // Пробный IELTS всему классу сразу — только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
       return { ok: true, english: addEnglishMany_(req.results) };
+    case "addMeals":
+      // Начисления и оплаты за питание вносят только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, meals: addMeals_(user.staff, req.entries) };
+    case "deleteMeal":
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, meals: deleteMeal_(req.entry) };
     case "saveGallup": {
       const id = targetId_(user, req.id, "Результаты Gallup вносит сам ученик или учитель");
       return { ok: true, id: id, gallup: saveGallup_(id, req.gallup) };
@@ -575,6 +586,7 @@ function teacherData_() {
     universities: readUniversities_(),
     customWords: readCustomWords_(),
     adultWords: adultWords_(),
+    meals: readMeals_(), // питание — только учителю и воспитателю (родителю — отдельно, своё)
   };
 }
 
@@ -1141,6 +1153,78 @@ function deleteEnglish_(id, x) {
     lock.releaseLock();
   }
   throw new Error("Результат не найден. Обновите страницу.");
+}
+
+// ===================== Питание: начисления и оплаты =====================
+// Лист «Питание»: ID | Дата | Операция (Начислено / Оплачено) | Сумма, ₸ | Комментарий | Кто внёс.
+// Долг = всё начисленное − всё оплаченное. Строки можно вносить и прямо в таблицу.
+
+const MEAL_TYPES = ["Начислено", "Оплачено"];
+
+// { "S01": [ {date, type, amount, note, by} ] }
+function readMeals_() {
+  const res = {};
+  rows_("meals", true).forEach((r) => {
+    const id = String(r[0]).trim().toUpperCase();
+    const amount = Number(String(r[3]).replace(/\s/g, "").replace(",", "."));
+    if (!id || !amount) return;
+    const type = /опла/i.test(String(r[2])) ? "Оплачено" : "Начислено";
+    (res[id] = res[id] || []).push({ date: iso_(r[1]), type: type, amount: amount, note: clean_(r[4]), by: clean_(r[5]) });
+  });
+  return res;
+}
+
+function mealRow_(staff, x, known) {
+  x = x || {};
+  const id = String(x.id || "").trim().toUpperCase();
+  if (!known[id]) throw new Error("Ученик не найден: " + id);
+  const date = String(x.date || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Укажите дату");
+  if (MEAL_TYPES.indexOf(x.type) < 0) throw new Error("Операция: Начислено или Оплачено");
+  const amount = Number(String(x.amount || "").replace(/\s/g, "").replace(",", "."));
+  if (!(amount > 0) || amount > 10000000) throw new Error("Сумма — число больше 0");
+  return [id, Utilities.parseDate(date, tz_(), "yyyy-MM-dd"), x.type, Math.round(amount * 100) / 100, safeText_(x.note, 100), staff || ""];
+}
+
+// entries: [{id, date, type, amount, note}] — например, начисление за месяц всему классу сразу
+function addMeals_(staff, entries) {
+  if (!Array.isArray(entries) || !entries.length) throw new Error("Нет записей для сохранения");
+  if (entries.length > 60) throw new Error("Слишком много записей за раз");
+  const known = {};
+  readStudents_().forEach((s) => (known[s.id] = true));
+  const rows = entries.map((x) => mealRow_(staff, x, known));
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("meals", 2);
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  } finally {
+    lock.releaseLock();
+  }
+  return readMeals_();
+}
+
+// Удаляет одну запись — совпадают ученик, дата, операция, сумма и комментарий
+function deleteMeal_(x) {
+  x = x || {};
+  const id = String(x.id || "").trim().toUpperCase();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureSheet_("meals", 2);
+    const values = sh.getDataRange().getValues();
+    for (let i = values.length - 1; i >= 1; i--) {
+      const r = values[i];
+      const type = /опла/i.test(String(r[2])) ? "Оплачено" : "Начислено";
+      if (String(r[0]).trim().toUpperCase() === id && iso_(r[1]) === x.date && type === x.type && Number(String(r[3]).replace(/\s/g, "").replace(",", ".")) === Number(x.amount) && clean_(r[4]) === String(x.note || "")) {
+        sh.deleteRow(i + 1);
+        return readMeals_();
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  throw new Error("Запись не найдена. Обновите страницу.");
 }
 
 // ===================== Gallup (CliftonStrengths) =====================

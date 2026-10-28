@@ -616,3 +616,13 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .gteam-m .chips { margin-top: 4px; gap: 4px; }
 .gteam-ok { color: var(--green); }
 .gteam-bar .seg-btn.active { background: var(--btn-bg); color: var(--btn-text); border-color: var(--btn-bg); font-weight: 700; }
+
+/* Питание */
+.debt { color: var(--red); }
+.overpaid { color: var(--blue); }
+.paid-ok { color: var(--green); }
+.hl-debt { background: var(--red-soft); }
+.mc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 12px; margin-top: 6px; }
+.mc-list .remember, .meal-form .remember { margin: 2px 0; }
+.meal-form label.remember { flex-direction: row; display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
+.meal-form label.remember input { width: auto; margin: 0; }

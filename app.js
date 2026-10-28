@@ -188,6 +188,8 @@ async function demoApi(action, payload) {
         resources: D.resources,
         students: [strip(s)],
         myWords: parent ? ((D.adultWords || {})[s.id + ":родитель"] || {}).words || {} : undefined,
+        meals: parent ? JSON.parse(JSON.stringify((D.meals || {})[s.id] || [])) : undefined, // питание — только родителю
+
         universities: D.universities,
         duties: (D.duties || [])
           .filter((d) => d.students.includes(s.id) || d.date >= todayIso())
@@ -267,6 +269,24 @@ async function demoApi(action, payload) {
       (target.english = target.english || []).push(item);
     });
     return { ok: true, english: Object.fromEntries(D.students.map((st) => [st.id, JSON.parse(JSON.stringify(st.english || []))])) };
+  }
+  if (action === "addMeals" || action === "deleteMeal") {
+    if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
+    D.meals = D.meals || {};
+    if (action === "addMeals") {
+      (payload.entries || []).forEach((x) => {
+        if (!D.students.some((st) => st.id === x.id)) throw new Error("Ученик не найден: " + x.id);
+        if (!x.date || !(Number(x.amount) > 0)) throw new Error("Укажите дату и сумму");
+        (D.meals[x.id] = D.meals[x.id] || []).push({ date: x.date, type: x.type, amount: Number(x.amount), note: x.note || "", by: isTutor ? "Воспитатель" : "Учитель" });
+      });
+    } else {
+      const e = payload.entry || {};
+      const list = D.meals[e.id] || [];
+      const i = list.findIndex((x) => x.date === e.date && x.type === e.type && x.amount === Number(e.amount) && x.note === (e.note || ""));
+      if (i < 0) throw new Error("Запись не найдена. Обновите страницу.");
+      list.splice(i, 1);
+    }
+    return { ok: true, meals: JSON.parse(JSON.stringify(D.meals)) };
   }
   if (action === "saveGallup") {
     if (parent) throw new Error("Результаты Gallup вносит сам ученик или учитель");
@@ -602,6 +622,7 @@ function renderStudent(s, byTeacher) {
     ["gallup", "💪 Gallup"],
   ];
   if (byTeacher) tabs.push(["meetings", "🤝 Встречи"]); // встречи видят только учитель и воспитатель
+  if (isParent || byTeacher) tabs.splice(1, 0, ["meals", "🍽 Питание"]); // питание видят родитель и учитель, ученик — нет
   tabs.push(["resources", "📚 Ресурсы"]);
   if (!tabs.some(([k]) => k === state.tab)) state.tab = "schedule";
   const st = attendanceStats(s.id);
@@ -623,6 +644,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "activities") body = activitiesHtml(s);
   if (state.tab === "english") body = englishHtml(s);
   if (state.tab === "gallup") body = gallupHtml(s);
+  if (state.tab === "meals") body = mealsHtml(s);
   if (state.tab === "words") body = isParent ? wordsWhoHtml("👦 Прогресс ребёнка") + wordsHtml(state.wself ? meLearner() : s) : wordsHtml(s);
 
   const phones = [["Мама", s.momPhone], ["Папа", s.dadPhone]].filter(([, p]) => p);
@@ -698,6 +720,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "activities") bindActivities(s);
   if (state.tab === "english") bindEnglish(s);
   if (state.tab === "gallup") bindGallup(s);
+  if (state.tab === "meals") bindMeals(s);
   if (state.tab === "words") {
     if (isParent) bindWordsWho();
     bindWords(isParent && state.wself ? meLearner() : s);
@@ -1580,6 +1603,7 @@ function renderTeacher() {
     ["exams-all", "📝 Экзамены"],
     ["books-all", "📖 Книги"],
     ["tests-all", "🧠 Тесты"],
+    ["meals-all", "🍽 Питание"],
     ["gallup-all", "💪 Gallup"],
     ["schedule", "📅 Расписание"],
     ["resources", "📚 Ресурсы"],
@@ -1601,6 +1625,7 @@ function renderTeacher() {
   if (state.tab === "activities-all") body = activitiesAllHtml();
   if (state.tab === "ielts-all") body = ieltsAllHtml();
   if (state.tab === "gallup-all") body = gallupAllHtml();
+  if (state.tab === "meals-all") body = mealsAllHtml();
   if (state.tab === "tg") body = teacherTgHtml();
   if (state.tab === "words-all") body = wordsWhoHtml("📊 Класс") + (state.wself ? wordsHtml(meLearner()) : wordsAllHtml());
   if (state.tab === "idp-all") body = idpAllHtml();
@@ -1627,6 +1652,7 @@ function renderTeacher() {
   if (state.tab === "mark") bindMark();
   if (state.tab === "ielts-all") bindIeltsAll();
   if (state.tab === "gallup-all") bindGallupAll();
+  if (state.tab === "meals-all") bindMealsAll();
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
   if (state.tab === "words-all") {
@@ -3162,6 +3188,198 @@ function bindIeltsAll() {
         fail("Ошибка: " + ex.message);
         document.getElementById("ie-save").disabled = false;
       });
+  });
+}
+
+// ---------- Питание: начисления, оплаты и долг ----------
+// Родитель получает с сервера только записи своего ребёнка (DATA.meals — список), учитель — всех (DATA.meals — { id: [...] })
+const fmtMoney = (n) => `${Math.round(n).toLocaleString("ru-RU")} ₸`;
+function mealsOf(s) {
+  if (state.user.role === "teacher") return (DATA.meals || {})[s.id] || [];
+  return Array.isArray(DATA.meals) ? DATA.meals : [];
+}
+function mealTotals(list) {
+  const charged = list.filter((x) => x.type === "Начислено").reduce((a, x) => a + x.amount, 0);
+  const paid = list.filter((x) => x.type === "Оплачено").reduce((a, x) => a + x.amount, 0);
+  return { charged, paid, debt: charged - paid };
+}
+function debtHtml(debt) {
+  if (debt > 0) return `<span class="debt">${fmtMoney(debt)}</span>`;
+  if (debt < 0) return `<span class="overpaid">переплата ${fmtMoney(-debt)}</span>`;
+  return '<span class="paid-ok">0 ₸ ✓</span>';
+}
+function mealRowsHtml(list, id, canEdit) {
+  const rows = list.map((x, i) => ({ x, i })).sort((a, b) => (a.x.date < b.x.date ? 1 : -1));
+  if (!rows.length) return '<p class="muted">Записей пока нет.</p>';
+  return `<div class="table-wrap"><table>
+    <tr><th>Дата</th><th>Операция</th><th class="num">Сумма</th><th>Комментарий</th>${canEdit ? "<th></th>" : ""}</tr>
+    ${rows
+      .map(
+        ({ x, i }) => `<tr><td>${fmtDate(x.date)}</td><td>${x.type === "Оплачено" ? '<span class="pill present">💳 Оплачено</span>' : "🧾 Начислено"}</td><td class="num"><b>${
+          x.type === "Оплачено" ? "−" : "+"
+        }${fmtMoney(x.amount)}</b></td><td class="small">${esc(x.note)}</td>${canEdit ? `<td><button class="book-del" data-meal-del="${esc(id)}:${i}" title="Удалить">✕</button></td>` : ""}</tr>`
+      )
+      .join("")}
+  </table></div>`;
+}
+function mealFormHtml(prefix, students) {
+  return `<form class="plan-form meal-form" id="${prefix}-form">
+    <label>Операция<select id="${prefix}-type"><option>Оплачено</option><option>Начислено</option></select></label>
+    ${students ? `<label>Ученик<select id="${prefix}-id">${students.map((s) => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></label>` : ""}
+    <label>Дата<input type="date" id="${prefix}-date" value="${todayIso()}" required></label>
+    <label>Сумма, ₸<input id="${prefix}-amount" inputmode="decimal" maxlength="10" required placeholder="например, 25000"></label>
+    <label class="wide">Комментарий<input id="${prefix}-note" maxlength="100" placeholder="например, питание за ноябрь, Kaspi"></label>
+    <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="${prefix}-save">Сохранить</button><span class="small" id="${prefix}-msg"></span></div>
+  </form>`;
+}
+
+function mealsHtml(s) {
+  const list = mealsOf(s);
+  const t = mealTotals(list);
+  const byTeacher = state.user.role === "teacher";
+  const lastPay = list.filter((x) => x.type === "Оплачено").sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  return `<div class="card"><div class="eyebrow">Тамақ</div><h2>🍽 Питание</h2>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl ${t.debt > 0 ? "hl-debt" : "hl-today"}"><span class="hl-icon">${t.debt > 0 ? "⚠️" : "✅"}</span><div><div class="eyebrow">${t.debt > 0 ? "Долг" : "Долга нет"}</div><div><b>${debtHtml(t.debt)}</b></div></div></div>
+      <div class="hl"><span class="hl-icon">🧾</span><div><div class="eyebrow">Начислено всего</div><div><b>${fmtMoney(t.charged)}</b></div></div></div>
+      <div class="hl"><span class="hl-icon">💳</span><div><div class="eyebrow">Оплачено всего</div><div><b>${fmtMoney(t.paid)}</b>${lastPay ? ` <span class="small muted">последняя ${fmtDate(lastPay.date)}</span>` : ""}</div></div></div>
+    </div>
+    ${byTeacher ? "" : '<p class="small muted">Эту страницу видите только вы и классный руководитель. Если сумма не сходится, напишите учителю.</p>'}
+    <h3>История</h3>
+    ${mealRowsHtml(list, s.id, byTeacher)}
+    ${byTeacher ? `<h3>➕ Добавить запись</h3>${mealFormHtml("ml")}` : ""}
+  </div>`;
+}
+
+function saveMeals(entries, msgId, btnId, okText) {
+  const msg = document.getElementById(msgId);
+  msg.textContent = "Сохранение…";
+  msg.style.color = "";
+  document.getElementById(btnId).disabled = true;
+  return api("addMeals", { entries })
+    .then((res) => {
+      DATA.meals = res.meals;
+      render();
+      const m = document.getElementById(msgId);
+      if (m) (m.textContent = okText), (m.style.color = "var(--green)");
+    })
+    .catch((ex) => {
+      msg.textContent = "Ошибка: " + ex.message;
+      msg.style.color = "var(--red)";
+      document.getElementById(btnId).disabled = false;
+    });
+}
+function mealEntry(prefix, id) {
+  const v = (k) => document.getElementById(`${prefix}-${k}`).value.trim();
+  return { id: id || v("id"), type: v("type"), date: v("date"), amount: v("amount").replace(/\s/g, "").replace(",", "."), note: v("note") };
+}
+function checkMeal(e, msgId) {
+  const bad = !e.date ? "Укажите дату" : !(Number(e.amount) > 0) ? "Сумма — число больше 0" : "";
+  if (bad) {
+    const m = document.getElementById(msgId);
+    m.textContent = bad;
+    m.style.color = "var(--red)";
+  }
+  return !bad;
+}
+function bindMealDeletes() {
+  app.querySelectorAll("[data-meal-del]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const [id, i] = b.dataset.mealDel.split(":");
+      const x = ((DATA.meals || {})[id] || [])[Number(i)];
+      if (!x || !confirm(`Удалить «${x.type} ${fmtMoney(x.amount)}» от ${fmtDate(x.date)}?`)) return;
+      api("deleteMeal", { entry: { id, ...x } })
+        .then((res) => {
+          DATA.meals = res.meals;
+          render();
+        })
+        .catch((ex) => alert("Ошибка: " + ex.message));
+    })
+  );
+}
+function bindMeals(s) {
+  bindMealDeletes();
+  const form = document.getElementById("ml-form");
+  if (!form) return;
+  form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const e = mealEntry("ml", s.id);
+    if (checkMeal(e, "ml-msg")) saveMeals([e], "ml-msg", "ml-save", "Сохранено ✓");
+  });
+}
+
+// Учитель: питание всего класса — долги, начисление всем сразу и приём оплаты
+function mealsAllHtml() {
+  const list = sortedStudents();
+  const rows = list.map((s) => ({ s, t: mealTotals(mealsOf(s)), last: mealsOf(s).filter((x) => x.type === "Оплачено").sort((a, b) => (a.date < b.date ? 1 : -1))[0] }));
+  const debtors = rows.filter((r) => r.t.debt > 0);
+  const totalDebt = debtors.reduce((a, r) => a + r.t.debt, 0);
+  const recent = list
+    .flatMap((s) => mealsOf(s).map((x, i) => ({ s, x, i })))
+    .sort((a, b) => (a.x.date < b.x.date ? 1 : -1))
+    .slice(0, 30);
+  return `<div class="card"><div class="eyebrow">Тамақ</div><h2>🍽 Питание — класс</h2>
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl ${debtors.length ? "hl-debt" : "hl-today"}"><span class="hl-icon">⚠️</span><div><div class="eyebrow">Должников</div><div><b>${debtors.length}</b> из ${list.length}</div></div></div>
+      <div class="hl"><span class="hl-icon">💰</span><div><div class="eyebrow">Общий долг</div><div><b>${fmtMoney(totalDebt)}</b></div></div></div>
+    </div>
+    <p class="small muted">Каждый родитель видит только долг и историю своего ребёнка. Ученики эту вкладку не видят.</p>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th><th class="num">Начислено</th><th class="num">Оплачено</th><th class="num">Долг</th><th>Последняя оплата</th></tr>
+      ${rows
+        .sort((a, b) => b.t.debt - a.t.debt)
+        .map((r, i) => `<tr><td class="muted">${i + 1}</td><td>${studentLink(r.s)}</td><td class="num">${fmtMoney(r.t.charged)}</td><td class="num">${fmtMoney(r.t.paid)}</td><td class="num"><b>${debtHtml(r.t.debt)}</b></td><td class="small">${r.last ? fmtDate(r.last.date) : "—"}</td></tr>`)
+        .join("")}
+    </table></div></div>
+  <div class="card"><h2>💳 Принять оплату или начислить одному</h2>${mealFormHtml("mp", list)}</div>
+  <div class="card"><h2>🧾 Начислить нескольким ученикам</h2>
+    <form class="plan-form meal-form" id="mc-form">
+      <label>Дата<input type="date" id="mc-date" value="${todayIso()}" required></label>
+      <label>Сумма каждому, ₸<input id="mc-amount" inputmode="decimal" maxlength="10" required placeholder="например, 25000"></label>
+      <label class="wide">Комментарий<input id="mc-note" maxlength="100" placeholder="например, питание за ноябрь"></label>
+      <div class="wide"><label class="remember small"><input type="checkbox" id="mc-all" checked> Выбрать всех</label>
+        <div class="mc-list">${list.map((s) => `<label class="remember small"><input type="checkbox" class="mc-st" value="${s.id}" checked> ${esc(s.name)}</label>`).join("")}</div></div>
+      <div class="wide save-bar" style="position:static;border:none;padding:0"><button class="btn" type="submit" id="mc-save">Начислить</button><span class="small" id="mc-msg"></span></div>
+    </form></div>
+  <div class="card"><h2>Последние записи</h2>
+    ${
+      recent.length
+        ? `<div class="table-wrap"><table><tr><th>Дата</th><th>Ученик</th><th>Операция</th><th class="num">Сумма</th><th>Комментарий</th><th>Кто внёс</th><th></th></tr>${recent
+            .map(
+              ({ s, x, i }) => `<tr><td>${fmtDate(x.date)}</td><td>${studentLink(s)}</td><td>${x.type === "Оплачено" ? "💳 Оплачено" : "🧾 Начислено"}</td><td class="num">${fmtMoney(x.amount)}</td><td class="small">${esc(x.note)}</td><td class="small muted">${esc(
+                x.by || ""
+              )}</td><td><button class="book-del" data-meal-del="${s.id}:${i}" title="Удалить">✕</button></td></tr>`
+            )
+            .join("")}</table></div>`
+        : '<p class="muted">Записей пока нет.</p>'
+    }
+    <p class="small muted">Записи можно вносить и прямо в лист «Питание» таблицы: ID ученика | Дата | Начислено или Оплачено | Сумма | Комментарий.</p>
+  </div>`;
+}
+
+function bindMealsAll() {
+  bindMealDeletes();
+  document.getElementById("mp-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const e = mealEntry("mp");
+    if (checkMeal(e, "mp-msg")) saveMeals([e], "mp-msg", "mp-save", `Сохранено ✓ (${DATA.students.find((s) => s.id === e.id)?.name || ""})`);
+  });
+  const boxes = [...app.querySelectorAll(".mc-st")];
+  document.getElementById("mc-all").addEventListener("change", (ev) => boxes.forEach((b) => (b.checked = ev.target.checked)));
+  document.getElementById("mc-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const v = (k) => document.getElementById("mc-" + k).value.trim();
+    const ids = boxes.filter((b) => b.checked).map((b) => b.value);
+    const base = { type: "Начислено", date: v("date"), amount: v("amount").replace(/\s/g, "").replace(",", "."), note: v("note") };
+    if (!checkMeal(base, "mc-msg")) return;
+    if (!ids.length) {
+      const m = document.getElementById("mc-msg");
+      m.textContent = "Выберите учеников";
+      m.style.color = "var(--red)";
+      return;
+    }
+    if (!confirm(`Начислить ${fmtMoney(Number(base.amount))} для ${ids.length} уч.?`)) return;
+    saveMeals(ids.map((id) => ({ ...base, id })), "mc-msg", "mc-save", `Начислено ✓ (${ids.length} уч.)`);
   });
 }
 
