@@ -1368,7 +1368,8 @@ function gradesImportHtml() {
     <p class="small muted">Файл Excel «Данные по успеваемости класса» за четверть или год. Сайт сам найдёт учебный год, четверть, класс и учеников по ФИО. Оценки других четвертей и лет не меняются.</p>
     <input type="file" id="gi-file" accept=".xlsx,.xls"><div id="gi-preview"></div></div>`;
 }
-const GRADE_SUBJECT_FIX = { "Түрік тіл": "Түрік тілі" }; // в выгрузке название обрезано
+// названия как в табелях прошлых лет: в выгрузке «Түрік тіл» обрезано, «Шетел тілі» — это английский
+const GRADE_SUBJECT_FIX = { "Түрік тіл": "Түрік тілі", "Шетел тілі": "Ағылшын тілі" };
 function parseKundelik(rows) {
   const val = (label) => {
     const r = rows.find((x) => String(x[0] ?? "").trim().toLowerCase() === label);
