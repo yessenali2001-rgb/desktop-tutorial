@@ -4,7 +4,7 @@
 // Как его получить, написано в README.md.
 // Если оставить пустым, сайт работает в демо-режиме на тестовых данных из data.js.
 const CONFIG = {
-  API_URL: "https://script.google.com/macros/s/AKfycbw9RmLDF2_nz3t47SLL3b6LXSQvi8GRuvDpaIOn36Bot8DVlTBuwjqhvnkMNjg0Ofcd/exec",
+  API_URL: "https://script.google.com/macros/s/AKfycbxXlWfYviVbk_Ok8wQMh47vVd9uFaUk9Lu7O4mb3vmqRMwmJd0VKDdyKeqN5meIEo2E/exec",
   // Telegram-уведомления: true — показать на сайте (сначала настройте бота, см. README), false — скрыть
   TELEGRAM: false,
 };
