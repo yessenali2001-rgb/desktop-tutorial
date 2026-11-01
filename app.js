@@ -3486,13 +3486,24 @@ function btsHtml(s) {
     ${cur.parts.length ? `<div class="card"><h3 style="margin-top:0">Разбивка по предметам</h3>${btsBarsHtml(cur.parts, cur.per)}</div>` : ""}
     <div class="card"><h3 style="margin-top:0">Все BTS</h3>
       ${btsChart(list)}
-      <div class="table-wrap"><table><tr><th>Тест</th><th class="num">Балл</th><th class="num">%</th><th>По предметам</th></tr>
-      ${list
+      <div class="bts-cards">${list
         .slice()
         .reverse()
-        .map((t) => `<tr><td>${esc(t.label)}</td><td class="num"><b>${t.total}</b><span class="muted">/${t.max}</span></td><td class="num">${btsPct(t.total, t.max)}%</td><td class="small">${t.parts.map((p) => `${esc(p.name)} ${p.score}`).join(" · ")}</td></tr>`)
-        .join("")}
-      </table></div>
+        .map((t) => {
+          const tp = btsPct(t.total, t.max);
+          return `<button class="bts-card ${t.key === cur.key ? "on" : ""}" data-bts="${esc(t.key)}">
+            <div class="bts-card-head"><b>${esc(t.label)}</b><span class="bts-pill" style="background:${btsColor(tp)}">${tp}%</span></div>
+            <div class="bts-card-score">${t.total}<span> / ${t.max}</span></div>
+            <div class="bts-track"><span style="width:${tp}%;background:${btsColor(tp)}"></span></div>
+            <div class="bts-chips">${t.parts
+              .map((p) => {
+                const q = btsPct(p.score, t.per);
+                return `<span class="bts-chip" style="--c:${btsColor(q)}" title="${esc(p.name)}: ${p.score}/${t.per}">${esc(p.name.split(" ")[0])} <b>${p.score}</b></span>`;
+              })
+              .join("")}</div>
+          </button>`;
+        })
+        .join("")}</div>
       <p class="small muted">В 7–8 классе каждый предмет оценивался из 20, с 9 класса — из 100, поэтому прогресс показан в процентах.</p>
     </div>`;
 }
