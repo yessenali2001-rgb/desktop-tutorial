@@ -270,6 +270,18 @@ async function demoApi(action, payload) {
     });
     return { ok: true, english: Object.fromEntries(D.students.map((st) => [st.id, JSON.parse(JSON.stringify(st.english || []))])) };
   }
+  if (action === "saveGrades") {
+    if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
+    (payload.grades || []).forEach((x) => {
+      const st = D.students.find((y) => y.id === x.id);
+      if (!st) throw new Error("Ученик не найден: " + x.id);
+      st.grades = st.grades || [];
+      let g = st.grades.find((y) => y.period === x.period && y.subject === x.subject);
+      if (!g) st.grades.push((g = { period: x.period, subject: x.subject, q1: "", q2: "", q3: "", q4: "", year: "", exam: "", final: "" }));
+      g[x.col] = x.value;
+    });
+    return { ok: true, grades: Object.fromEntries(D.students.map((st) => [st.id, JSON.parse(JSON.stringify(st.grades || []))])) };
+  }
   if (action === "addMeals" || action === "deleteMeal") {
     if (!isTeacher) throw new Error("Доступно только учителю и воспитателю");
     D.meals = D.meals || {};
@@ -1184,12 +1196,27 @@ function gradeCell(v) {
   if (!t) return '<span class="muted">·</span>';
   return /^[2-5]$/.test(t) ? `<span class="grade g${t}">${t}</span>` : `<span class="small muted">${esc(t)}</span>`;
 }
-// Итог по периоду: средний итоговый балл и статус (отличник / хорошист / есть тройки)
-function gradeSummary(rows) {
+// Колонка оценок: q1…q4 или "year" (итог года: Қорытынды, иначе Жылдық)
+const GRADE_TERMS = [["q1", "1 тоқсан"], ["q2", "2 тоқсан"], ["q3", "3 тоқсан"], ["q4", "4 тоқсан"], ["year", "Итог года"]];
+const termLabel = (col) => (GRADE_TERMS.find(([k]) => k === col) || [, col])[1];
+function gradeValue(g, col) {
+  return col === "year" ? cellValue(g.final) || cellValue(g.year) : cellValue(g[col]);
+}
+const isMark = (v) => /^[2-5]$/.test(v);
+// Колонки, по которым есть оценки; последняя заполненная — «текущая»
+function gradeTerms(rows) {
+  const subj = rows.filter((g) => !GRADE_INFO_ROWS.includes(g.subject));
+  return GRADE_TERMS.map(([k]) => k).filter((k) => subj.some((g) => isMark(gradeValue(g, k))));
+}
+// Итог по периоду: средний балл и статус (отличник / хорошист / есть тройки).
+// col не задан — берётся итог года, а если его ещё нет — последняя четверть с оценками
+function gradeSummary(rows, col) {
+  col = col || gradeTerms(rows).slice(-1)[0];
+  if (!col) return null;
   const nums = rows
     .filter((g) => !GRADE_INFO_ROWS.includes(g.subject))
-    .map((g) => cellValue(g.final) || cellValue(g.year))
-    .filter((v) => /^[2-5]$/.test(v))
+    .map((g) => gradeValue(g, col))
+    .filter(isMark)
     .map(Number);
   if (!nums.length) return null;
   const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
@@ -1197,7 +1224,7 @@ function gradeSummary(rows) {
   const status = min === 5 ? "Үздік · отличник" : min === 4 ? "Екпінді · хорошист" : min === 3 ? "Есть тройки" : "Есть двойки";
   const missed = rows.find((g) => g.subject === "Қатыспаған сабақ");
   const missedSum = missed ? ["q1", "q2", "q3", "q4"].reduce((a, k) => a + (Number(cellValue(missed[k])) || 0), 0) : null;
-  return { avg, status, min, fours: nums.filter((n) => n === 4).length, threes: nums.filter((n) => n <= 3).length, missedSum };
+  return { avg, status, min, col, fours: nums.filter((n) => n === 4).length, threes: nums.filter((n) => n <= 3).length, missedSum };
 }
 
 function gradesHtml(s) {
@@ -1219,7 +1246,7 @@ function gradesHtml(s) {
       sum
         ? `<div class="highlights" style="margin:0 0 14px">
             <div class="hl"><span class="hl-icon">📊</span><div><div class="eyebrow">Средний балл</div><div><b>${sum.avg.toFixed(2)}</b></div></div></div>
-            <div class="hl ${sum.min === 5 ? "hl-today" : ""}"><span class="hl-icon">${sum.min === 5 ? "🏆" : "📘"}</span><div><div class="eyebrow">Итог года</div><div><b>${esc(sum.status)}</b></div></div></div>
+            <div class="hl ${sum.min === 5 ? "hl-today" : ""}"><span class="hl-icon">${sum.min === 5 ? "🏆" : "📘"}</span><div><div class="eyebrow">${sum.col === "year" ? "Итог года" : "Итог: " + termLabel(sum.col)}</div><div><b>${esc(sum.status)}</b></div></div></div>
             ${sum.missedSum !== null ? `<div class="hl"><span class="hl-icon">🕒</span><div><div class="eyebrow">Пропущено уроков за год</div><div><b>${sum.missedSum}</b></div></div></div>` : ""}
           </div>`
         : ""
@@ -1235,17 +1262,89 @@ function gradesHtml(s) {
   </div>`;
 }
 
+// Статистика класса за четверть: средний балл, качество знаний (все «4» и «5»), успеваемость (без «2»),
+// по предметам и сравнение с той же четвертью прошлого года
+function classGradeStats(period, col) {
+  const per = DATA.students.map((s) => ({ s, rows: (s.grades || []).filter((g) => g.period === period) })).filter((x) => x.rows.length);
+  const sums = per.map((x) => ({ s: x.s, sum: gradeSummary(x.rows, col) })).filter((x) => x.sum);
+  if (!sums.length) return null;
+  const n = sums.length;
+  const subjects = {};
+  per.forEach((x) =>
+    x.rows
+      .filter((g) => !GRADE_INFO_ROWS.includes(g.subject))
+      .forEach((g) => {
+        const v = gradeValue(g, col);
+        if (isMark(v)) (subjects[g.subject] = subjects[g.subject] || []).push(Number(v));
+      })
+  );
+  const subj = Object.entries(subjects).map(([name, v]) => ({
+    name,
+    avg: v.reduce((a, b) => a + b, 0) / v.length,
+    quality: v.filter((x) => x >= 4).length / v.length,
+    threes: v.filter((x) => x <= 3).length,
+    n: v.length,
+  }));
+  return {
+    n,
+    sums,
+    avg: sums.reduce((a, x) => a + x.sum.avg, 0) / n,
+    quality: sums.filter((x) => x.sum.min >= 4).length / n,
+    success: sums.filter((x) => x.sum.min >= 3).length / n,
+    excellent: sums.filter((x) => x.sum.min === 5).map((x) => x.s),
+    withThrees: sums.filter((x) => x.sum.min <= 3).map((x) => x.s),
+    subj: subj.sort((a, b) => b.avg - a.avg),
+  };
+}
+const pctTxt = (x) => `${Math.round(x * 100)}%`;
+function deltaHtml(d, isPct) {
+  if (d == null || Math.abs(d) < 0.005) return "";
+  const t = isPct ? `${d > 0 ? "+" : "−"}${Math.round(Math.abs(d) * 100)}%` : `${d > 0 ? "+" : "−"}${Math.abs(d).toFixed(2)}`;
+  return ` <span class="small ${d > 0 ? "up" : "down"}">${t}</span>`;
+}
+
 function gradesTableHtml() {
   const periods = gradePeriods(DATA.students.flatMap((s) => s.grades || []));
-  if (!periods.length) return '<div class="card"><h2>Оценки</h2><p class="muted">Табели пока не добавлены.</p></div>';
+  if (!periods.length) return '<div class="card"><h2>Оценки</h2><p class="muted">Табели пока не добавлены.</p></div>' + gradesImportHtml();
   const period = currentPeriod(periods);
+  const allRows = DATA.students.flatMap((s) => (s.grades || []).filter((g) => g.period === period));
+  const terms = gradeTerms(allRows);
+  const col = terms.includes(state.gradeCol) ? state.gradeCol : terms.slice(-1)[0];
+  const st = col && classGradeStats(period, col);
+  const prevPeriod = periods[periods.indexOf(period) + 1];
+  const prev = prevPeriod && col ? classGradeStats(prevPeriod, col) : null;
+  const prevSubj = prev ? Object.fromEntries(prev.subj.map((x) => [x.name, x])) : {};
   const rows = DATA.students
-    .map((s) => ({ s, sum: gradeSummary((s.grades || []).filter((g) => g.period === period)) }))
+    .map((s) => ({ s, sum: gradeSummary((s.grades || []).filter((g) => g.period === period), col) }))
     .sort((a, b) => (b.sum ? b.sum.avg : -1) - (a.sum ? a.sum.avg : -1) || a.s.name.localeCompare(b.s.name, "ru"));
-  const count = (st) => rows.filter((r) => r.sum && r.sum.status === st).length;
+  const stats = st
+    ? `<div class="highlights" style="margin:0 0 6px">
+        <div class="hl"><span class="hl-icon">📊</span><div><div class="eyebrow">Средний балл</div><div><b>${st.avg.toFixed(2)}</b>${prev ? deltaHtml(st.avg - prev.avg) : ""}</div></div></div>
+        <div class="hl"><span class="hl-icon">🎯</span><div><div class="eyebrow">Качество знаний</div><div><b>${pctTxt(st.quality)}</b>${prev ? deltaHtml(st.quality - prev.quality, true) : ""} <span class="small muted">только «4» и «5»</span></div></div></div>
+        <div class="hl"><span class="hl-icon">✅</span><div><div class="eyebrow">Успеваемость</div><div><b>${pctTxt(st.success)}</b>${prev ? deltaHtml(st.success - prev.success, true) : ""} <span class="small muted">без «2»</span></div></div></div>
+        <div class="hl hl-today"><span class="hl-icon">🏆</span><div><div class="eyebrow">Отличников</div><div><b>${st.excellent.length}</b> из ${st.n}${prev ? deltaHtml(st.excellent.length - prev.excellent.length).replace(/\.00/, "") : ""}</div></div></div>
+      </div>
+      ${prev ? `<p class="small muted">Зелёным и красным — изменение к «${esc(termLabel(col))}» в ${esc(prevPeriod)}.</p>` : ""}
+      ${st.excellent.length ? `<p class="small">🏆 <b>Үздік:</b> ${st.excellent.map((s) => studentLink(s)).join(", ")}</p>` : ""}
+      ${st.withThrees.length ? `<p class="small">📘 <b>С «3»:</b> ${st.withThrees.map((s) => studentLink(s)).join(", ")}</p>` : ""}
+      <h3>По предметам</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Пән</th><th class="num">Средний</th><th></th><th class="num">Качество</th><th class="num">«3» и ниже</th></tr>
+        ${st.subj
+          .map((x) => {
+            const p = prevSubj[x.name];
+            return `<tr><td>${esc(x.name)}</td><td class="num"><b>${x.avg.toFixed(2)}</b>${p ? deltaHtml(x.avg - p.avg) : ""}</td><td style="width:30%"><div class="rank-bar"><span style="width:${((x.avg - 2) / 3) * 100}%;background:${
+              x.avg >= 4.5 ? "var(--green)" : x.avg >= 4 ? "var(--gold-deep)" : "var(--red)"
+            }"></span></div></td><td class="num">${pctTxt(x.quality)}${p ? deltaHtml(x.quality - p.quality, true) : ""}</td><td class="num">${x.threes ? `<b style="color:var(--red)">${x.threes}</b>` : '<span class="muted">0</span>'}</td></tr>`;
+          })
+          .join("")}
+      </table></div>
+      <h3>Ученики</h3>`
+    : "";
   return `<div class="card"><div class="eyebrow">Үлгерім</div><h2>Оценки класса · ${esc(period)}</h2>
     ${periodChips(periods, period)}
-    <p class="small">🏆 Отличников: <b>${count("Үздік · отличник")}</b> · Хорошистов: <b>${count("Екпінді · хорошист")}</b> · С тройками: <b>${count("Есть тройки") + count("Есть двойки")}</b></p>
+    ${terms.length > 1 ? `<div class="gteam-bar">${terms.map((k) => `<button class="seg-btn ${k === col ? "active" : ""}" data-grade-col="${k}">${termLabel(k)}</button>`).join("")}</div>` : ""}
+    ${stats}
     <div class="table-wrap"><table>
       <tr><th>Ученик</th><th class="num">Средний</th><th>Итог</th><th class="num">«4»</th><th class="num">«3» и ниже</th><th class="num">Пропущено уроков</th></tr>
       ${rows
@@ -1255,11 +1354,99 @@ function gradesTableHtml() {
                 <td>${sum.min === 5 ? '<span class="pill gold">отличник</span>' : sum.min === 4 ? '<span class="pill excused">хорошист</span>' : '<span class="pill absent">есть «3»</span>'}</td>
                 <td class="num">${sum.fours || '<span class="muted">0</span>'}</td><td class="num">${sum.threes ? `<b style="color:var(--red)">${sum.threes}</b>` : '<span class="muted">0</span>'}</td>
                 <td class="num">${sum.missedSum ?? "—"}</td></tr>`
-            : `<tr><td><span class="name-cell">${avatarHtml(s, "avatar-sm")}${studentLink(s)}</span></td><td class="num muted" colspan="5">нет табеля за этот год</td></tr>`
+            : `<tr><td><span class="name-cell">${avatarHtml(s, "avatar-sm")}${studentLink(s)}</span></td><td class="num muted" colspan="5">нет оценок за этот период</td></tr>`
         )
         .join("")}
     </table></div>
-    <p class="muted small">Нажмите на имя, чтобы открыть табель ученика по четвертям.</p></div>`;
+    <p class="muted small">Нажмите на имя, чтобы открыть табель ученика по четвертям.</p></div>
+  ${gradesImportHtml()}`;
+}
+
+// ---------- загрузка оценок из Күнделік (Excel «Данные по успеваемости класса») ----------
+function gradesImportHtml() {
+  return `<div class="card"><h2>📥 Загрузить оценки из Күнделік</h2>
+    <p class="small muted">Файл Excel «Данные по успеваемости класса» за четверть или год. Сайт сам найдёт учебный год, четверть, класс и учеников по ФИО. Оценки других четвертей и лет не меняются.</p>
+    <input type="file" id="gi-file" accept=".xlsx,.xls"><div id="gi-preview"></div></div>`;
+}
+const GRADE_SUBJECT_FIX = { "Түрік тіл": "Түрік тілі" }; // в выгрузке название обрезано
+function parseKundelik(rows) {
+  const val = (label) => {
+    const r = rows.find((x) => String(x[0] ?? "").trim().toLowerCase() === label);
+    return r ? String(r.slice(1).find((v) => String(v ?? "").trim()) ?? "").trim() : "";
+  };
+  const year = val("оқу жылы").replace(/\s+/g, "").replace("-", "/");
+  const term = val("кезең").toLowerCase();
+  const cls = val("сынып").replace(/\s+/g, "").replace(/A/g, "А");
+  const qm = term.match(/^(\d)/);
+  const col = qm ? "q" + qm[1] : /жылдық/.test(term) ? "year" : "";
+  if (!/^\d{4}\/\d{4}$/.test(year) || !col || !cls) throw new Error("Не нашёл учебный год, четверть или класс в начале файла");
+  const h = rows.findIndex((r) => /аты-жөні/i.test(String(r[0] ?? "")));
+  if (h < 0) throw new Error("Не нашёл таблицу (заголовок «Аты-жөні»)");
+  const subjects = [];
+  rows[h].slice(1).forEach((v, j) => {
+    const t = String(v ?? "").trim();
+    if (t && !/орта балл/i.test(t)) subjects.push({ j: j + 1, name: GRADE_SUBJECT_FIX[t] || t });
+  });
+  const items = [], unknown = [];
+  for (const r of rows.slice(h + 1)) {
+    const name = String(r[0] ?? "").trim();
+    if (!name || /^пән бойынша/i.test(name)) break;
+    const s = findStudentByName(name);
+    if (!s) {
+      unknown.push(name);
+      continue;
+    }
+    subjects.forEach(({ j, name: subject }) => {
+      const v = String(r[j] ?? "").trim();
+      if (v) items.push({ s, subject, value: v });
+    });
+  }
+  return { period: `${cls} · ${year}`, col: col === "year" ? "year" : col, term, items, unknown, subjects: subjects.map((x) => x.name) };
+}
+function bindGradesImport() {
+  const input = document.getElementById("gi-file");
+  if (!input) return;
+  input.addEventListener("change", async () => {
+    const box = document.getElementById("gi-preview");
+    const file = input.files[0];
+    if (!file) return;
+    box.innerHTML = '<p class="muted">Читаю файл…</p>';
+    try {
+      await loadSheetJs();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const v = parseKundelik(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: "" }));
+      if (!v.items.length) throw new Error("Не нашёл в файле оценок учеников класса");
+      const studs = [...new Set(v.items.map((x) => x.s))];
+      const changed = v.items.filter((x) => {
+        const g = (x.s.grades || []).find((g) => g.period === v.period && g.subject === x.subject);
+        return g && cellValue(g[v.col]) && cellValue(g[v.col]) !== x.value;
+      }).length;
+      box.innerHTML = `<h3>${esc(v.period)} · ${esc(termLabel(v.col))}</h3>
+        <p class="small">Учеников: <b>${studs.length}</b> · предметов: <b>${v.subjects.length}</b> (${v.subjects.map(esc).join(", ")}) · оценок: <b>${v.items.length}</b>${changed ? ` · будут изменены: <b>${changed}</b>` : ""}</p>
+        ${v.unknown.length ? `<p class="small" style="color:var(--red)">Не нашёл на сайте: ${v.unknown.map(esc).join(", ")} — пропущены.</p>` : ""}
+        <div class="save-bar" style="position:static;border:none;padding:6px 0 0"><button class="btn" id="gi-save">Сохранить оценки</button><span class="small" id="gi-msg"></span></div>`;
+      document.getElementById("gi-save").addEventListener("click", async (ev) => {
+        ev.target.disabled = true;
+        const msg = document.getElementById("gi-msg");
+        msg.textContent = "Сохранение…";
+        try {
+          const grades = v.items.map((x) => ({ id: x.s.id, period: v.period, subject: x.subject, col: v.col === "year" ? "year" : v.col, value: x.value }));
+          let res;
+          for (let i = 0; i < grades.length; i += 700) res = await api("saveGrades", { grades: grades.slice(i, i + 700) });
+          DATA.students.forEach((s) => (s.grades = res.grades[s.id] || []));
+          state.gradePeriod = v.period;
+          state.gradeCol = v.col;
+          render();
+        } catch (ex) {
+          msg.textContent = "Ошибка: " + ex.message;
+          msg.style.color = "var(--red)";
+          ev.target.disabled = false;
+        }
+      });
+    } catch (ex) {
+      box.innerHTML = `<p style="color:var(--red)">${esc(ex.message)}</p>`;
+    }
+  });
 }
 
 // Прочитанные книги берутся из портфолио (раздел «Прочитанные книги»): название, автор/детали, дата
@@ -1653,6 +1840,15 @@ function renderTeacher() {
   if (state.tab === "ielts-all") bindIeltsAll();
   if (state.tab === "gallup-all") bindGallupAll();
   if (state.tab === "meals-all") bindMealsAll();
+  if (state.tab === "grades-all") {
+    bindGradesImport();
+    app.querySelectorAll("[data-grade-col]").forEach((b) =>
+      b.addEventListener("click", () => {
+        state.gradeCol = b.dataset.gradeCol;
+        render();
+      })
+    );
+  }
   if (state.tab === "meetings") bindMeetings();
   if (state.tab === "duty") bindDuty();
   if (state.tab === "words-all") {

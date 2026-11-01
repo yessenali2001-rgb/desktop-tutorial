@@ -253,6 +253,10 @@ function handle_(req) {
       // Пробный IELTS всему классу сразу — только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
       return { ok: true, english: addEnglishMany_(req.results) };
+    case "saveGrades":
+      // Оценки за четверть (загрузка файла из Күнделік) — только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, grades: saveGrades_(req.grades) };
     case "addMeals":
       // Начисления и оплаты за питание вносят только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
@@ -1153,6 +1157,58 @@ function deleteEnglish_(id, x) {
     lock.releaseLock();
   }
   throw new Error("Результат не найден. Обновите страницу.");
+}
+
+// ===================== Оценки: загрузка четверти =====================
+// grades: [{id, period, subject, col, value}] — col: q1…q4, year, exam, final.
+// Строка ID + период + предмет обновляется, если она уже есть, иначе добавляется. Возвращает { "S01": [...] }.
+const GRADE_KEYS = ["q1", "q2", "q3", "q4", "year", "exam", "final"];
+function saveGrades_(grades) {
+  if (!Array.isArray(grades) || !grades.length) throw new Error("Нет оценок для сохранения");
+  if (grades.length > 800) throw new Error("Слишком много оценок за раз");
+  const known = {};
+  readStudents_().forEach((s) => (known[s.id] = true));
+  const items = grades.map((g) => {
+    g = g || {};
+    const id = String(g.id || "").trim().toUpperCase();
+    if (!known[id]) throw new Error("Ученик не найден: " + id);
+    const period = safeText_(g.period, 40);
+    const subject = safeText_(g.subject, 60);
+    const col = GRADE_KEYS.indexOf(g.col);
+    if (!period || !subject || col < 0) throw new Error("Неверная строка оценки");
+    return { id: id, period: period, subject: subject, col: col, value: safeText_(g.value, 20) };
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_("grades", 0);
+    const values = sh.getDataRange().getValues();
+    const index = {};
+    for (let i = 1; i < values.length; i++) index[[String(values[i][0]).trim().toUpperCase(), cellText_(values[i][1]), String(values[i][2]).trim()].join("|")] = i;
+    const added = [];
+    let changed = false;
+    items.forEach((g) => {
+      const key = [g.id, g.period, g.subject].join("|");
+      let i = index[key];
+      if (i === undefined) {
+        const row = [g.id, g.period, g.subject, "", "", "", "", "", "", ""];
+        added.push(row);
+        index[key] = i = values.length + added.length - 1;
+        row[3 + g.col] = g.value;
+      } else if (i < values.length) {
+        values[i][3 + g.col] = g.value;
+        changed = true;
+      } else {
+        added[i - values.length][3 + g.col] = g.value;
+      }
+    });
+    // изменённые строки записываем одним вызовом (колонки 1 тоқсан … Қорытынды)
+    if (changed && values.length > 1) sh.getRange(2, 4, values.length - 1, 7).setValues(values.slice(1).map((r) => GRADE_KEYS.map((k, j) => (r[3 + j] === undefined ? "" : r[3 + j]))));
+    if (added.length) sh.getRange(values.length + 1, 1, added.length, 10).setValues(added);
+  } finally {
+    lock.releaseLock();
+  }
+  return readGrades_();
 }
 
 // ===================== Питание: начисления и оплаты =====================

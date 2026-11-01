@@ -626,3 +626,4 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .mc-list .remember, .meal-form .remember { margin: 2px 0; }
 .meal-form label.remember { flex-direction: row; display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
 .meal-form label.remember input { width: auto; margin: 0; }
+input[type="file"] { max-width: 100%; font-size: 14px; }
