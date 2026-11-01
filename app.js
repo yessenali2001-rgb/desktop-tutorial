@@ -627,6 +627,7 @@ function renderStudent(s, byTeacher) {
     ["grades", "📊 Оценки"],
     ["portfolio", "📁 Портфолио"],
     ["olympiads", "🏅 Олимпиады"],
+    ["bts", "📈 BTS"],
     ["exams", "📝 Экзамены"],
     ["books", "📖 Книги"],
     ["duty", "🧹 Кезекшілік"],
@@ -646,6 +647,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "portfolio") body = portfolioHtml(s);
   if (state.tab === "olympiads") body = kvCardHtml("Олимпиады", s.olympiads);
   if (state.tab === "exams") body = kvCardHtml("Экзамены", s.exams);
+  if (state.tab === "bts") body = btsHtml(s);
   if (state.tab === "books") body = readingHtml(s) + booksHtml(s);
   if (state.tab === "grades") body = gradesHtml(s);
   if (state.tab === "tests") body = testsHtml(s);
@@ -732,6 +734,7 @@ function renderStudent(s, byTeacher) {
   if (state.tab === "activities") bindActivities(s);
   if (state.tab === "english") bindEnglish(s);
   if (state.tab === "gallup") bindGallup(s);
+  if (state.tab === "bts") bindBtsTests();
   if (state.tab === "meals") bindMeals(s);
   if (state.tab === "words") {
     if (isParent) bindWordsWho();
@@ -1788,6 +1791,7 @@ function renderTeacher() {
     ["grades-all", "📊 Оценки"],
     ["idp-all", "🎯 Цели всех"],
     ["olympiads-all", "🏅 Олимпиады"],
+    ["bts-all", "📈 BTS"],
     ["exams-all", "📝 Экзамены"],
     ["books-all", "📖 Книги"],
     ["tests-all", "🧠 Тесты"],
@@ -1820,6 +1824,7 @@ function renderTeacher() {
   if (state.tab === "schedule") body = calendarHtml(true) + scheduleHtml(DATA.schedule);
   if (state.tab === "olympiads-all") body = wideTableHtml("Олимпиады", "olympiads");
   if (state.tab === "exams-all") body = wideTableHtml("Экзамены", "exams");
+  if (state.tab === "bts-all") body = btsAllHtml();
   if (state.tab === "books-all") body = booksTableHtml();
   if (state.tab === "grades-all") body = gradesTableHtml();
   if (state.tab === "tests-all") body = wideTableHtml("Результаты тестов", "tests");
@@ -1841,6 +1846,7 @@ function renderTeacher() {
   if (state.tab === "ielts-all") bindIeltsAll();
   if (state.tab === "gallup-all") bindGallupAll();
   if (state.tab === "meals-all") bindMealsAll();
+  if (state.tab === "bts-all") bindBtsTests();
   if (state.tab === "grades-all") {
     bindGradesImport();
     app.querySelectorAll("[data-grade-col]").forEach((b) =>
@@ -3386,6 +3392,169 @@ function bindIeltsAll() {
         document.getElementById("ie-save").disabled = false;
       });
   });
+}
+
+// ---------- BTS: результаты по тестам и предметам ----------
+// Берутся из листа «Экзамены»: колонки «9 кл: BTS-1» (общий балл) и «9 кл: BTS-1 по предметам»
+// («Физика 89 · Химия 100 …» или кратко «Физ 15 · Хим 16»). В 7–8 классе предмет — из 20, с 9 класса — из 100.
+const BTS_SUBJECTS = {
+  "Қаз": "Казахский язык",
+  "Орыс": "Русский язык",
+  "Геогр": "География",
+  "Тарих": "История Казахстана",
+  "Мат": "Математика",
+  "Түрік": "Турецкий язык",
+  "Био": "Биология",
+  "Хим": "Химия",
+  "Физ": "Физика",
+};
+function btsList(s) {
+  const ex = s.exams || [];
+  const res = [];
+  ex.forEach((e) => {
+    const m = String(e.name).match(/^(\d+)\s*кл:\s*BTS-(\d+)$/i);
+    const total = Number(String(cellValue(e.value)).replace(",", "."));
+    if (!m || !total) return;
+    const partsCell = ex.find((x) => x.name === `${e.name} по предметам`);
+    const parts = String(cellValue(partsCell && partsCell.value) || "")
+      .split("·")
+      .map((t) => t.trim().match(/^(.*?)\s+(\d+(?:[.,]\d+)?)$/))
+      .filter(Boolean)
+      .map(([, n, v]) => ({ name: BTS_SUBJECTS[n.trim()] || n.trim(), score: Number(v.replace(",", ".")) }));
+    const per = parts.some((p) => p.score > 20) || total > 150 ? 100 : 20;
+    const max = parts.length ? parts.length * per : total > 150 ? 600 : 120;
+    res.push({ key: e.name, grade: Number(m[1]), n: Number(m[2]), label: `${m[1]} кл · BTS-${m[2]}`, total, max, per, parts });
+  });
+  return res.sort((a, b) => a.grade - b.grade || a.n - b.n);
+}
+const btsPct = (v, max) => (max ? Math.round((v / max) * 100) : 0);
+const btsColor = (p) => (p >= 80 ? "var(--green)" : p >= 60 ? "var(--blue)" : p >= 40 ? "var(--orange)" : "var(--red)");
+function btsBarsHtml(parts, per) {
+  return `<div class="bts-bars">${parts
+    .map((p) => {
+      const pc = btsPct(p.score, per);
+      return `<div class="bts-bar"><div class="bts-bar-head"><span>${esc(p.name)}</span><span><b>${p.score}/${per}</b> <span class="muted">${pc}%</span></span></div><div class="bts-track"><span style="width:${pc}%;background:${btsColor(pc)}"></span></div></div>`;
+    })
+    .join("")}</div>`;
+}
+function btsTestChips(keys, current) {
+  return keys.length > 1
+    ? `<div class="gteam-bar">${keys.map((t) => `<button class="seg-btn ${t.key === current ? "active" : ""}" data-bts="${esc(t.key)}">${esc(t.label)}</button>`).join("")}</div>`
+    : "";
+}
+function bindBtsTests() {
+  app.querySelectorAll("[data-bts]").forEach((b) =>
+    b.addEventListener("click", () => {
+      state.btsKey = b.dataset.bts;
+      render();
+    })
+  );
+}
+// Прогресс в процентах от максимума (у 7–8 и 9 класса разные максимумы)
+function btsChart(list) {
+  if (list.length < 2) return "";
+  const W = 600, H = 200, L = 36, R = 16, T = 18, B = 30;
+  const x = (i) => L + (i / (list.length - 1)) * (W - L - R);
+  const y = (v) => T + ((100 - v) / 100) * (H - T - B);
+  const pts = list.map((t, i) => [x(i), y(btsPct(t.total, t.max)), btsPct(t.total, t.max)]);
+  return `<div class="chart-wrap"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Прогресс BTS, % от максимума">
+    ${[0, 25, 50, 75, 100].map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="ch-grid"/><text x="${L - 6}" y="${y(v) + 4}" class="ch-axis" text-anchor="end">${v}%</text>`).join("")}
+    <path d="${pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ")}" class="ch-line"/>
+    ${pts.map((p) => `<circle cx="${p[0]}" cy="${p[1]}" r="4.5" class="ch-dot"/><text x="${p[0]}" y="${p[1] - 9}" class="ch-axis" text-anchor="middle">${p[2]}</text>`).join("")}
+    ${list.map((t, i) => `<text x="${x(i)}" y="${H - 8}" class="ch-axis" text-anchor="middle">${t.grade}·${t.n}</text>`).join("")}
+  </svg></div>`;
+}
+
+function btsHtml(s) {
+  const list = btsList(s);
+  if (!list.length) return '<div class="card"><h2>📈 BTS</h2><p class="muted">Результатов BTS пока нет.</p></div>';
+  const cur = list.find((t) => t.key === state.btsKey) || list[list.length - 1];
+  const prev = list[list.indexOf(cur) - 1];
+  const pc = btsPct(cur.total, cur.max);
+  const dp = prev ? pc - btsPct(prev.total, prev.max) : null;
+  return `<div class="card">
+      <h2 style="margin-bottom:2px">${esc(s.name)}</h2>
+      <p class="small muted" style="margin-top:0">Школа: Актобе БИЛ для юношей | Класс: ${cur.grade}</p>
+      ${btsTestChips(list, cur.key)}
+      <div class="bts-total">
+        <span class="bts-icon">🎓</span>
+        <div><div class="small muted">Общая успеваемость по BTS · ${esc(cur.label)}</div>
+          <div class="bts-score">${cur.total} <span>/ ${cur.max}</span></div>
+          <div class="small muted">Общий балл · ${pc}%${dp ? ` <span class="${dp > 0 ? "up" : "down"}">${dp > 0 ? "+" : "−"}${Math.abs(dp)}% к ${esc(prev.label)}</span>` : ""}</div></div>
+      </div>
+    </div>
+    ${cur.parts.length ? `<div class="card"><h3 style="margin-top:0">Разбивка по предметам</h3>${btsBarsHtml(cur.parts, cur.per)}</div>` : ""}
+    <div class="card"><h3 style="margin-top:0">Все BTS</h3>
+      ${btsChart(list)}
+      <div class="table-wrap"><table><tr><th>Тест</th><th class="num">Балл</th><th class="num">%</th><th>По предметам</th></tr>
+      ${list
+        .slice()
+        .reverse()
+        .map((t) => `<tr><td>${esc(t.label)}</td><td class="num"><b>${t.total}</b><span class="muted">/${t.max}</span></td><td class="num">${btsPct(t.total, t.max)}%</td><td class="small">${t.parts.map((p) => `${esc(p.name)} ${p.score}`).join(" · ")}</td></tr>`)
+        .join("")}
+      </table></div>
+      <p class="small muted">В 7–8 классе каждый предмет оценивался из 20, с 9 класса — из 100, поэтому прогресс показан в процентах.</p>
+    </div>`;
+}
+
+// Учитель: BTS класса — рейтинг, средние по предметам, изменение к прошлому BTS
+function btsAllHtml() {
+  const all = DATA.students.map((s) => ({ s, list: btsList(s) }));
+  const keys = [];
+  all.forEach(({ list }) => list.forEach((t) => !keys.some((k) => k.key === t.key) && keys.push({ key: t.key, label: t.label, grade: t.grade, n: t.n })));
+  keys.sort((a, b) => a.grade - b.grade || a.n - b.n);
+  if (!keys.length) return '<div class="card"><h2>📈 BTS</h2><p class="muted">Результатов BTS пока нет.</p></div>';
+  const cur = keys.find((k) => k.key === state.btsKey) || keys[keys.length - 1];
+  const prevKey = keys[keys.indexOf(cur) - 1];
+  const rows = all
+    .map(({ s, list }) => ({ s, t: list.find((x) => x.key === cur.key), p: prevKey && list.find((x) => x.key === prevKey.key) }))
+    .filter((r) => r.t)
+    .sort((a, b) => b.t.total - a.t.total);
+  const missing = all.filter(({ list }) => !list.some((x) => x.key === cur.key)).map(({ s }) => s);
+  const subjects = [];
+  rows.forEach((r) => r.t.parts.forEach((p) => !subjects.includes(p.name) && subjects.push(p.name)));
+  const per = rows[0] ? rows[0].t.per : 100;
+  const max = rows[0] ? rows[0].t.max : 0;
+  const avg = rows.reduce((a, r) => a + r.t.total, 0) / (rows.length || 1);
+  const prevAvgPct = prevKey ? (() => {
+    const pr = rows.filter((r) => r.p);
+    return pr.length ? pr.reduce((a, r) => a + btsPct(r.p.total, r.p.max), 0) / pr.length : null;
+  })() : null;
+  const avgPct = rows.reduce((a, r) => a + btsPct(r.t.total, r.t.max), 0) / (rows.length || 1);
+  const subjAvg = subjects.map((name) => {
+    const v = rows.map((r) => r.t.parts.find((p) => p.name === name)).filter(Boolean).map((p) => p.score);
+    return { name, score: Math.round((v.reduce((a, b) => a + b, 0) / (v.length || 1)) * 10) / 10 };
+  });
+  return `<div class="card"><div class="eyebrow">Білім-инновация тест сынағы</div><h2>📈 BTS класса · ${esc(cur.label)}</h2>
+    ${btsTestChips(keys, cur.key)}
+    <div class="highlights" style="margin:0 0 14px">
+      <div class="hl"><span class="hl-icon">📊</span><div><div class="eyebrow">Средний балл</div><div><b>${avg.toFixed(1)}</b> / ${max} <span class="small muted">${Math.round(avgPct)}%</span>${
+        prevAvgPct != null ? deltaHtml((avgPct - prevAvgPct) / 100, true) : ""
+      }</div></div></div>
+      <div class="hl hl-today"><span class="hl-icon">🏆</span><div><div class="eyebrow">Лучший</div><div><b>${rows[0] ? rows[0].t.total : "—"}</b> ${rows[0] ? `<span class="small muted">${esc(rows[0].s.name)}</span>` : ""}</div></div></div>
+      <div class="hl"><span class="hl-icon">📝</span><div><div class="eyebrow">Писали</div><div><b>${rows.length}</b> из ${DATA.students.length}</div></div></div>
+    </div>
+    ${subjAvg.length ? `<h3>Средний по предметам</h3>${btsBarsHtml(subjAvg, per)}` : ""}
+    <h3>Рейтинг</h3>
+    <div class="table-wrap"><table>
+      <tr><th>#</th><th>Ученик</th><th class="num">Балл</th><th class="num">%</th>${prevKey ? `<th class="num">к ${esc(prevKey.label)}</th>` : ""}${subjects.map((n) => `<th class="num">${esc(n)}</th>`).join("")}</tr>
+      ${rows
+        .map((r, i) => {
+          const pc = btsPct(r.t.total, r.t.max);
+          const d = r.p ? pc - btsPct(r.p.total, r.p.max) : null;
+          return `<tr><td class="muted">${i + 1}</td><td>${studentLink(r.s)}</td><td class="num"><b>${r.t.total}</b></td><td class="num">${pc}%</td>${
+            prevKey ? `<td class="num">${d == null ? "—" : d ? `<span class="${d > 0 ? "up" : "down"}">${d > 0 ? "+" : "−"}${Math.abs(d)}%</span>` : "0"}</td>` : ""
+          }${subjects
+            .map((n) => {
+              const p = r.t.parts.find((x) => x.name === n);
+              return `<td class="num">${p ? `<span style="color:${btsColor(btsPct(p.score, r.t.per))}">${p.score}</span>` : "—"}</td>`;
+            })
+            .join("")}</tr>`;
+        })
+        .join("")}
+    </table></div>
+    ${missing.length ? `<p class="small muted">Нет результата: ${missing.map((s) => esc(s.name)).join(", ")}</p>` : ""}
+  </div>`;
 }
 
 // ---------- Питание: начисления, оплаты и долг ----------

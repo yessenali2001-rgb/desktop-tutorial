@@ -253,6 +253,10 @@ function handle_(req) {
       // Пробный IELTS всему классу сразу — только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
       return { ok: true, english: addEnglishMany_(req.results) };
+    case "saveExams":
+      // Результаты BTS и других экзаменов (лист «Экзамены») — только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, exams: saveExams_(req.entries) };
     case "saveGrades":
       // Оценки за четверть (загрузка файла из Күнделік) — только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
@@ -1157,6 +1161,58 @@ function deleteEnglish_(id, x) {
     lock.releaseLock();
   }
   throw new Error("Результат не найден. Обновите страницу.");
+}
+
+// ===================== Экзамены: запись результатов (например, «9 кл: BTS-1») =====================
+// entries: [{id, col, value}] — col — заголовок колонки листа «Экзамены». Новой колонки нет — она добавляется в конец.
+function saveExams_(entries) {
+  if (!Array.isArray(entries) || !entries.length) throw new Error("Нет результатов для сохранения");
+  if (entries.length > 500) throw new Error("Слишком много результатов за раз");
+  const students = readStudents_();
+  const nameOf = {};
+  students.forEach((s) => (nameOf[s.id] = s.name));
+  const items = entries.map((x) => {
+    x = x || {};
+    const id = String(x.id || "").trim().toUpperCase();
+    if (!nameOf[id]) throw new Error("Ученик не найден: " + id);
+    const col = safeText_(x.col, 60);
+    if (!col) throw new Error("Не указана колонка");
+    return { id: id, col: col, value: safeText_(x.value, 200) };
+  });
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sh = ensureSheet_("exams", 0);
+    // текст как в таблице: лист перезаписывается целиком, и даты/числа не должны поменять вид
+    const values = sh.getDataRange().getDisplayValues();
+    const head = values[0];
+    items.forEach((x) => {
+      if (head.map((h) => String(h).trim()).indexOf(x.col) < 0) {
+        head.push(x.col);
+        values.forEach((r, i) => i && r.push(""));
+      }
+    });
+    const width = head.length;
+    values.forEach((r) => {
+      while (r.length < width) r.push("");
+    });
+    items.forEach((x) => {
+      let row = values.findIndex((r, i) => i && String(r[0]).trim().toUpperCase() === x.id);
+      if (row < 0) {
+        const r = [x.id, nameOf[x.id]];
+        while (r.length < width) r.push("");
+        values.push(r);
+        row = values.length - 1;
+      }
+      values[row][head.map((h) => String(h).trim()).indexOf(x.col)] = x.value;
+    });
+    // баллы — текстом, чтобы «15.5» не стало датой
+    sh.getRange(1, 3, values.length, width - 2).setNumberFormat("@");
+    sh.getRange(1, 1, values.length, width).setValues(values);
+  } finally {
+    lock.releaseLock();
+  }
+  return readWide_("exams");
 }
 
 // ===================== Оценки: загрузка четверти =====================

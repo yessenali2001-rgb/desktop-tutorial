@@ -627,3 +627,14 @@ tr.row-me td { background: var(--accent-soft); font-weight: 600; }
 .meal-form label.remember { flex-direction: row; display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 14px; }
 .meal-form label.remember input { width: auto; margin: 0; }
 input[type="file"] { max-width: 100%; font-size: 14px; }
+
+/* BTS */
+.bts-total { display: inline-flex; gap: 14px; align-items: center; border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-top: 8px; min-width: min(100%, 340px); }
+.bts-icon { width: 46px; height: 46px; border-radius: 12px; background: var(--blue-soft); display: grid; place-items: center; font-size: 22px; flex: none; }
+.bts-score { font-size: 30px; font-weight: 800; line-height: 1.2; }
+.bts-score span { font-size: 18px; color: var(--muted); font-weight: 700; }
+.bts-bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 40px; }
+@media (max-width: 600px) { .bts-bars { grid-template-columns: 1fr; } }
+.bts-bar-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 600; margin-bottom: 5px; }
+.bts-track { height: 8px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; }
+.bts-track span { display: block; height: 100%; border-radius: 999px; }
