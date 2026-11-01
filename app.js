@@ -3331,6 +3331,11 @@ function mealsAllHtml() {
         .map((r, i) => `<tr><td class="muted">${i + 1}</td><td>${studentLink(r.s)}</td><td class="num">${fmtMoney(r.t.charged)}</td><td class="num">${fmtMoney(r.t.paid)}</td><td class="num"><b>${debtHtml(r.t.debt)}</b></td><td class="small">${r.last ? fmtDate(r.last.date) : "—"}</td></tr>`)
         .join("")}
     </table></div></div>
+  <div class="card"><h2>📥 Загрузить ведомость из бухгалтерии</h2>
+    <p class="small muted">Файл Excel «Ведомость по расчетам с родителями» за месяц. Сайт найдёт учеников по ФИО, внесёт начисление и оплату за месяц и сверит долг на начало месяца: если он отличается от сайта, добавит корректировку. После загрузки долг на сайте совпадёт с «Задолженностью на конец».</p>
+    <input type="file" id="mv-file" accept=".xlsx,.xls">
+    <div id="mv-preview"></div>
+  </div>
   <div class="card"><h2>💳 Принять оплату или начислить одному</h2>${mealFormHtml("mp", list)}</div>
   <div class="card"><h2>🧾 Начислить нескольким ученикам</h2>
     <form class="plan-form meal-form" id="mc-form">
@@ -3357,8 +3362,145 @@ function mealsAllHtml() {
   </div>`;
 }
 
+// ---------- загрузка ведомости бухгалтерии (Excel) ----------
+const MONTHS_RU = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+let sheetJsLoaded = null;
+function loadSheetJs() {
+  sheetJsLoaded =
+    sheetJsLoaded ||
+    new Promise((resolve, reject) => {
+      const el = document.createElement("script");
+      el.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      el.onload = resolve;
+      el.onerror = () => ((sheetJsLoaded = null), reject(new Error("Не удалось загрузить модуль Excel. Проверьте интернет.")));
+      document.head.appendChild(el);
+    });
+  return sheetJsLoaded;
+}
+const nameKey = (t) => String(t || "").normalize("NFC").toLowerCase().replace(/ё/g, "е").split(/\s+/).filter(Boolean);
+function findStudentByName(name) {
+  const k = nameKey(name).join(" ");
+  const rev = nameKey(name).reverse().join(" ");
+  return DATA.students.find((s) => {
+    const n = nameKey(s.name).join(" ");
+    return n === k || n === rev;
+  });
+}
+// Читает ведомость: месяц из строки «за Сентябрь 2026», строки учеников после заголовка «Ребенок».
+// Колонки: ФИО | Долг на начало | Остаток на начало | Начислено | Оплата | Долг на конец | Остаток на конец
+function parseVedomost(rows) {
+  let month = -1, year = 0, start = -1;
+  rows.forEach((r, i) => {
+    const line = r.map((v) => String(v ?? "")).join(" ");
+    const m = line.toLowerCase().match(/за\s+([а-яё]+)\s+(\d{4})/);
+    if (m && month < 0 && MONTHS_RU.indexOf(m[1]) >= 0) (month = MONTHS_RU.indexOf(m[1])), (year = Number(m[2]));
+    if (start < 0 && /ребенок|ребёнок/i.test(String(r[0] ?? ""))) start = i + 1;
+  });
+  if (month < 0) throw new Error("Не нашёл месяц (строка вида «за Сентябрь 2026»)");
+  if (start < 0) throw new Error("Не нашёл таблицу (заголовок «Ребенок»)");
+  const num = (v) => Number(String(v ?? "").replace(/\s/g, "").replace(",", ".")) || 0;
+  const items = [];
+  const unknown = [];
+  rows.slice(start).forEach((r) => {
+    const name = String(r[0] ?? "").trim();
+    if (!name || ![1, 2, 3, 4, 5, 6].some((j) => num(r[j]))) return;
+    const s = findStudentByName(name);
+    if (!s) return /[а-яәғқңөұүһі]{2,}\s+[а-яәғқңөұүһі]{2,}/i.test(name) && unknown.push(name); // строка группы («9а») — пропускаем
+    items.push({ s, open: num(r[1]) - num(r[2]), charged: num(r[3]), paid: num(r[4]), close: num(r[5]) - num(r[6]) });
+  });
+  return { month, year, items, unknown };
+}
+function vedomostEntries(v) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const first = `${v.year}-${pad(v.month + 1)}-01`;
+  const last = `${v.year}-${pad(v.month + 1)}-${pad(new Date(v.year, v.month + 1, 0).getDate())}`;
+  const mon = `${MONTHS_RU[v.month]} ${v.year}`;
+  const r2 = (n) => Math.round(n * 100) / 100;
+  return v.items.map((it) => {
+    const cur = mealsOf(it.s);
+    const site = mealTotals(cur).debt;
+    const diff = r2(it.open - site);
+    const entries = [];
+    const dup = cur.some((x) => x.note === `Питание за ${mon}`);
+    if (!dup) {
+      if (diff) {
+        const note = cur.length ? `Корректировка по ведомости на 1 число (${mon})` : diff > 0 ? `Долг на начало: ${mon}` : `Остаток (переплата) на начало: ${mon}`;
+        entries.push({ id: it.s.id, type: diff > 0 ? "Начислено" : "Оплачено", date: first, amount: Math.abs(diff), note });
+      }
+      if (it.charged) entries.push({ id: it.s.id, type: "Начислено", date: last, amount: r2(it.charged), note: `Питание за ${mon}` });
+      if (it.paid) entries.push({ id: it.s.id, type: "Оплачено", date: last, amount: r2(it.paid), note: `Оплата за ${mon} (по ведомости)` });
+    }
+    const after = r2(site + entries.reduce((a, e) => a + (e.type === "Начислено" ? e.amount : -e.amount), 0));
+    return { ...it, site, diff, entries, dup, after, ok: dup || after === r2(it.close) };
+  });
+}
+function vedomostPreviewHtml(v, plan) {
+  const all = plan.flatMap((p) => p.entries);
+  const dups = plan.filter((p) => p.dup).length;
+  return `<h3>Ведомость за ${MONTHS_RU[v.month]} ${v.year}: ${plan.length} уч.</h3>
+    ${v.unknown.length ? `<p class="small" style="color:var(--red)">Не нашёл на сайте: ${v.unknown.map(esc).join(", ")} — эти строки пропущены.</p>` : ""}
+    ${dups ? `<p class="small" style="color:var(--orange)">У ${dups} уч. этот месяц уже загружен — их пропускаю.</p>` : ""}
+    <div class="table-wrap"><table>
+      <tr><th>Ученик</th><th class="num">Долг на начало</th><th class="num">На сайте сейчас</th><th class="num">Начислено</th><th class="num">Оплата</th><th class="num">Долг на конец</th><th></th></tr>
+      ${plan
+        .map(
+          (p) => `<tr><td>${esc(p.s.name)}</td><td class="num">${fmtMoney(p.open)}</td><td class="num ${p.diff && !p.dup ? "debt" : ""}">${fmtMoney(p.site)}</td><td class="num">${fmtMoney(p.charged)}</td><td class="num">${fmtMoney(p.paid)}</td><td class="num"><b>${fmtMoney(
+            p.close
+          )}</b></td><td class="small">${p.dup ? "уже загружено" : p.ok ? "✓" : "⚠️ не сходится"}</td></tr>`
+        )
+        .join("")}
+    </table></div>
+    ${
+      all.length
+        ? `<div class="save-bar" style="position:static;border:none;padding:10px 0 0"><button class="btn" id="mv-save">Загрузить ${all.length} записей</button><span class="small" id="mv-msg"></span></div>`
+        : '<p class="muted">Нечего загружать.</p>'
+    }`;
+}
+function bindVedomost() {
+  const input = document.getElementById("mv-file");
+  if (!input) return;
+  input.addEventListener("change", async () => {
+    const box = document.getElementById("mv-preview");
+    const file = input.files[0];
+    if (!file) return;
+    box.innerHTML = '<p class="muted">Читаю файл…</p>';
+    try {
+      await loadSheetJs();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: "" });
+      const v = parseVedomost(rows);
+      if (!v.items.length) throw new Error("Не нашёл в файле учеников класса");
+      const plan = vedomostEntries(v);
+      box.innerHTML = vedomostPreviewHtml(v, plan);
+      const btn = document.getElementById("mv-save");
+      if (btn)
+        btn.addEventListener("click", async () => {
+          const all = plan.flatMap((p) => p.entries);
+          const msg = document.getElementById("mv-msg");
+          btn.disabled = true;
+          try {
+            // по 60 записей за запрос — столько принимает сервер
+            for (let i = 0; i < all.length; i += 60) {
+              msg.textContent = `Сохранение… ${i}/${all.length}`;
+              DATA.meals = (await api("addMeals", { entries: all.slice(i, i + 60) })).meals;
+            }
+            render();
+            const m = document.getElementById("mv-preview");
+            if (m) m.innerHTML = `<p class="paid-ok">Ведомость за ${MONTHS_RU[v.month]} ${v.year} загружена ✓ (${all.length} записей)</p>`;
+          } catch (ex) {
+            msg.textContent = "Ошибка: " + ex.message + ". Часть записей могла сохраниться — обновите страницу и проверьте «Последние записи».";
+            msg.style.color = "var(--red)";
+          }
+        });
+    } catch (ex) {
+      box.innerHTML = `<p style="color:var(--red)">${esc(ex.message)}</p>`;
+    }
+  });
+}
+
 function bindMealsAll() {
   bindMealDeletes();
+  bindVedomost();
   document.getElementById("mp-form").addEventListener("submit", (ev) => {
     ev.preventDefault();
     const e = mealEntry("mp");
