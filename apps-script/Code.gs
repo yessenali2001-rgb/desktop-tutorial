@@ -253,6 +253,10 @@ function handle_(req) {
       // Пробный IELTS всему классу сразу — только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
       return { ok: true, english: addEnglishMany_(req.results) };
+    case "addCalendar":
+      // События школьного плана в календарь (күнтізбе) — только учитель и воспитатель
+      if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
+      return { ok: true, calendar: addCalendar_(req.events) };
     case "saveExams":
       // Результаты BTS и других экзаменов (лист «Экзамены») — только учитель и воспитатель
       if (user.role !== "teacher") throw new Error("Доступно только учителю и воспитателю");
@@ -1161,6 +1165,43 @@ function deleteEnglish_(id, x) {
     lock.releaseLock();
   }
   throw new Error("Результат не найден. Обновите страницу.");
+}
+
+// ===================== Календарь: добавление событий школьного плана =====================
+// events: [{start, end, title}] — даты yyyy-MM-dd. Уже записанное событие (та же дата начала и название) пропускается.
+function addCalendar_(events) {
+  if (!Array.isArray(events) || !events.length) throw new Error("Нет событий для сохранения");
+  if (events.length > 200) throw new Error("Слишком много событий за раз");
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  const day = (d) => Utilities.parseDate(d, tz_(), "yyyy-MM-dd");
+  const have = {};
+  readCalendar_().forEach((e) => (have[e.start + "|" + e.title] = true));
+  const rows = [];
+  events.forEach((e) => {
+    e = e || {};
+    const start = String(e.start || "").trim();
+    const end = String(e.end || "").trim();
+    const title = safeText_(e.title, 200);
+    if (!isoRe.test(start) || (end && !isoRe.test(end)) || !title) throw new Error("Неверное событие: " + (title || start));
+    if (end && end < start) throw new Error("Окончание раньше начала: " + title);
+    const key = start + "|" + title;
+    if (have[key]) return;
+    have[key] = true;
+    rows.push([day(start), end && end !== start ? day(end) : "", title]);
+  });
+  if (rows.length) {
+    const lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      const sh = ensureSheet_("calendar", 0);
+      const at = sh.getLastRow() + 1;
+      sh.getRange(at, 1, rows.length, 2).setNumberFormat("dd.mm.yyyy");
+      sh.getRange(at, 1, rows.length, 3).setValues(rows);
+    } finally {
+      lock.releaseLock();
+    }
+  }
+  return readCalendar_();
 }
 
 // ===================== Экзамены: запись результатов (например, «9 кл: BTS-1») =====================
