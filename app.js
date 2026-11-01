@@ -846,25 +846,48 @@ function dayLabel(iso) {
   const [y, m, d] = iso.split("-").map(Number);
   return `${d} ${MONTHS[m - 1]}`;
 }
+// Календарь: сначала идущие сейчас и ближайшие события, остальные — по кнопке «Показать все», по месяцам
+const CAL_SHOW = 6;
 function calendarHtml(all = false) {
   const today = todayIso();
-  const events = (DATA.calendar || []).filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.start));
+  const events = (DATA.calendar || []).filter((e) => /^\d{4}-\d{2}-\d{2}$/.test(e.start))
+    .sort((x, y) => (x.start < y.start ? -1 : x.start > y.start ? 1 : (x.end || x.start) < (y.end || y.start) ? -1 : 1));
   const list = all ? events : events.filter((e) => (e.end || e.start) >= today);
   if (!list.length) return "";
   const days = (iso) => Math.round((new Date(iso + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000);
-  return `<div class="card"><div class="eyebrow">Жоспар</div><h2>${all ? "Күнтізбе" : "Алдағы күнтізбе"}</h2><div class="events">${list
+  // учителю — всё; ученику и родителю — идущие сейчас + ближайшие CAL_SHOW, пока не нажмут «Показать все»
+  const nowCount = list.filter((e) => e.start <= today && today <= (e.end || e.start)).length;
+  const limit = all || state.calAll ? list.length : Math.max(CAL_SHOW, nowCount + 3);
+  const shown = list.slice(0, limit);
+  let month = "";
+  const rows = shown
     .map((e) => {
       const end = e.end || e.start;
       const past = end < today;
       const now = e.start <= today && today <= end;
-      const when = past ? "прошло" : now ? "идёт сейчас" : days(e.start) === 1 ? "завтра" : `через ${days(e.start)} дн.`;
-      return `<div class="event ${past ? "past" : ""}">
+      const when = past ? "прошло" : now ? "идёт сейчас" : days(e.start) === 0 ? "сегодня" : days(e.start) === 1 ? "завтра" : `через ${days(e.start)} дн.`;
+      const m = e.start.slice(0, 7);
+      const head = m !== month ? `<div class="event-month">${MONTHS_FULL[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}</div>` : "";
+      month = m;
+      return `${head}<div class="event ${past ? "past" : ""} ${now ? "event-now" : ""}">
         <div class="event-date">${dayLabel(e.start)}${end !== e.start ? " – " + dayLabel(end) : ""}</div>
         <div class="event-title">${esc(e.title)}</div>
         <span class="badge ${now ? "now" : ""}">${when}</span>
       </div>`;
     })
-    .join("")}</div></div>`;
+    .join("");
+  const more = list.length - shown.length;
+  return `<div class="card"><div class="eyebrow">Жоспар</div><h2>${all ? "Күнтізбе" : "Алдағы күнтізбе"}</h2><div class="events">${rows}</div>${
+    more > 0 ? `<button class="btn btn-ghost btn-block" id="cal-more">Показать все (ещё ${more})</button>` : !all && state.calAll && list.length > CAL_SHOW ? '<button class="btn btn-ghost btn-block" id="cal-more">Свернуть</button>' : ""
+  }</div>`;
+}
+function bindCalendar() {
+  const b = document.getElementById("cal-more");
+  if (b)
+    b.addEventListener("click", () => {
+      state.calAll = !state.calAll;
+      render();
+    });
 }
 
 // Значок предмета по названию (казахский, русский, английский)
@@ -987,6 +1010,7 @@ function weekTableHtml(schedule, todayIdx) {
 }
 
 function bindSchedule() {
+  bindCalendar();
   app.querySelectorAll("[data-sched-day]").forEach((b) =>
     b.addEventListener("click", () => {
       state.schedDay = b.dataset.schedDay;

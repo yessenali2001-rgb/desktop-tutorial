@@ -649,3 +649,6 @@ input[type="file"] { max-width: 100%; font-size: 14px; }
 .bts-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .bts-chip { font-size: 12px; padding: 2px 7px; border-radius: 6px; background: color-mix(in srgb, var(--c) 14%, transparent); border-left: 3px solid var(--c); }
 .bts-chip b { color: var(--c); }
+.event-month { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 2px; }
+.event-month:first-child { margin-top: 0; }
+#cal-more { margin-top: 10px; }
