@@ -1183,8 +1183,11 @@ function saveExams_(entries) {
   lock.waitLock(20000);
   try {
     const sh = ensureSheet_("exams", 0);
-    // текст как в таблице: лист перезаписывается целиком, и даты/числа не должны поменять вид
-    const values = sh.getDataRange().getDisplayValues();
+    // лист перезаписывается целиком текстом: числа — с точкой («87.8», а не «87,8» по русским настройкам),
+    // даты — как они показаны в таблице
+    const range = sh.getDataRange();
+    const shown = range.getDisplayValues();
+    const values = range.getValues().map((r, i) => r.map((v, j) => (isDate_(v) ? shown[i][j] : String(v))));
     const head = values[0];
     items.forEach((x) => {
       if (head.map((h) => String(h).trim()).indexOf(x.col) < 0) {

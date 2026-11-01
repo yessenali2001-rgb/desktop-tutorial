@@ -3423,7 +3423,9 @@ function btsList(s) {
       .map(([, n, v]) => ({ name: BTS_SUBJECTS[n.trim()] || n.trim(), score: Number(v.replace(",", ".")) }));
     const per = parts.some((p) => p.score > 20) || total > 150 ? 100 : 20;
     const max = parts.length ? parts.length * per : total > 150 ? 600 : 120;
-    res.push({ key: e.name, grade: Number(m[1]), n: Number(m[2]), label: `${m[1]} кл · BTS-${m[2]}`, total, max, per, parts });
+    const rankCell = ex.find((x) => x.name === `${e.name} место в параллели`);
+    const rank = cellValue(rankCell && rankCell.value); // «1 из 47» — место среди всех 9-х классов
+    res.push({ key: e.name, grade: Number(m[1]), n: Number(m[2]), label: `${m[1]} кл · BTS-${m[2]}`, total, max, per, parts, rank });
   });
   return res.sort((a, b) => a.grade - b.grade || a.n - b.n);
 }
@@ -3482,6 +3484,7 @@ function btsHtml(s) {
           <div class="bts-score">${cur.total} <span>/ ${cur.max}</span></div>
           <div class="small muted">Общий балл · ${pc}%${dp ? ` <span class="${dp > 0 ? "up" : "down"}">${dp > 0 ? "+" : "−"}${Math.abs(dp)}% к ${esc(prev.label)}</span>` : ""}</div></div>
       </div>
+      ${cur.rank ? `<div class="bts-total"><span class="bts-icon">🏅</span><div><div class="small muted">Место в параллели ${cur.grade} классов</div><div class="bts-score">${esc(cur.rank.split(/\s*из\s*/)[0])} <span>из ${esc(cur.rank.split(/\s*из\s*/)[1] || "")}</span></div></div></div>` : ""}
     </div>
     ${cur.parts.length ? `<div class="card"><h3 style="margin-top:0">Разбивка по предметам</h3>${btsBarsHtml(cur.parts, cur.per)}</div>` : ""}
     <div class="card"><h3 style="margin-top:0">Все BTS</h3>
@@ -3548,12 +3551,12 @@ function btsAllHtml() {
     ${subjAvg.length ? `<h3>Средний по предметам</h3>${btsBarsHtml(subjAvg, per)}` : ""}
     <h3>Рейтинг</h3>
     <div class="table-wrap"><table>
-      <tr><th>#</th><th>Ученик</th><th class="num">Балл</th><th class="num">%</th>${prevKey ? `<th class="num">к ${esc(prevKey.label)}</th>` : ""}${subjects.map((n) => `<th class="num">${esc(n)}</th>`).join("")}</tr>
+      <tr><th>#</th><th>Ученик</th><th class="num">Балл</th><th class="num">%</th>${rows.some((r) => r.t.rank) ? '<th class="num">В параллели</th>' : ""}${prevKey ? `<th class="num">к ${esc(prevKey.label)}</th>` : ""}${subjects.map((n) => `<th class="num">${esc(n)}</th>`).join("")}</tr>
       ${rows
         .map((r, i) => {
           const pc = btsPct(r.t.total, r.t.max);
           const d = r.p ? pc - btsPct(r.p.total, r.p.max) : null;
-          return `<tr><td class="muted">${i + 1}</td><td>${studentLink(r.s)}</td><td class="num"><b>${r.t.total}</b></td><td class="num">${pc}%</td>${
+          return `<tr><td class="muted">${i + 1}</td><td>${studentLink(r.s)}</td><td class="num"><b>${r.t.total}</b></td><td class="num">${pc}%</td>${rows.some((x) => x.t.rank) ? `<td class="num small">${esc(r.t.rank || "—")}</td>` : ""}${
             prevKey ? `<td class="num">${d == null ? "—" : d ? `<span class="${d > 0 ? "up" : "down"}">${d > 0 ? "+" : "−"}${Math.abs(d)}%</span>` : "0"}</td>` : ""
           }${subjects
             .map((n) => {
