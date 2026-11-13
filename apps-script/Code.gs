@@ -192,7 +192,9 @@ function stripParents_(data) {
 }
 
 // ---------------------------------------------------------------- работа с таблицей
-function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
+// Если скрипт создан отдельно от таблицы, он открывает базу по её ID.
+var DB_ID = '1ARc2YgWGMX3jZLB2804M72rsaErDJJa97o1Nrv4ZA_Q';
+function ss_() { return SpreadsheetApp.getActiveSpreadsheet() || SpreadsheetApp.openById(DB_ID); }
 
 function sheet_(kind) {
   var name = SHEET[kind], sh = ss_().getSheetByName(name);
