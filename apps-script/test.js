@@ -1,0 +1,73 @@
+// Имитация Google Apps Script окружения для проверки Code.gs
+const vm=require('vm'),fs=require('fs'),crypto=require('crypto');
+function makeEnv(props){
+  const sheets={};const cache={};
+  const mkSheet=name=>{const d=[];const sh={name,d,
+    getLastRow(){let n=0;d.forEach((r,i)=>{if(r&&r.some(v=>v!==''&&v!=null))n=i+1;});return n;},
+    getRange(r,c,nr,nc){return{
+      getValues(){const o=[];for(let i=0;i<nr;i++){const row=[];for(let j=0;j<nc;j++){const v=(d[r-1+i]||[])[c-1+j];row.push(v==null?'':v);}o.push(row);}return o;},
+      setValues(v){v.forEach((row,i)=>{d[r-1+i]=d[r-1+i]||[];row.forEach((x,j)=>{d[r-1+i][c-1+j]=x;});});},
+      clearContent(){for(let i=0;i<nr;i++)for(let j=0;j<nc;j++)if(d[r-1+i])d[r-1+i][c-1+j]='';},
+      setNumberFormat(){}};}};return sh;};
+  const ctx={console,JSON,Date,Math,Number,String,Object,Array,parseInt,isFinite,
+    SpreadsheetApp:{getActiveSpreadsheet:()=>({getSheetByName:n=>sheets[n]||null,insertSheet:n=>(sheets[n]=mkSheet(n)),getSpreadsheetTimeZone:()=>'Asia/Almaty'})},
+    ContentService:{MimeType:{JSON:'json'},createTextOutput:t=>({t,setMimeType(){return this;},getContent(){return this.t;}})},
+    CacheService:{getScriptCache:()=>({get:k=>cache[k]??null,put:(k,v)=>{cache[k]=v;},remove:k=>{delete cache[k];},getAll:ks=>{const o={};ks.forEach(k=>{if(cache[k]!=null)o[k]=cache[k];});return o;},putAll:(o)=>{Object.assign(cache,o);},removeAll:ks=>ks.forEach(k=>delete cache[k])})},
+    LockService:{getScriptLock:()=>({waitLock(){},releaseLock(){}})},
+    PropertiesService:{getScriptProperties:()=>({getProperty:k=>props[k]??null})},
+    Utilities:{getUuid:()=>crypto.randomUUID(),sleep(){},formatDate:(d)=>d.toTimeString().slice(0,5)}};
+  vm.createContext(ctx);vm.runInContext(fs.readFileSync(__dirname + '/Code.gs','utf8'),ctx);
+  return {ctx,sheets,get:(p)=>JSON.parse(ctx.doGet({parameter:p}).getContent()),post:(b)=>JSON.parse(ctx.doPost({postData:{contents:JSON.stringify(b)}}).getContent())};
+}
+const assert=require('assert');
+const E=makeEnv({ORGANIZER_PASSWORD:'adminpass1',ORG_VOLLEYBALL_PASSWORD:'volleypass',ORG_CHESS_PASSWORD:'chesspass1'});
+let r=E.get({});assert(r.ok,JSON.stringify(r));
+console.log('первый запуск: sports',Object.keys(r.data.sports),'арены dads',r.data.sports.volleyball_dads.venues,'moms',r.data.sports.volleyball_moms.venues);
+assert.deepStrictEqual(Object.keys(E.sheets).sort(),['Арены','Матчи','Настройки','Расписание','Участники'].sort());
+// вход
+assert(!E.post({action:'login',username:'organizer',password:'bad'}).ok);
+assert(!E.post({action:'login',username:'org_tennis',password:'x'}).ok);   // пароль не задан
+assert(!E.post({action:'login',username:'__proto__',password:'x'}).ok);
+const lv=E.post({action:'login',username:'org_volleyball',password:'volleypass'});assert(lv.ok&&lv.token);
+const ad=E.post({action:'login',username:'organizer',password:'adminpass1'});assert(ad.ok);
+// сохранение организатором волейбола
+const mk=(id,name,cls,parent)=>({id,name,cls,parent,group:''});
+const dads={format:'championship',groups:2,venues:['Большой зал','Арена 2'],participants:[mk('p1','Алпамыс','7А','Иванова'),mk('p2','Батыр','7Б','Петров')],
+ matches:[{id:'m1',round:1,group:'',a:'p1',b:'p2',sa:15,sb:12.5,detail:'2-я партия',venue:'0',status:'live'},{id:'m2',round:1,group:'',a:'p1',b:'',sa:1,sb:0,detail:'',venue:'',status:'finished'}]};
+let s=E.post({action:'save',token:lv.token,data:{news:'взлом',sports:{volleyball_dads:dads,chess:{participants:[mk('c1','X','1','')]}}}});assert(s.ok,JSON.stringify(s));
+let g=E.get({});assert(g.ok);
+assert.strictEqual(g.data.news,'Добро пожаловать на спартакиаду!');               // news не изменён (не админ)
+assert.strictEqual(g.data.sports.chess.participants.length,0);                    // чужой вид спорта не записан
+const d=g.data.sports.volleyball_dads;
+assert.strictEqual(d.format,'championship');assert.deepStrictEqual(d.venues,['Большой зал','Арена 2']);
+assert.strictEqual(d.participants.length,2);assert(!('parent' in d.participants[0]),'родитель не должен виден без входа');
+assert.strictEqual(d.matches[0].sb,12.5);assert.strictEqual(d.matches[0].venue,'0');assert.strictEqual(d.matches[0].status,'live');
+assert.strictEqual(d.matches[1].b,'');assert.strictEqual(d.matches[1].venue,'');
+g=E.get({token:lv.token});assert.strictEqual(g.data.sports.volleyball_dads.participants[0].parent,'Иванова');
+console.log('Матчи в таблице:',E.sheets['Матчи'].d.slice(0,3).map(r=>r.join('|')));
+// админ
+s=E.post({action:'save',token:ad.token,data:{news:'Новости',date:'14 ноября 2026',place:'Лицей',schedule:[{time:'09:00',event:'Открытие',place:'Зал'}],sports:{chess:{format:'swiss',participants:[mk('c1','Аружан','5А','Мама')],matches:[]}}}});assert(s.ok);
+g=E.get({});assert.strictEqual(g.data.news,'Новости');assert.strictEqual(g.data.date,'14 ноября 2026');
+assert.deepStrictEqual(g.data.schedule,[{time:'09:00',event:'Открытие',place:'Зал'}]);
+assert.strictEqual(g.data.sports.chess.format,'swiss');assert.strictEqual(g.data.sports.chess.participants[0].name,'Аружан');
+assert.strictEqual(g.data.sports.volleyball_dads.participants.length,2);          // данные волейбола сохранились
+// без токена нельзя писать
+assert(!E.post({action:'save',data:{news:'x'}}).ok);
+// выход
+E.post({action:'logout',token:ad.token});assert(!E.post({action:'save',token:ad.token,data:{news:'y'}}).ok);
+// защита: неверные id в матчах, статус
+s=E.post({action:'save',token:lv.token,data:{sports:{volleyball_moms:{format:'bad',participants:[mk('a','A','1','')],matches:[{id:'z',round:500,a:'nope',b:'a',sa:'abc',sb:1,status:'weird',venue:'9'}]}}}});assert(s.ok);
+const mm=E.get({}).data.sports.volleyball_moms;assert.strictEqual(mm.format,'league');assert.strictEqual(mm.matches[0].a,'');assert.strictEqual(mm.matches[0].round,99);assert.strictEqual(mm.matches[0].sa,0);assert.strictEqual(mm.matches[0].status,'scheduled');assert.strictEqual(mm.matches[0].venue,'');
+// блокировка после 10 неудачных попыток
+for(let i=0;i<10;i++)E.post({action:'login',username:'organizer',password:'x'});
+assert(/много попыток/.test(E.post({action:'login',username:'organizer',password:'adminpass1'}).error));
+// кэш: второе чтение родителем идёт из кэша и обновляется после сохранения
+const E2=makeEnv({ORGANIZER_PASSWORD:'adminpass1'});E2.get({});
+const l2=E2.post({action:'login',username:'organizer',password:'adminpass1'});
+E2.post({action:'save',token:l2.token,data:{news:'A',sports:{}}});
+assert.strictEqual(E2.get({}).data.news,'A');
+const before=E2.sheets['Настройки'].d.length;
+assert.strictEqual(E2.get({}).data.news,'A');                       // из кэша
+E2.post({action:'save',token:l2.token,data:{news:'B',sports:{}}});
+assert.strictEqual(E2.get({}).data.news,'B');                       // кэш сброшен
+console.log('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
