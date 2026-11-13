@@ -337,6 +337,7 @@ function apiCreateRequest(token, b) {
     throw new Error('Оқушының аты, сыныбы, себебі және қайда баратыны міндетті.');
   }
   withLock_(function () { appendRow_(SHEET_REQUESTS, REQ_COLS, r); });
+  notifyNewRequest_(r);
   return publicRequest_(r);
 }
 
@@ -676,6 +677,107 @@ function apiAddUser(token, b) {
     appendRow_(SHEET_USERS, USER_COLS, u);
     return publicUser_(u);
   });
+}
+
+// ---------- Gmail хабарламалары (завучқа) ----------
+
+// Хабарлама баратын мекенжайлар кодта емес, скрипттің жабық баптауларында сақталады.
+function notifyEmails_() {
+  return String(PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS') || '')
+    .split(/[\s,;]+/)
+    .filter(Boolean);
+}
+
+function escapeHtml_(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+
+function siteUrl_() {
+  try {
+    return ScriptApp.getService().getUrl() || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function requestEmailHtml_(r, intro) {
+  var rows = [
+    ['Оқушы', r.student + ' (' + r.className + ')'],
+    ['Себебі', r.reason + (r.reasonNote ? ' — ' + r.reasonNote : '')],
+    ['Қайда барады', r.destination],
+    ['Кім алып кетеді', r.pickup || '—'],
+    ['Телефон', r.pickupPhone || '—'],
+    ['Сынып жетекшісі', r.teacherName],
+    ['Жіберілді', String(r.createdAt).slice(11, 16)],
+  ];
+  var url = siteUrl_();
+  return '<div style="font-family:Arial,sans-serif;color:#111233;max-width:520px">' +
+    '<div style="background:#111233;color:#fff;padding:16px 20px;border-bottom:4px solid #cab391;border-radius:10px 10px 0 0">' +
+    '<div style="font-size:18px;font-weight:bold">Шығу рұқсаты</div>' +
+    '<div style="color:#cab391;font-size:13px">' + escapeHtml_(SCHOOL_SHORT_NAME) + '</div></div>' +
+    '<div style="border:1px solid #e2ded6;border-top:0;padding:16px 20px;border-radius:0 0 10px 10px">' +
+    '<p style="margin:0 0 12px;font-size:15px">' + escapeHtml_(intro) + '</p>' +
+    '<table style="border-collapse:collapse;font-size:14px;width:100%">' +
+    rows.map(function (row) {
+      return '<tr><td style="padding:6px 12px 6px 0;color:#5d5e73;white-space:nowrap;vertical-align:top">' + escapeHtml_(row[0]) +
+        '</td><td style="padding:6px 0;font-weight:bold">' + escapeHtml_(row[1]) + '</td></tr>';
+    }).join('') +
+    '</table>' +
+    (url ? '<p style="margin:16px 0 0"><a href="' + escapeHtml_(url) + '" style="display:inline-block;background:#111233;color:#fff;' +
+      'text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:bold">Сайтта ашып, шешім қабылдау</a></p>' : '') +
+    '</div></div>';
+}
+
+// Жаңа өтінім келгенде завучқа хат. Хат жіберілмесе де, өтінім сақталады.
+function notifyNewRequest_(r) {
+  var to = notifyEmails_();
+  if (!to.length) return;
+  try {
+    MailApp.sendEmail({
+      to: to.join(','),
+      subject: 'Жаңа өтінім: ' + r.student + ' (' + r.className + ') — ' + r.reason,
+      htmlBody: requestEmailHtml_(r, r.className + ' сыныбынан жаңа өтінім келді. Рұқсат беру не бас тарту үшін сайтты ашыңыз.'),
+      name: 'Шығу рұқсаты',
+    });
+  } catch (e) {
+    Logger.log('Хат жіберілмеді: ' + e);
+  }
+}
+
+function apiGetNotifySettings(token) {
+  auth_(token, ['zavuch']);
+  var quota = null;
+  try { quota = MailApp.getRemainingDailyQuota(); } catch (e) {}
+  return { emails: notifyEmails_(), quota: quota };
+}
+
+function apiSetNotifySettings(token, text) {
+  auth_(token, ['zavuch']);
+  var emails = String(text || '').split(/[\s,;]+/).filter(Boolean);
+  if (emails.length > 5) throw new Error('Ең көбі 5 мекенжай.');
+  emails.forEach(function (e) {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Email қате жазылған: ' + e);
+  });
+  PropertiesService.getScriptProperties().setProperty('NOTIFY_EMAILS', emails.join(','));
+  return { emails: emails };
+}
+
+function apiTestNotify(token) {
+  var user = auth_(token, ['zavuch']);
+  var to = notifyEmails_();
+  if (!to.length) throw new Error('Алдымен email мекенжайын сақтаңыз.');
+  MailApp.sendEmail({
+    to: to.join(','),
+    subject: 'Тексеру хаты: «Шығу рұқсаты» хабарламалары',
+    htmlBody: requestEmailHtml_({
+      student: 'Мысал Оқушы', className: '7А', reason: 'Ауырып қалды', reasonNote: 'бұл тексеру хаты',
+      destination: 'Үйге', pickup: 'Анасы', pickupPhone: '', teacherName: user.name, createdAt: now_(),
+    }, 'Бұл тексеру хаты. Хабарламалар жұмыс істеп тұр: жаңа өтінім келгенде осындай хат келеді.'),
+    name: 'Шығу рұқсаты',
+  });
+  return { sentTo: to };
 }
 
 // «Оқушылар» парағындағы, бірақ әлі жетекші аккаунты жоқ сыныптар

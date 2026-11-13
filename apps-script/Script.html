@@ -771,9 +771,51 @@ async function exportReport(e, month) {
 // --- Қолданушылар (завуч) ---
 
 async function loadUsers() {
-  const [users, missing] = await Promise.all([call('apiListUsers'), call('apiClassesWithoutTeacher').catch(() => [])]);
+  const [users, missing, notify] = await Promise.all([
+    call('apiListUsers'),
+    call('apiClassesWithoutTeacher').catch(() => []),
+    call('apiGetNotifySettings').catch(() => null),
+  ]);
   state.users = users;
   state.missingClasses = missing;
+  state.notify = notify;
+}
+
+// Завучқа Gmail хабарламалары: жаңа өтінім келгенде хат жіберіледі
+function notifyPanel() {
+  const n = state.notify || { emails: [] };
+  const input = h('input', { id: 'notify-emails', type: 'text', inputmode: 'email', autocomplete: 'email', value: n.emails.join(', '), placeholder: 'zavuch@gmail.com' });
+  const status = h('p', { class: 'muted', id: 'notify-status' }, n.emails.length
+    ? `Қосулы: жаңа өтінім келгенде хат ${n.emails.join(', ')} мекенжайына жіберіледі.`
+    : 'Өшірулі. Email енгізіп, «Сақтау» басыңыз.');
+  const run = async (btn, fn) => {
+    btn.disabled = true;
+    try { await fn(); } catch (ex) { toast(ex.message); } finally { btn.disabled = false; }
+  };
+  return h('section', { class: 'panel stack', id: 'notify-panel' },
+    h('h2', {}, 'Gmail хабарламалары'),
+    h('p', { class: 'muted' }, 'Сынып жетекшісі өтінім жібергенде завучтың поштасына бірден хат келеді. Бірнеше мекенжайды үтірмен бөліп жазуға болады.'),
+    h('label', { for: 'notify-emails' }, 'Email'),
+    input,
+    h('div', { class: 'slip-actions' },
+      h('button', {
+        class: 'btn btn-primary', type: 'button',
+        onclick: (e) => run(e.currentTarget, async () => {
+          state.notify = { ...(state.notify || {}), ...(await call('apiSetNotifySettings', input.value)) };
+          status.textContent = state.notify.emails.length
+            ? `Қосулы: жаңа өтінім келгенде хат ${state.notify.emails.join(', ')} мекенжайына жіберіледі.`
+            : 'Өшірулі. Email енгізіп, «Сақтау» басыңыз.';
+          toast(state.notify.emails.length ? 'Сақталды' : 'Хабарламалар өшірілді');
+        }),
+      }, 'Сақтау'),
+      h('button', {
+        class: 'btn btn-ghost', type: 'button',
+        onclick: (e) => run(e.currentTarget, async () => {
+          const res = await call('apiTestNotify');
+          toast(`Тексеру хаты жіберілді: ${res.sentTo.join(', ')}`);
+        }),
+      }, 'Тексеру хатын жіберу')),
+    status);
 }
 
 // Сыныптарды бірден қосу: «Оқушылар» парағындағы жетекшісі жоқ сыныптар алдын ала жазылып тұрады
@@ -871,6 +913,7 @@ function usersPage() {
       h('h1', {}, 'Қолданушылар'),
       h('p', { class: 'muted' }, 'Әр сыныпқа PIN-код, КПП-ға өз құпия сөзін беріңіз.'))),
     h('section', { class: 'panel stack', id: 'bulk-result', hidden: true }),
+    notifyPanel(),
     (state.missingClasses || []).length || !state.users.some((u) => u.role === 'teacher') ? bulkPanel() : null, form, table);
 }
 
