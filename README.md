@@ -1,5 +1,13 @@
-# Welcome to GitHub Desktop!
+# Спартакиада 2026 — сайт
 
-This is your README. READMEs are where you can communicate what your project is and how to use it.
+Запуск (Node 18+, зависимости не нужны):
 
-Write your name on line 6, save it, and then head back to GitHub Desktop.
+    ORGANIZER_PASSWORD='ваш-пароль' node server.js
+
+Откройте http://localhost:3000
+
+- **Родители** — вход без пароля, только просмотр.
+- **Организаторы** — логин `organizer` и пароль; могут менять расписание, результаты и объявление.
+
+Если `ORGANIZER_PASSWORD` не задан, при первом запуске пароль генерируется и печатается в консоль.
+Пароль хранится в хэше в `data/users.json` (не попадает в git). Чтобы сменить пароль, удалите этот файл и запустите заново.
