@@ -52,6 +52,7 @@
   .vcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:0 2px 10px rgba(17,18,51,.06)}
   .vcard.busy{border-color:var(--live)}
   .vcard input{width:100%;font-weight:700;margin-bottom:6px}
+  .vlabel{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
   .vnow{margin:8px 0 4px;font-weight:700}
   table{width:100%;border-collapse:collapse;background:var(--card)}
   th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -435,11 +436,12 @@
     // арены (әкелер — две арены, аналар — одна)
     if(hasVenues(S)){
       root.append(h('h3',null,'Арены'));
+      if(edit)root.append(h('p',{class:'fmt',style:'margin:-4px 0 10px'},'✎ Название арены можно изменить: впишите своё (например, «Большой зал») — оно сразу появится в матчах и у родителей.'));
       const cards=h('div',{class:'venues'});
       S.venues.forEach((n,i)=>{
         const cur=S.matches.find(m=>m.status==='live'&&m.venue===String(i));
         const next=S.matches.filter(m=>m.status==='scheduled'&&m.venue===String(i)&&m.b).sort((a,b)=>a.round-b.round)[0];
-        const title=edit?(()=>{const inp=h('input',{value:n,placeholder:'Название арены'});inp.oninput=()=>{S.venues[i]=inp.value;save();};inp.onchange=()=>rerender();return inp;})():h('b',null,n||'Арена '+(i+1));
+        const title=edit?(()=>{const inp=h('input',{value:n,placeholder:'Арена '+(i+1),maxlength:60,'aria-label':'Название арены '+(i+1)});inp.oninput=()=>{S.venues[i]=inp.value;document.querySelectorAll('option[data-v="'+i+'"]').forEach(o=>{o.textContent=inp.value||'Арена '+(i+1);});renderLive();save();};return h('div',null,h('label',{class:'vlabel'},'✎ Название арены'),inp);})():h('b',null,n||'Арена '+(i+1));
         cards.append(h('div',{class:'vcard'+(cur?' busy':'')},title,
           cur?h('div',{class:'vnow'},h('span',{class:'badge b-live'},'● ИДЁТ'),' '+pn(S,cur.a)+'  '+cur.sa+' : '+cur.sb+'  '+pn(S,cur.b))
              :h('div',{class:'nolive',style:'margin-top:6px'},'Свободна'),
@@ -502,7 +504,7 @@
           const det=h('input',{value:m.detail,placeholder:meta.scoreHint});det.oninput=()=>{m.detail=det.value;save();};det.onchange=()=>renderLive();
           const st=h('select',null,Object.entries(STATUS).map(([v,t])=>h('option',{value:v},t)));st.value=m.status;
           st.onchange=()=>{m.status=st.value;save();rerender();};
-          const vsel=hasVenues(S)?(()=>{const v=h('select',null,h('option',{value:''},'—'),S.venues.map((n,i)=>h('option',{value:String(i)},n||'Арена '+(i+1))));v.value=m.venue||'';v.onchange=()=>{m.venue=v.value;save();rerender();};return h('td',null,v);})():null;
+          const vsel=hasVenues(S)?(()=>{const v=h('select',null,h('option',{value:''},'—'),S.venues.map((n,i)=>h('option',{value:String(i),'data-v':String(i)},n||'Арена '+(i+1))));v.value=m.venue||'';v.onchange=()=>{m.venue=v.value;save();rerender();};return h('td',null,v);})():null;
           tr.append(h('td',null,rd),h('td',null,sel(m.a,v=>{m.a=v;save();rerender();})),
             h('td',null,sc('sa')),h('td',null,sc('sb')),h('td',null,sel(m.b,v=>{m.b=v;save();rerender();})),
             vsel,h('td',null,det),h('td',null,st),
