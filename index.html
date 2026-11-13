@@ -3,33 +3,40 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#111233">
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap&subset=cyrillic" rel="stylesheet">
 <title>Спартакиада 2026</title>
 <meta name="description" content="Спартакиада: волейбол, настольный теннис, шахматы — участники, матчи и результаты.">
 <style>
-  :root{--bg:#0b1020;--card:#141b34;--text:#eef1fb;--muted:#9aa5c7;--accent:#ff5a1f;--accent2:#ffc107;--line:#232c4d;--live:#ff3b3b}
+  :root{--bg:#111233;--bg2:#0b0c26;--card:#1a1b47;--text:#ffffff;--muted:#a9abc9;--accent:#cab391;--accent2:#e6d5b8;--on-accent:#111233;--line:#2e3068;--live:#ff4d4d}
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  body{font-family:'Montserrat',system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
   a{color:inherit;text-decoration:none}
   .wrap{max-width:1100px;margin:0 auto;padding:0 20px}
   .hidden{display:none!important}
-  header{position:sticky;top:0;z-index:10;background:rgba(11,16,32,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  header{position:sticky;top:0;z-index:10;background:rgba(17,18,51,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
   nav{display:flex;align-items:center;justify-content:space-between;height:60px;gap:14px}
   .logo{font-weight:800;letter-spacing:.5px;white-space:nowrap}.logo span{color:var(--accent)}
   nav ul{display:flex;gap:20px;list-style:none;font-size:15px;color:var(--muted)}
   nav ul a:hover{color:var(--text)}
   .who{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--muted)}
   .who button{background:transparent;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit}
-  .hero{padding:70px 0 60px;background:radial-gradient(800px 400px at 85% 0%,rgba(255,90,31,.28),transparent 60%),radial-gradient(600px 300px at 10% 100%,rgba(255,193,7,.15),transparent 60%)}
+  .hero{padding:56px 0 60px;background:radial-gradient(800px 420px at 90% 0%,rgba(202,179,145,.22),transparent 60%),linear-gradient(180deg,var(--bg2),var(--bg))}
+  .hero-logo{display:block;width:min(420px,80%);height:auto;margin-bottom:34px}
+  .brand{display:flex;align-items:center;gap:10px}.brand img{height:34px;width:auto;display:block}
+  .login-logo{display:block;width:240px;max-width:80%;margin:0 auto 22px}
   .tag{display:inline-block;padding:6px 14px;border:1px solid var(--accent);color:var(--accent);border-radius:99px;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
-  h1{font-size:clamp(40px,8vw,80px);line-height:1.02;margin:20px 0 16px;font-weight:900}
-  h1 em{font-style:normal;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  h1{font-size:clamp(38px,7.5vw,76px);line-height:1.04;margin:20px 0 16px;font-weight:800;letter-spacing:-.5px}
+  h1 em{font-style:normal;background:linear-gradient(90deg,var(--accent2),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
   .lead{max-width:600px;color:var(--muted);font-size:18px}
   .facts{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0}
   .fact{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 18px}
   .fact small{display:block;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
   .fact b{font-size:17px}
-  .btn{display:inline-block;background:var(--accent);color:#fff;font-weight:700;padding:13px 26px;border-radius:12px;border:0;cursor:pointer;font:inherit;font-weight:700}
+  .btn{display:inline-block;background:var(--accent);color:var(--on-accent);font-weight:700;padding:13px 26px;border-radius:12px;border:0;cursor:pointer;font:inherit;font-weight:700}
   section{padding:56px 0}
   h2{font-size:clamp(26px,4vw,36px);margin-bottom:6px}
   h3{margin-bottom:4px}
@@ -38,14 +45,14 @@
   .card p{color:var(--muted);font-size:14px}
   .contacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
   .news{background:var(--card);border-left:4px solid var(--accent);border-radius:10px;padding:16px 20px}
-  .news textarea{width:100%;min-height:70px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit;padding:8px 10px;margin-top:6px}
+  .news textarea{width:100%;min-height:70px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font:inherit;padding:8px 10px;margin-top:6px}
   .tblwrap{overflow-x:auto;border-radius:14px}
   table{width:100%;border-collapse:collapse;background:var(--card)}
   th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
   th{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
   tr:last-child td{border-bottom:0}
   td.num,th.num{text-align:center}
-  input,select,textarea{font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  input,select,textarea{font:inherit;color:var(--text);background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
   td input,td select{width:100%;min-width:60px}
   td input.sc{width:64px;text-align:center}
   td input.rd{width:56px;text-align:center}
@@ -53,11 +60,11 @@
   .box select{width:100%;margin-bottom:12px;padding:12px 14px}
   .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
   .tabs button{padding:10px 18px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--muted);font:inherit;font-weight:600;cursor:pointer}
-  .tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .tabs button.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
   .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0}
   .bar button,.bar label{font:inherit}
   .bar button{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:9px 14px;cursor:pointer}
-  .bar button.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+  .bar button.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
   .x{background:transparent;border:0;color:#ff6b6b;cursor:pointer;font-size:18px}
   .err{color:#ff6b6b;font-size:14px;min-height:20px;margin-bottom:8px}
   .panel h3{margin-top:26px;margin-bottom:10px;font-size:20px}
@@ -67,28 +74,29 @@
   .b-sch{background:var(--line);color:var(--muted)}
   .b-fin{background:#1f6f43;color:#d7ffe9}
   @keyframes pulse{50%{opacity:.55}}
-  tr.live td{background:rgba(255,59,59,.12)}
+  tr.live td{background:rgba(255,77,77,.14)}
   .score{font-weight:800;font-size:17px;text-align:center}
   #liveBox{margin-bottom:26px}
-  .livecard{background:rgba(255,59,59,.12);border:1px solid var(--live);border-radius:14px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .livecard{background:rgba(255,77,77,.12);border:1px solid var(--live);border-radius:14px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
   .livecard .sp{color:var(--muted);font-size:13px}
   .livecard .vs{font-size:18px;font-weight:700}
   .nolive{color:var(--muted);font-size:14px}
-  #login{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:var(--bg)}
+  #login{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:radial-gradient(700px 400px at 50% 0%,rgba(202,179,145,.18),transparent 65%),var(--bg2)}
   #login .box{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px}
   #login .tabs button{flex:1}
   #login .btn{width:100%}
   #saveMsg{color:var(--muted);font-size:13px}
   footer{border-top:1px solid var(--line);padding:24px 0;color:var(--muted);font-size:14px;text-align:center}
-  @media(max-width:760px){nav ul{display:none}}
+  @media(max-width:760px){nav ul{display:none}.brand img{height:28px}}
 </style>
 </head>
 <body>
 
 <div id="login">
   <div class="box">
-    <h2>Спартакиада 2026</h2>
-    <p class="sub" style="margin:0">Выберите, как войти</p>
+    <img class="login-logo" src="/assets/logo-white.png" alt="Білім-Инновация">
+    <h2 style="text-align:center">Спартакиада 2026</h2>
+    <p class="sub" style="margin:0;text-align:center">Выберите, как войти</p>
     <div class="tabs" style="margin:18px 0">
       <button id="tabParent" class="on" type="button">Я родитель</button>
       <button id="tabOrg" type="button">Организатор</button>
@@ -115,7 +123,7 @@
 <header>
   <div class="wrap">
     <nav>
-      <a href="#top" class="logo">СПАРТАКИАДА<span>.</span>2026</a>
+      <a href="#top" class="brand" aria-label="Білім-Инновация"><img src="/assets/logo-white.png" alt="Білім-Инновация"></a>
       <ul>
         <li><a href="#about">О событии</a></li>
         <li><a href="#sports">Соревнования</a></li>
@@ -130,6 +138,7 @@
 <main id="top" class="hidden">
   <div class="hero">
     <div class="wrap">
+      <img class="hero-logo" src="/assets/logo-white.png" alt="Білім-Инновация">
       <span class="tag">Волейбол · Настольный теннис · Шахматы</span>
       <h1>Спартакиада<br><em>2026</em></h1>
       <p class="lead">Соревнования, командный дух и яркие эмоции. [Краткое описание: чья спартакиада, для кого проходит.]</p>
@@ -186,7 +195,7 @@
   </section>
 </main>
 
-<footer><div class="wrap"><span id="saveMsg"></span> © 2026 Спартакиада. [Название организации]</div></footer>
+<footer><div class="wrap"><span id="saveMsg"></span> © 2026 Спартакиада. Білім-Инновация</div></footer>
 
 <script>
 (function(){

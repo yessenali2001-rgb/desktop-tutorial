@@ -198,6 +198,15 @@ http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
     }
+    if (url.startsWith('/assets/')) { // логотипы и картинки (публичные)
+      const f = path.join(__dirname, 'assets', path.basename(url));
+      const types = { '.png': 'image/png', '.svg': 'image/svg+xml', '.jpg': 'image/jpeg', '.webp': 'image/webp' };
+      const type = types[path.extname(f).toLowerCase()];
+      if (type && fs.existsSync(f)) {
+        res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=86400' });
+        return res.end(fs.readFileSync(f));
+      }
+    }
     res.writeHead(404); res.end('Not found');
   } catch (e) {
     json(res, 400, { error: 'Некорректный запрос' });
