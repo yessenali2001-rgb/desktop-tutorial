@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Достық спартакиадасы</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fff;--bg2:#f6f3ee;--text:#111233;--muted:#62647f;--gold:#cab391;--gold-d:#8f7549;--line:#e4dfd5;--live:#e63946}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Montserrat',system-ui,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+.wrap{max-width:1080px;margin:0 auto;padding:0 18px}
+header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.95);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.bar{display:flex;align-items:center;gap:12px;height:60px}
+.bar img{width:38px;height:38px;border-radius:50%;box-shadow:0 0 0 1px var(--line)}
+.bar b{font-size:14px;letter-spacing:.4px}
+.hero{padding:40px 0 34px;background:radial-gradient(700px 360px at 90% 0%,rgba(202,179,145,.35),transparent 60%),linear-gradient(180deg,var(--bg2),var(--bg))}
+.kz{color:var(--gold-d);font-weight:700;letter-spacing:.5px;font-size:14px}
+h1{font-size:clamp(34px,7vw,64px);line-height:1.05;font-weight:800;margin:8px 0 18px;letter-spacing:-.5px}
+.facts{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+.fact{background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 16px;box-shadow:0 2px 10px rgba(17,18,51,.06)}
+.fact small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:1px}
+.news{background:var(--bg2);border-left:4px solid var(--gold);border-radius:10px;padding:14px 18px;max-width:720px}
+section{padding:34px 0}
+h2{font-size:clamp(22px,3.5vw,30px);margin-bottom:14px}
+h3{font-size:17px;margin:22px 0 10px}
+.live{background:#ffe9e9;border:1px solid var(--live);border-radius:14px;padding:12px 16px;margin-bottom:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.live .vs{font-size:17px;font-weight:700}
+.live .sp{color:var(--muted);font-size:13px}
+.none{color:var(--muted);font-size:14px}
+.badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700;white-space:nowrap}
+.b-live{background:var(--live);color:#fff;animation:p 1.4s infinite}.b-sch{background:var(--line);color:var(--muted)}.b-fin{background:#1f6f43;color:#d7ffe9}
+@keyframes p{50%{opacity:.55}}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.tabs button{padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--muted);font:inherit;font-weight:600;cursor:pointer}
+.tabs button.on{background:var(--text);border-color:var(--text);color:#fff}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:14px}
+table{width:100%;border-collapse:collapse}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);background:var(--bg2)}
+tr:last-child td{border-bottom:0}
+td.c,th.c{text-align:center}
+tr.lv td{background:#ffe9e9}
+.sc{font-weight:800;font-size:16px;text-align:center}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:14px;padding:12px 16px;box-shadow:0 2px 10px rgba(17,18,51,.06)}
+.demo{background:#fff3cd;color:#664d03;text-align:center;padding:6px;font-size:13px}
+footer{border-top:1px solid var(--line);padding:20px 0;color:var(--muted);font-size:13px;text-align:center}
+#err{display:none;background:#fff3cd;color:#664d03;border-radius:10px;padding:12px 16px;margin:14px 0}
+</style>
+</head>
+<body>
+<div class="demo" id="demo" style="display:none">Предпросмотр: на странице примерные данные. На рабочем сайте данные берутся из таблицы.</div>
+<header><div class="wrap"><div class="bar"><img src="assets/emblem.png" alt=""><b>АҚТӨБЕ БІЛІМ-ИННОВАЦИЯ ЛИЦЕЙІ</b></div></div></header>
+<main>
+<div class="hero"><div class="wrap">
+  <div class="kz" id="org">Ақтөбе білім-инновация лицейі</div>
+  <h1 id="title">Достық спартакиадасы</h1>
+  <div class="facts" id="facts"></div>
+  <div class="news" id="news" style="display:none"></div>
+  <div id="err"></div>
+</div></div>
+<section><div class="wrap"><h2>Сейчас идёт</h2><div id="live"><p class="none">Загрузка…</p></div></div></section>
+<section style="padding-top:0"><div class="wrap">
+  <h2>Соревнования</h2><div class="tabs" id="tabs"></div><div id="panel"></div>
+</div></section>
+<section style="padding-top:0"><div class="wrap"><h2>Расписание</h2><div class="tw"><table><thead><tr><th>Время</th><th>Событие</th><th>Место</th></tr></thead><tbody id="sched"></tbody></table></div></div></section>
+</main>
+<footer><div class="wrap">Достық спартакиадасы · Ақтөбе білім-инновация лицейі<br><span id="upd"></span></div></footer>
+<script>
+const MODE='live';
+const SHEET_ID='11WLIXvd0a3F23Q56RZOMiEwG4VwwFKI0b5AiBZXqRn4';
+const SPORTS=['Волейбол әкелер','Волейбол аналар','Настольный теннис','Шахматы'];
+const ICON={'Волейбол әкелер':'🏐','Волейбол аналар':'🏐','Настольный теннис':'🏓','Шахматы':'♟️'};
+const $=id=>document.getElementById(id);
+function h(t,p,...k){const e=document.createElement(t);for(const a in p||{}){if(a==='class')e.className=p[a];else e.setAttribute(a,p[a]);}k.flat().forEach(x=>{if(x==null||x===false)return;e.append(x.nodeType?x:document.createTextNode(String(x)));});return e;}
+let cur=SPORTS[0],DATA=null,n=0;
+
+// ---- чтение Google Таблицы (JSONP: работает без серверов) ----
+function gviz(sheet,range){return new Promise((ok,fail)=>{
+  const cb='gv'+(++n)+Date.now();let done=false;
+  const s=document.createElement('script');
+  const t=setTimeout(()=>{if(!done){done=true;fail(new Error('timeout'));s.remove();}},10000);
+  window[cb]=r=>{done=true;clearTimeout(t);delete window[cb];s.remove();
+    if(!r||r.status!=='ok'||!r.table)return fail(new Error('no access'));
+    ok(r.table.rows.map(row=>(row.c||[]).map(c=>c?(c.f!=null?c.f:(c.v!=null?String(c.v):'')):'')));};
+  s.onerror=()=>{if(!done){done=true;clearTimeout(t);fail(new Error('load'));}};
+  s.src='https://docs.google.com/spreadsheets/d/'+SHEET_ID+'/gviz/tq?headers=0&sheet='+encodeURIComponent(sheet)+'&range='+range+'&tqx=out:json;responseHandler:'+cb;
+  document.head.append(s);});}
+async function load(){
+  const d={main:await gviz('Главная','A1:F34'),sports:{}};
+  for(const s of SPORTS)d.sports[s]=await gviz(s,'A6:Z205');
+  return d;}
+const g=(r,i)=>(r&&r[i]!=null?String(r[i]).trim():'');
+
+// ---- примерные данные для предпросмотра ----
+function demo(){
+  const pad=(a,n)=>{a=a.slice();while(a.length<n)a.push('');return a;};
+  const main=Array.from({length:34},()=>pad([],6));
+  main[0][0]='Достық спартакиадасы';main[3]=pad(['Дата','14 ноября 2026'],6);main[4]=pad(['Место','Лицей, спортивный комплекс'],6);main[5]=pad(['Объявление','Добро пожаловать на спартакиаду!'],6);
+  main[9]=['Волейбол әкелер','Арена 2','Алпамыс','15 : 12','Батыр','2-я партия'];
+  main[10]=['Шахматы','Шахматный зал','Аружан','0.5 : 0.5','Данияр',''];
+  [['09:00','Регистрация команд',''],['10:00','Открытие',''],['11:00','Волейбол әкелер','Арена 1, Арена 2'],['12:00','Волейбол аналар','Арена 3'],['13:00','Настольный теннис','Зал настольного тенниса'],['15:00','Шахматы','Шахматный зал'],['17:30','Награждение','']].forEach((r,i)=>main[23+i]=pad(r,6));
+  const sp={};SPORTS.forEach(s=>sp[s]=Array.from({length:200},()=>pad([],26)));
+  const v=sp['Волейбол әкелер'];
+  [['Алпамыс','7А'],['Батыр','7Б'],['Жигит','8А'],['Даулет','8Б']].forEach((p,i)=>{v[i][0]=p[0];v[i][1]=p[1];});
+  [['1','Алпамыс','2','1','Батыр','1','Арена 1','Завершён',''],['1','Жигит','0','2','Даулет','2','Арена 2','Завершён',''],['2','Алпамыс','15','12','Батыр','2','Арена 2','Идёт сейчас','2-я партия'],['2','Жигит','0','0','Даулет','1','Арена 1','Ожидается','']].forEach((m,i)=>{for(let j=0;j<9;j++)v[i][4+j]=m[j];v[i][10]=m[6];v[i][11]=m[7];v[i][12]=m[8];});
+  [['1','Даулет','8Б','','1','1','0','0','2','2'],['2','Алпамыс','7А','','1','1','0','0','1','2'],['3','Батыр','7Б','','1','0','0','1','-1','0'],['4','Жигит','8А','','1','0','0','1','-2','0']].forEach((t,i)=>{for(let j=0;j<10;j++)v[i][16+j]=t[j];});
+  const c=sp['Шахматы'];[['Аружан','5А'],['Данияр','6Б']].forEach((p,i)=>{c[i][0]=p[0];c[i][1]=p[1];});
+  c[0][4]='1';c[0][5]='Аружан';c[0][6]='0.5';c[0][7]='0.5';c[0][8]='Данияр';c[0][10]='Шахматный зал';c[0][11]='Идёт сейчас';
+  return {main,sports:sp};}
+
+// ---- отрисовка ----
+const badge=s=>h('span',{class:'badge '+(s==='Идёт сейчас'?'b-live':s==='Завершён'?'b-fin':'b-sch')},s||'Ожидается');
+function render(d){
+  const m=d.main;
+  $('title').textContent=g(m[0],0)||'Достық спартакиадасы';
+  const facts=$('facts');facts.replaceChildren();
+  [['Дата',g(m[3],1)],['Место',g(m[4],1)]].forEach(([k,v])=>{if(v)facts.append(h('div',{class:'fact'},h('small',null,k),h('b',null,v)));});
+  const nw=g(m[5],1);$('news').style.display=nw?'block':'none';$('news').textContent=nw;
+  // сейчас идёт
+  const L=$('live');L.replaceChildren();let any=false;
+  for(let i=9;i<20;i++){const r=m[i];if(!r||!g(r,1))continue;any=true;
+    L.append(h('div',{class:'live'},h('span',{class:'badge b-live'},'● ИДЁТ'),h('span',{class:'sp'},g(r,0)+' · '+g(r,1)),h('span',{class:'vs'},g(r,2)+'  '+g(r,3)+'  '+g(r,4)),g(r,5)?h('span',{class:'sp'},g(r,5)):null));}
+  if(!any)L.append(h('p',{class:'none'},'Сейчас матчей нет.'));
+  // расписание
+  const sb=$('sched');sb.replaceChildren();
+  for(let i=23;i<34;i++){const r=m[i];if(!r||!(g(r,0)||g(r,1)))continue;sb.append(h('tr',null,h('td',null,g(r,0)),h('td',null,g(r,1)),h('td',null,g(r,2))));}
+  // вкладки
+  const tabs=$('tabs');tabs.replaceChildren();
+  SPORTS.forEach(s=>{const live=(d.sports[s]||[]).some(r=>g(r,11)==='Идёт сейчас');
+    tabs.append(h('button',{class:s===cur?'on':'',type:'button',onclick:()=>{cur=s;render(d);}},ICON[s]+' '+s+(live?' 🔴':'')));});
+  const rows=d.sports[cur]||[];const P=$('panel');P.replaceChildren();
+  const tbl=rows.filter(r=>g(r,17)),mt=rows.filter(r=>g(r,5)&&g(r,8)),pp=rows.filter(r=>g(r,0));
+  P.append(h('h3',null,'Турнирная таблица'));
+  P.append(tbl.length?h('div',{class:'tw'},h('table',null,h('thead',null,h('tr',null,['№','Участник','Класс','И','В','Н','П','Разница','Очки'].map((x,i)=>h('th',{class:i>2||i===0?'c':''},x)))),
+    h('tbody',null,tbl.map(r=>h('tr',null,h('td',{class:'c'},g(r,16)),h('td',null,g(r,17)),h('td',null,g(r,18)),[20,21,22,23,24].map(i=>h('td',{class:'c'},g(r,i-0+0))),h('td',{class:'c'},h('b',null,g(r,25))))))))
+    :h('p',{class:'none'},'Таблица появится, когда добавят участников.'));
+  P.append(h('h3',null,'Матчи'));
+  P.append(mt.length?h('div',{class:'tw'},h('table',null,h('thead',null,h('tr',null,['Тур','А','Счёт','Б','Арена / зал','Заметка','Статус'].map(x=>h('th',null,x)))),
+    h('tbody',null,mt.map(r=>h('tr',{class:g(r,11)==='Идёт сейчас'?'lv':''},h('td',null,g(r,4)),h('td',null,g(r,5)),h('td',{class:'sc'},g(r,6)+' : '+g(r,7)),h('td',null,g(r,8)),h('td',null,g(r,10)),h('td',null,g(r,12)),h('td',null,badge(g(r,11))))))))
+    :h('p',{class:'none'},'Матчи ещё не составлены.'));
+  P.append(h('h3',null,'Участники ('+pp.length+')'));
+  P.append(pp.length?h('div',{class:'cards'},pp.map(r=>h('div',{class:'card'},h('b',null,g(r,0)),g(r,1)?h('div',{class:'none'},g(r,1)+' класс'):null))):h('p',{class:'none'},'Пока никого нет.'));
+  $('upd').textContent='Обновлено: '+new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});}
+async function tick(){
+  try{DATA=MODE==='demo'?demo():await load();$('err').style.display='none';render(DATA);}
+  catch(e){const E=$('err');E.style.display='block';E.textContent='Не удалось загрузить данные из таблицы. Откройте доступ к таблице: «Все, у кого есть ссылка» → «Читатель».';if(DATA)render(DATA);}}
+if(MODE==='demo')$('demo').style.display='block';
+tick();if(MODE!=='demo')setInterval(tick,20000);
+</script>
+</body>
+</html>
