@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap&subset=cyrillic" rel="stylesheet">
 <title>Спартакиада 2026</title>
-<meta name="description" content="Спартакиада: волейбол, настольный теннис, шахматы — участники, матчи и результаты.">
+<meta name="description" content="Спартакиада: волейбол әкелер и аналар, настольный теннис, шахматы — участники, матчи и результаты.">
 <style>
   :root{--bg:#ffffff;--bg2:#f6f3ee;--card:#ffffff;--text:#111233;--muted:#62647f;--accent:#111233;--on-accent:#ffffff;--gold:#cab391;--gold-d:#8f7549;--line:#e4dfd5;--live:#e63946}
   *{box-sizing:border-box;margin:0;padding:0}
@@ -146,14 +146,15 @@
   <div class="hero">
     <div class="wrap">
       <img class="hero-logo" src="/assets/logo-main.png" alt="Білім-Инновация">
-      <span class="tag">Волейбол · Настольный теннис · Шахматы</span>
+      <span class="tag">Волейбол әкелер · Волейбол аналар · Настольный теннис · Шахматы</span>
       <h1>Спартакиада<br><em>2026</em></h1>
       <p class="lead">Соревнования, командный дух и яркие эмоции. [Краткое описание: чья спартакиада, для кого проходит.]</p>
       <div class="facts">
         <div class="fact"><small>Дата</small><b>[дд.мм.гггг]</b></div>
         <div class="fact"><small>Место</small><b>[адрес / площадка]</b></div>
-        <div class="fact"><small>Видов спорта</small><b>3</b></div>
-        <div class="fact"><small>Площадок для волейбола</small><b>3</b></div>
+        <div class="fact"><small>Видов спорта</small><b>4</b></div>
+        <div class="fact"><small>Волейбол әкелер</small><b>2 арены</b></div>
+        <div class="fact"><small>Волейбол аналар</small><b>1 арена</b></div>
       </div>
       <a class="btn" href="#sports">Смотреть матчи</a>
     </div>
@@ -209,12 +210,13 @@
 (function(){
   const $=id=>document.getElementById(id);
   const SPORTS={
-    volleyball:{title:'Волейбол',icon:'🏐',unit:'Команда',scoreHint:'Счёт по партиям',formats:{league:'Лига — каждая команда играет с каждой',championship:'Чемпионат — игры на вылет, проигравший выбывает'}},
+    volleyball_dads:{title:'Волейбол әкелер',icon:'🏐',unit:'Команда',scoreHint:'Счёт по партиям',formats:{league:'Лига — каждая команда играет с каждой',championship:'Чемпионат — игры на вылет, проигравший выбывает'}},
+    volleyball_moms:{title:'Волейбол аналар',icon:'🏐',unit:'Команда',scoreHint:'Счёт по партиям',formats:{league:'Лига — каждая команда играет с каждой',championship:'Чемпионат — игры на вылет, проигравший выбывает'}},
     tennis:{title:'Настольный теннис',icon:'🏓',unit:'Участник',scoreHint:'Счёт по партиям',formats:{league:'Лига — каждый играет с каждым',group:'Групповой — участники делятся на группы, играют внутри группы'}},
     chess:{title:'Шахматы',icon:'♟️',unit:'Участник',scoreHint:'Заметка (необязательно)',formats:{blitz:'Блиц — быстрые партии, каждый с каждым',swiss:'Швейцарская система — туры, пары по набранным очкам'}}
   };
   const STATUS={scheduled:'Ожидается',live:'Идёт сейчас',finished:'Завершён'};
-  let me=null,data=null,sport='volleyball',saveT=null,pollT=null;
+  let me=null,data=null,sport='volleyball_dads',saveT=null,pollT=null;
 
   // ---------- утилиты ----------
   const uid=()=>Math.random().toString(36).slice(2,10);
@@ -235,7 +237,7 @@
   const isAdmin=()=>isOrg()&&me.sports==='all';
   const canEdit=k=>isOrg()&&(me.sports==='all'||me.sports.includes(k));
   const pn=(S,id)=>{const p=S.participants.find(x=>x.id===id);return p?p.name||'(без имени)':'—';};
-  const venueName=(S,m)=>{const i=parseInt(m.venue);return Number.isInteger(i)&&S.venues&&S.venues[i]!==undefined?(S.venues[i]||'Площадка '+(i+1)):'';};
+  const venueName=(S,m)=>{const i=parseInt(m.venue);return Number.isInteger(i)&&S.venues&&S.venues[i]!==undefined?(S.venues[i]||'Арена '+(i+1)):'';};
   const hasVenues=S=>S.venues&&S.venues.length>0;
   const pcls=(S,id)=>{const p=S.participants.find(x=>x.id===id);return p&&p.cls?' ('+p.cls+')':'';};
 
@@ -307,7 +309,7 @@
     }
     for(let r=1;r<=lastRound(S);r++)assignVenues(S,r);
   }
-  // раскладываем матчи тура по площадкам по кругу
+  // раскладываем матчи тура по аренам по кругу
   function assignVenues(S,round){
     if(!hasVenues(S))return;
     let i=0;S.matches.filter(m=>m.round===round&&m.b).forEach(m=>{m.venue=String(i%S.venues.length);i++;});
@@ -430,14 +432,14 @@
       root.append(bar);
     } else root.append(h('p',{class:'fmt'},'Формат: '+meta.formats[S.format]));
 
-    // площадки (волейбол проходит в трёх местах)
+    // арены (әкелер — две арены, аналар — одна)
     if(hasVenues(S)){
-      root.append(h('h3',null,'Площадки'));
+      root.append(h('h3',null,'Арены'));
       const cards=h('div',{class:'venues'});
       S.venues.forEach((n,i)=>{
         const cur=S.matches.find(m=>m.status==='live'&&m.venue===String(i));
         const next=S.matches.filter(m=>m.status==='scheduled'&&m.venue===String(i)&&m.b).sort((a,b)=>a.round-b.round)[0];
-        const title=edit?(()=>{const inp=h('input',{value:n,placeholder:'Название площадки'});inp.oninput=()=>{S.venues[i]=inp.value;save();};inp.onchange=()=>rerender();return inp;})():h('b',null,n||'Площадка '+(i+1));
+        const title=edit?(()=>{const inp=h('input',{value:n,placeholder:'Название арены'});inp.oninput=()=>{S.venues[i]=inp.value;save();};inp.onchange=()=>rerender();return inp;})():h('b',null,n||'Арена '+(i+1));
         cards.append(h('div',{class:'vcard'+(cur?' busy':'')},title,
           cur?h('div',{class:'vnow'},h('span',{class:'badge b-live'},'● ИДЁТ'),' '+pn(S,cur.a)+'  '+cur.sa+' : '+cur.sb+'  '+pn(S,cur.b))
              :h('div',{class:'nolive',style:'margin-top:6px'},'Свободна'),
@@ -500,7 +502,7 @@
           const det=h('input',{value:m.detail,placeholder:meta.scoreHint});det.oninput=()=>{m.detail=det.value;save();};det.onchange=()=>renderLive();
           const st=h('select',null,Object.entries(STATUS).map(([v,t])=>h('option',{value:v},t)));st.value=m.status;
           st.onchange=()=>{m.status=st.value;save();rerender();};
-          const vsel=hasVenues(S)?(()=>{const v=h('select',null,h('option',{value:''},'—'),S.venues.map((n,i)=>h('option',{value:String(i)},n||'Площадка '+(i+1))));v.value=m.venue||'';v.onchange=()=>{m.venue=v.value;save();rerender();};return h('td',null,v);})():null;
+          const vsel=hasVenues(S)?(()=>{const v=h('select',null,h('option',{value:''},'—'),S.venues.map((n,i)=>h('option',{value:String(i)},n||'Арена '+(i+1))));v.value=m.venue||'';v.onchange=()=>{m.venue=v.value;save();rerender();};return h('td',null,v);})():null;
           tr.append(h('td',null,rd),h('td',null,sel(m.a,v=>{m.a=v;save();rerender();})),
             h('td',null,sc('sa')),h('td',null,sc('sb')),h('td',null,sel(m.b,v=>{m.b=v;save();rerender();})),
             vsel,h('td',null,det),h('td',null,st),
@@ -513,8 +515,8 @@
         }
         mtb.append(tr);
       });
-      const head=edit?h('tr',null,h('th',null,'Тур'),h('th',null,'Игрок / команда А'),h('th',{class:'num'},'Счёт А'),h('th',{class:'num'},'Счёт Б'),h('th',null,'Игрок / команда Б'),hasVenues(S)?h('th',null,'Площадка'):null,h('th',null,'Заметка'),h('th',null,'Статус'),h('th'))
-        :h('tr',null,h('th',null,'Тур'),h('th',null,'А'),h('th',{class:'num'},'Счёт'),h('th',null,'Б'),hasVenues(S)?h('th',null,'Площадка'):null,h('th',null,'Заметка'),h('th',null,'Статус'));
+      const head=edit?h('tr',null,h('th',null,'Тур'),h('th',null,'Игрок / команда А'),h('th',{class:'num'},'Счёт А'),h('th',{class:'num'},'Счёт Б'),h('th',null,'Игрок / команда Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Заметка'),h('th',null,'Статус'),h('th'))
+        :h('tr',null,h('th',null,'Тур'),h('th',null,'А'),h('th',{class:'num'},'Счёт'),h('th',null,'Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Заметка'),h('th',null,'Статус'));
       root.append(h('div',{class:'tblwrap'},h('table',null,h('thead',null,head),mtb)));
     }
 

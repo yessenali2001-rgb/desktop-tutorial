@@ -14,7 +14,8 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // Виды спорта и допустимые форматы турнира
 const SPORTS = {
-  volleyball: ['league', 'championship'], // лига | чемпионат (на вылет)
+  volleyball_dads: ['league', 'championship'], // Волейбол әкелер (папы): лига | чемпионат (на вылет)
+  volleyball_moms: ['league', 'championship'], // Волейбол аналар (мамы)
   tennis: ['league', 'group'],            // лига | групповой
   chess: ['blitz', 'swiss']               // блиц | швейцарская система
 };
@@ -30,7 +31,7 @@ function check(password, rec) {
 }
 // Аккаунты организаторов:
 //   organizer       — главный (всё: расписание, объявления, все виды спорта)
-//   org_volleyball  — только волейбол
+//   org_volleyball  — волейбол (әкелер и аналар)
 //   org_tennis      — только настольный теннис
 //   org_chess       — только шахматы
 // Пароли задаются переменными окружения (рекомендуется для хостинга):
@@ -38,7 +39,7 @@ function check(password, rec) {
 // Если переменная не задана, при первом запуске пароль генерируется и печатается в консоль.
 const ACCOUNTS = {
   organizer: { env: 'ORGANIZER_PASSWORD', sports: 'all' },
-  org_volleyball: { env: 'ORG_VOLLEYBALL_PASSWORD', sports: ['volleyball'] },
+  org_volleyball: { env: 'ORG_VOLLEYBALL_PASSWORD', sports: ['volleyball_dads', 'volleyball_moms'] },
   org_tennis: { env: 'ORG_TENNIS_PASSWORD', sports: ['tennis'] },
   org_chess: { env: 'ORG_CHESS_PASSWORD', sports: ['chess'] }
 };
@@ -49,6 +50,7 @@ const ACCOUNTS = {
   for (const [u, a] of Object.entries(ACCOUNTS)) {
     const envPwd = process.env[a.env];
     if (envPwd && envPwd.length < 8) { console.error(`${a.env}: пароль должен быть не короче 8 символов`); process.exit(1); }
+    if (file[u] && JSON.stringify(file[u].sports) !== JSON.stringify(a.sports)) { file[u].sports = a.sports; changed = true; }
     if (envPwd && !(file[u] && check(envPwd, file[u]))) { file[u] = { ...hash(envPwd), sports: a.sports }; changed = true; }
     else if (!file[u]) {
       const pwd = rnd();
@@ -63,14 +65,16 @@ const ACCOUNTS = {
 const users = () => JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
 
 // ---------- контент ----------
-const DEFAULT_VENUES = ['Площадка 1', 'Площадка 2', 'Площадка 3']; // волейбол проходит в трёх местах
-const emptySport = key => ({ format: SPORTS[key][0], groups: 2, venues: key === 'volleyball' ? DEFAULT_VENUES : [], participants: [], matches: [] });
+// Арены: волейбол әкелер — на двух аренах, волейбол аналар — на одной
+const DEFAULT_VENUES = { volleyball_dads: ['Арена 1', 'Арена 2'], volleyball_moms: ['Арена 3'] };
+const emptySport = key => ({ format: SPORTS[key][0], groups: 2, venues: DEFAULT_VENUES[key] || [], participants: [], matches: [] });
 const DEFAULT = {
   news: 'Добро пожаловать на спартакиаду! [Объявление организаторов]',
   schedule: [
     { time: '09:00', event: 'Регистрация команд', place: '[место]' },
     { time: '10:00', event: 'Открытие', place: '[место]' },
-    { time: '11:00', event: 'Волейбол', place: '[зал]' },
+    { time: '11:00', event: 'Волейбол әкелер', place: 'Арена 1, Арена 2' },
+    { time: '12:00', event: 'Волейбол аналар', place: 'Арена 3' },
     { time: '13:00', event: 'Настольный теннис', place: '[зал]' },
     { time: '15:00', event: 'Шахматы', place: '[аудитория]' },
     { time: '17:30', event: 'Награждение', place: '[место]' }
@@ -88,8 +92,8 @@ function sanitizeSport(key, d) {
     id: s(p.id, 20), name: s(p.name, 100), cls: s(p.cls, 20), parent: s(p.parent, 100), group: s(p.group, 5)
   }));
   const ids = new Set(participants.map(p => p.id));
-  const venues = key === 'volleyball'
-    ? (Array.isArray(d.venues) ? d.venues : DEFAULT_VENUES).slice(0, 6).map(v => s(v, 60))
+  const venues = DEFAULT_VENUES[key]
+    ? (Array.isArray(d.venues) ? d.venues : DEFAULT_VENUES[key]).slice(0, 6).map(v => s(v, 60))
     : [];
   const matches = (Array.isArray(d.matches) ? d.matches : []).slice(0, 2000).map(m => ({
     id: s(m.id, 20),
