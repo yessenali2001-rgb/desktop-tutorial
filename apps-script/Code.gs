@@ -13,8 +13,8 @@ var SPORTS = {
   chess: ['blitz', 'swiss']                    // Шахматы
 };
 var DEFAULT_VENUES = {
-  volleyball_dads: ['Арена 1', 'Арена 2'],
-  volleyball_moms: ['Арена 3'],
+  volleyball_dads: ['Арена 1 - Жубанов университет', 'Арена 2 - #38 школа'],
+  volleyball_moms: ['Арена 3 - БИЛ'],
   tennis: ['Зал настольного тенниса'],
   chess: ['Шахматный зал']
 };
@@ -169,7 +169,7 @@ function sanitizeSport_(key, d) {
       a: ids[m.a] ? m.a : '',
       b: ids[m.b] ? m.b : '',
       sa: num_(m.sa), sb: num_(m.sb),
-      detail: s_(m.detail, 100),
+      detail: s_(m.detail, 200),
       venue: /^\d$/.test(v) && Number(v) < venues.length ? v : '',
       status: STATUSES.indexOf(m.status) >= 0 ? m.status : 'scheduled'
     };

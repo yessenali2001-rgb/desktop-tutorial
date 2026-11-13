@@ -54,6 +54,7 @@
   .vcard.busy{border-color:var(--live)}
   .vcard input{width:100%;font-weight:700;margin-bottom:6px}
   .vlabel{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+  .champ{background:#fff8e1;border:1px solid var(--gold);border-radius:14px;padding:14px 18px;font-weight:800;font-size:18px;margin:14px 0}
   .vnow{margin:8px 0 4px;font-weight:700}
   table{width:100%;border-collapse:collapse;background:var(--card)}
   th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -228,8 +229,8 @@
     return r.json();}
   // демо без интернета: те же правила, что в скрипте (пароль организаторов в демо: demo)
   const DEMO={news:'Добро пожаловать на спартакиаду!',date:'14 ноября 2026',place:'',
-    schedule:[['09:00','Регистрация команд',''],['10:00','Открытие',''],['11:00','Волейбол әкелер','Арена 1, Арена 2'],['12:00','Волейбол аналар','Арена 3'],['13:00','Настольный теннис','Зал настольного тенниса'],['15:00','Шахматы','Шахматный зал'],['17:30','Награждение','']].map(r=>({time:r[0],event:r[1],place:r[2]})),
-    sports:{volleyball_dads:{format:'league',groups:2,venues:['Арена 1','Арена 2'],participants:[],matches:[]},volleyball_moms:{format:'league',groups:2,venues:['Арена 3'],participants:[],matches:[]},tennis:{format:'league',groups:2,venues:['Зал настольного тенниса'],participants:[],matches:[]},chess:{format:'blitz',groups:2,venues:['Шахматный зал'],participants:[],matches:[]}}};
+    schedule:[['09:00','Регистрация команд',''],['10:00','Открытие',''],['11:00','Волейбол әкелер','Арена 1 - Жубанов университет, Арена 2 - #38 школа'],['12:00','Волейбол аналар','Арена 3 - БИЛ'],['13:00','Настольный теннис','Зал настольного тенниса'],['15:00','Шахматы','Шахматный зал'],['17:30','Награждение','']].map(r=>({time:r[0],event:r[1],place:r[2]})),
+    sports:{volleyball_dads:{format:'league',groups:2,venues:['Арена 1 - Жубанов университет','Арена 2 - #38 школа'],participants:[],matches:[]},volleyball_moms:{format:'league',groups:2,venues:['Арена 3 - БИЛ'],participants:[],matches:[]},tennis:{format:'league',groups:2,venues:['Зал настольного тенниса'],participants:[],matches:[]},chess:{format:'blitz',groups:2,venues:['Шахматный зал'],participants:[],matches:[]}}};
   try{const sv=sessionStorage.getItem('demo');if(sv&&MODE==='demo')Object.assign(DEMO,JSON.parse(sv));}catch(e){}
   async function api(url,method,body){
     if(url==='/api/me'){if(!SESS)throw fail('Нет входа',401);return {role:SESS.role,name:SESS.name,sports:SESS.sports};}
@@ -261,20 +262,48 @@
   const pn=(S,id)=>{const p=S.participants.find(x=>x.id===id);return p?p.name||'(без имени)':'—';};
   const venueName=(S,m)=>{const i=parseInt(m.venue);return Number.isInteger(i)&&S.venues&&S.venues[i]!==undefined?(S.venues[i]||'Арена '+(i+1)):'';};
   const hasVenues=S=>S.venues&&S.venues.length>0;
-  const pcls=(S,id)=>{const p=S.participants.find(x=>x.id===id);return p&&p.cls?' ('+p.cls+')':'';};
+  const isTeam=k=>k.indexOf('volleyball')===0;                 // волейбол: команда = класс
+  const prep=d=>{for(const k in d.sports)d.sports[k]._team=isTeam(k);return d;};
+  const pcls=(S,id)=>{if(S._team)return '';const p=S.participants.find(x=>x.id===id);return p&&p.cls?' ('+p.cls+')':'';};
+  // счёт по партиям: «25-17; 17-25, 25-22» → выигранные партии и мячи
+  function parseSets(str){
+    let a=0,b=0,pa=0,pb=0,n=0;
+    String(str||'').split(/[;,\n]+/).forEach(x=>{const m=x.trim().match(/^(\d+)\s*[-:–—]\s*(\d+)$/);if(!m)return;const u=+m[1],v=+m[2];n++;pa+=u;pb+=v;if(u>v)a++;else if(v>u)b++;});
+    return {a,b,pa,pb,n};
+  }
+  const res=m=>{const r=parseSets(m.detail);return r.n?{sa:r.a,sb:r.b}:{sa:m.sa,sb:m.sb};};
+  function nextText(S,p){
+    const m=S.matches.filter(x=>x.status!=='finished'&&x.b&&(x.a===p.id||x.b===p.id)).sort((x,y)=>x.round-y.round)[0];
+    if(!m)return S.matches.length?'—':'';
+    const opp=m.a===p.id?m.b:m.a,v=venueName(S,m);
+    return (m.status==='live'?'🔴 идёт: ':'')+'против '+pn(S,opp)+(v?' · '+v:'');
+  }
 
   // автосохранение (организатор)
+  let flash='';
   function save(){
     $('saveMsg').textContent='Сохранение…';
     clearTimeout(saveT);
     saveT=setTimeout(async()=>{
-      try{await api('/api/data','PUT',data);$('saveMsg').textContent='Сохранено ✔ ';}
+      try{await api('/api/data','PUT',data);$('saveMsg').textContent=flash+'Сохранено ✔ ';flash='';}
       catch(e){$('saveMsg').textContent='Ошибка сохранения: '+e.message+' ';}
     },600);
   }
 
   // ---------- расчёт таблицы ----------
   function standings(key,S){
+    if(isTeam(key)){
+      const rows=new Map(S.participants.map(p=>[p.id,{p,played:0,w:0,l:0,d:0,pts:0,diff:0,sw:0,sl:0,pd:0}]));
+      S.matches.filter(m=>m.status==='finished').forEach(m=>{
+        const A=rows.get(m.a),B=rows.get(m.b),r=parseSets(m.detail),x=res(m);
+        if(A&&!m.b){A.played++;A.w++;A.pts+=2;return;}
+        if(!A||!B)return;
+        A.played++;B.played++;A.sw+=x.sa;A.sl+=x.sb;B.sw+=x.sb;B.sl+=x.sa;A.pd+=r.pa-r.pb;B.pd+=r.pb-r.pa;
+        if(x.sa>x.sb){A.w++;B.l++;A.pts+=2;}else if(x.sb>x.sa){B.w++;A.l++;B.pts+=2;}else{A.d++;B.d++;A.pts++;B.pts++;}
+      });
+      rows.forEach(r=>{r.diff=r.sw-r.sl;});
+      return [...rows.values()].sort((x,y)=>y.pts-x.pts||y.diff-x.diff||y.pd-x.pd||y.w-x.w||x.p.name.localeCompare(y.p.name,'ru',{numeric:true}));
+    }
     const rows=new Map(S.participants.map(p=>[p.id,{p,played:0,w:0,l:0,d:0,pts:0,diff:0}]));
     S.matches.filter(m=>m.status==='finished').forEach(m=>{
       const A=rows.get(m.a),B=rows.get(m.b);
@@ -289,6 +318,11 @@
     return [...rows.values()].sort((x,y)=>y.pts-x.pts||y.diff-x.diff||y.w-x.w||x.p.name.localeCompare(y.p.name));
   }
   function standingsTable(key,S,list){
+    if(isTeam(key))return h('div',{class:'tblwrap'},h('table',null,
+      h('thead',null,h('tr',null,['#','Команда','И','В','П','Партии','Мячи (+/-)','Очки'].map((t,i)=>h('th',{class:i!==1?'num':''},t)))),
+      h('tbody',null,list.map((r,i)=>h('tr',null,h('td',{class:'num'},i<3&&r.played?['🥇','🥈','🥉'][i]:i+1),h('td',null,r.p.name||'(без имени)'),
+        h('td',{class:'num'},r.played),h('td',{class:'num'},r.w),h('td',{class:'num'},r.l),h('td',{class:'num'},r.sw+' : '+r.sl),
+        h('td',{class:'num'},(r.pd>0?'+':'')+r.pd),h('td',{class:'num'},h('b',null,r.pts)))))));
     const chess=key==='chess';
     return h('div',{class:'tblwrap'},h('table',null,
       h('thead',null,h('tr',null,h('th',{class:'num'},'#'),h('th',null,SPORTS[key].unit),h('th',null,'Класс'),
@@ -337,27 +371,37 @@
     let i=0;S.matches.filter(m=>m.round===round&&m.b).forEach(m=>{m.venue=String(i%S.venues.length);i++;});
   }
   function lastRound(S){return S.matches.reduce((m,x)=>Math.max(m,x.round),0);}
-  function genKnockout(S){
+  function genKnockout(S,quiet){
+    const warn=t=>{if(!quiet)alert(t);};
     const r=lastRound(S);let ids;
     if(!r){ids=S.participants.filter(p=>p.name.trim()).map(p=>p.id);
-      if(ids.length<2)return alert('Добавьте минимум двух команд.');}
+      if(ids.length<2)return warn('Добавьте минимум двух команд.');}
     else{
       const last=S.matches.filter(m=>m.round===r);
-      if(last.some(m=>m.status!=='finished'))return alert('Сначала завершите все матчи текущего раунда.');
+      if(last.some(m=>m.status!=='finished'))return warn('Сначала завершите все матчи текущего раунда.');
       ids=[];
       for(const m of last){
         if(!m.b)ids.push(m.a);
-        else if(m.sa>m.sb)ids.push(m.a);
-        else if(m.sb>m.sa)ids.push(m.b);
-        else return alert('В одном из матчей ничья — укажите победителя (счёт не должен быть равным).');
+        else if(res(m).sa>res(m).sb)ids.push(m.a);
+        else if(res(m).sb>res(m).sa)ids.push(m.b);
+        else return warn('В одном из матчей ничья — укажите победителя (счёт не должен быть равным).');
       }
-      if(ids.length<2)return alert('Турнир завершён. Победитель: '+pn(S,ids[0]));
+      if(ids.length<2)return warn('Турнир завершён. Победитель: '+pn(S,ids[0]));
     }
     for(let i=0;i<ids.length;i+=2){
       if(ids[i+1])S.matches.push(mk(r+1,'',ids[i],ids[i+1]));
       else S.matches.push(mk(r+1,'',ids[i],'',{status:'finished',sa:1}));
     }
     assignVenues(S,r+1);
+    return true;
+  }
+  // когда завершён последний матч раунда, следующий раунд составляется сам
+  function autoAdvance(S){
+    if(S.format!=='championship')return false;
+    const r=lastRound(S);if(!r)return false;
+    const last=S.matches.filter(m=>m.round===r);
+    if(last.some(m=>m.status!=='finished'))return false;
+    return genKnockout(S,true)===true;
   }
   function genSwiss(S,key){
     const r=lastRound(S);
@@ -454,6 +498,11 @@
       root.append(bar);
     } else root.append(h('p',{class:'fmt'},'Формат: '+meta.formats[S.format]));
 
+    // победитель чемпионата (на вылет)
+    if(S.format==='championship'){
+      const r0=lastRound(S),l0=S.matches.filter(m=>m.round===r0);
+      if(l0.length===1&&l0[0].status==='finished'){const x=res(l0[0]);const w=x.sa>x.sb?l0[0].a:x.sb>x.sa?l0[0].b:'';if(w)root.append(h('div',{class:'champ'},'🏆 Победитель: '+pn(S,w)));}
+    }
     // арены (әкелер — две арены, аналар — одна)
     if(hasVenues(S)){
       root.append(h('h3',null,'Арены'));
@@ -473,32 +522,34 @@
 
     // участники
     root.append(h('h3',null,(meta.unit==='Команда'?'Команды':'Участники')+' ('+S.participants.length+')'));
+    const team=!!S._team;
     const ptb=h('tbody');
     const partRow=(p,i)=>{
       const tr=h('tr',null,h('td',{class:'num'},i+1));
       if(edit){
         const f=(key,ph)=>{const inp=h('input',{value:p[key]||'',placeholder:ph});inp.oninput=()=>{p[key]=inp.value;save();};
           inp.onchange=()=>refresh();return h('td',null,inp);};
-        tr.append(f('name',meta.unit==='Команда'?'Название команды':'Имя и фамилия'),f('cls','напр. 7А'),f('parent','ФИО родителя'));
+        if(team)tr.append(f('name','Класс, например 7А'));else tr.append(f('name','Имя и фамилия'),f('cls','напр. 7А'),f('parent','ФИО родителя'));
+        tr.append(h('td',null,nextText(S,p)));
         tr.append(h('td',null,h('button',{class:'x',title:'Удалить',onclick:()=>{
           const used=S.matches.some(m=>m.a===p.id||m.b===p.id);
           if(used&&!confirm('Участник есть в матчах. Матчи с ним будут удалены. Продолжить?'))return;
           S.participants=S.participants.filter(x=>x!==p);S.matches=S.matches.filter(m=>m.a!==p.id&&m.b!==p.id);save();rerender();}},'✕')));
-      } else tr.append(h('td',null,p.name),h('td',null,p.cls));
+      } else {if(team)tr.append(h('td',null,p.name));else tr.append(h('td',null,p.name),h('td',null,p.cls));tr.append(h('td',null,nextText(S,p)));}
       return tr;
     };
     S.participants.forEach((p,i)=>ptb.append(partRow(p,i)));
     root.append(h('div',{class:'tblwrap'},h('table',null,
-      h('thead',null,h('tr',null,h('th',{class:'num'},'№'),h('th',null,meta.unit==='Команда'?'Команда':'Имя и фамилия'),h('th',null,'Класс'),edit?h('th',null,'Родитель'):null,edit?h('th'):null)),ptb)));
+      h('thead',null,h('tr',null,h('th',{class:'num'},'№'),h('th',null,team?'Класс (команда)':'Имя и фамилия'),team?null:h('th',null,'Класс'),edit&&!team?h('th',null,'Родитель'):null,h('th',null,'Следующий матч'),edit?h('th'):null)),ptb)));
     if(edit){
-      const ta=h('textarea',{class:'hidden',rows:6,style:'width:100%;margin-top:10px',placeholder:'По одному участнику в строке:\nИмя Фамилия; 7А; ФИО родителя'});
+      const ta=h('textarea',{class:'hidden',rows:6,style:'width:100%;margin-top:10px',placeholder:team?'По одной команде в строке (класс):\n7А\n7Б\n8А':'По одному участнику в строке:\nИмя Фамилия; 7А; ФИО родителя'});
       root.append(h('div',{class:'bar'},
         h('button',{type:'button',onclick:()=>{S.participants.push({id:uid(),name:'',cls:'',parent:'',group:''});save();rerender();}},'+ Добавить'),
         h('button',{type:'button',onclick:()=>{ta.classList.toggle('hidden');}},'Вставить списком'),
         h('button',{type:'button',class:'pri',onclick:()=>{
           const lines=ta.value.split('\n').map(x=>x.trim()).filter(Boolean);
           if(!lines.length)return;
-          lines.forEach(l=>{const [name,cls,parent]=l.split(/[;\t]/).map(x=>(x||'').trim());S.participants.push({id:uid(),name,cls:cls||'',parent:parent||'',group:''});});
+          lines.forEach(l=>{const [name,cls,parent]=l.split(/[;\t]/).map(x=>(x||'').trim());S.participants.push({id:uid(),name,cls:team?'':(cls||''),parent:team?'':(parent||''),group:''});});
           ta.value='';save();rerender();}},'Добавить из списка')),ta);
     }
 
@@ -519,33 +570,44 @@
       sorted.forEach(m=>{
         const tr=h('tr',{class:m.status==='live'?'live':''});
         if(edit){
-          const sel=(cur,onch)=>{const s=h('select',null,h('option',{value:''},'—'),S.participants.map(p=>h('option',{value:p.id},(p.name||'(без имени)')+(p.cls?' ('+p.cls+')':''))));s.value=cur;s.onchange=()=>onch(s.value);return s;};
+          const sel=(cur,onch)=>{const s=h('select',null,h('option',{value:''},'—'),S.participants.map(p=>h('option',{value:p.id},(p.name||'(без имени)')+(!team&&p.cls?' ('+p.cls+')':''))));s.value=cur;s.onchange=()=>onch(s.value);return s;};
           const sc=key=>{const i=h('input',{class:'sc',type:'number',step:'0.5',value:m[key]});i.oninput=()=>{m[key]=Number(i.value)||0;save();refresh();renderLive();};return i;};
           const rd=h('input',{class:'rd',type:'number',min:1,value:m.round});rd.onchange=()=>{m.round=Math.max(1,parseInt(rd.value)||1);save();rerender();};
           const det=h('input',{value:m.detail,placeholder:meta.scoreHint});det.oninput=()=>{m.detail=det.value;save();};det.onchange=()=>renderLive();
           const st=h('select',null,Object.entries(STATUS).map(([v,t])=>h('option',{value:v},t)));st.value=m.status;
-          st.onchange=()=>{m.status=st.value;save();rerender();};
+          st.onchange=()=>{m.status=st.value;if(m.status==='finished'&&autoAdvance(S))flash='Составлен следующий раунд. ';save();rerender();};
           const vsel=hasVenues(S)?(()=>{const v=h('select',null,h('option',{value:''},'—'),S.venues.map((n,i)=>h('option',{value:String(i),'data-v':String(i)},n||'Арена '+(i+1))));v.value=m.venue||'';v.onchange=()=>{m.venue=v.value;save();rerender();};return h('td',null,v);})():null;
+          let scoreCells;
+          if(team){
+            const comp=h('td',{class:'score'},parseSets(m.detail).n?m.sa+' : '+m.sb:'—');
+            const si=h('input',{value:m.detail,placeholder:'25-17; 17-25; 25-22',style:'min-width:220px'});
+            si.oninput=()=>{m.detail=si.value;const r=parseSets(si.value);m.sa=r.a;m.sb=r.b;comp.textContent=r.n?r.a+' : '+r.b:'—';save();refresh();};
+            scoreCells=[h('td',null,si),comp];
+          } else scoreCells=[h('td',null,sc('sa')),h('td',null,sc('sb'))];
           tr.append(h('td',null,rd),h('td',null,sel(m.a,v=>{m.a=v;save();rerender();})),
-            h('td',null,sc('sa')),h('td',null,sc('sb')),h('td',null,sel(m.b,v=>{m.b=v;save();rerender();})),
-            vsel,h('td',null,det),h('td',null,st),
+            ...scoreCells,h('td',null,sel(m.b,v=>{m.b=v;save();rerender();})),
+            vsel,team?null:h('td',null,det),h('td',null,st),
             h('td',null,h('button',{class:'x',onclick:()=>{S.matches=S.matches.filter(x=>x!==m);save();rerender();}},'✕')));
         } else {
           tr.append(h('td',null,matchLabel(S,m)),h('td',null,pn(S,m.a)+pcls(S,m.a)),
-            h('td',{class:'score'},m.b||m.status!=='scheduled'?m.sa+' : '+m.sb:'—'),
-            h('td',null,m.b?pn(S,m.b)+pcls(S,m.b):'свободный тур'),hasVenues(S)?h('td',null,venueName(S,m)||'—'):null,h('td',null,m.detail),
+            ...(team?[h('td',null,m.detail||'—')]:[]),
+            h('td',{class:'score'},m.b||m.status!=='scheduled'?(team&&!parseSets(m.detail).n&&m.status==='scheduled'?'—':m.sa+' : '+m.sb):'—'),
+            h('td',null,m.b?pn(S,m.b)+pcls(S,m.b):'свободный тур'),hasVenues(S)?h('td',null,venueName(S,m)||'—'):null,team?null:h('td',null,m.detail),
             h('td',null,h('span',{class:'badge '+(m.status==='live'?'b-live':m.status==='finished'?'b-fin':'b-sch')},STATUS[m.status])));
         }
         mtb.append(tr);
       });
-      const head=edit?h('tr',null,h('th',null,'Тур'),h('th',null,'Игрок / команда А'),h('th',{class:'num'},'Счёт А'),h('th',{class:'num'},'Счёт Б'),h('th',null,'Игрок / команда Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Заметка'),h('th',null,'Статус'),h('th'))
-        :h('tr',null,h('th',null,'Тур'),h('th',null,'А'),h('th',{class:'num'},'Счёт'),h('th',null,'Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Заметка'),h('th',null,'Статус'));
+      const head=edit?(team?h('tr',null,h('th',null,'Раунд'),h('th',null,'Команда А'),h('th',null,'Счёт по партиям'),h('th',{class:'num'},'Партии'),h('th',null,'Команда Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Статус'),h('th'))
+        :h('tr',null,h('th',null,'Тур'),h('th',null,'Игрок / команда А'),h('th',{class:'num'},'Счёт А'),h('th',{class:'num'},'Счёт Б'),h('th',null,'Игрок / команда Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Заметка'),h('th',null,'Статус'),h('th')))
+        :(team?h('tr',null,h('th',null,'Тур'),h('th',null,'Команда А'),h('th',null,'Счёт по партиям'),h('th',{class:'num'},'Партии'),h('th',null,'Команда Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Статус'))
+        :h('tr',null,h('th',null,'Тур'),h('th',null,'А'),h('th',{class:'num'},'Счёт'),h('th',null,'Б'),hasVenues(S)?h('th',null,'Арена'):null,h('th',null,'Заметка'),h('th',null,'Статус')));
       root.append(h('div',{class:'tblwrap'},h('table',null,h('thead',null,head),mtb)));
     }
 
     root.append(h('h3',null,'Турнирная таблица'));
     root.append(stand);
     if(k==='chess')root.append(h('p',{class:'fmt',style:'margin-top:8px'},'Шахматы: победа — 1 очко, ничья — 0,5. Для ничьей введите счёт 0,5 : 0,5.'));
+    else if(team)root.append(h('p',{class:'fmt',style:'margin-top:8px'},'Счёт вводится по партиям, например 25-17; 17-25; 25-22. Сайт сам считает выигранные партии и очки: победа — 2, поражение — 0. При равенстве очков выше команда с лучшей разницей партий, затем мячей.'));
     else root.append(h('p',{class:'fmt',style:'margin-top:8px'},'Победа — 2 очка, поражение — 0. При равенстве очков выше тот, у кого лучше разница счёта.'));
     standBox();
   }
@@ -580,7 +642,7 @@
 
   // ---------- вход ----------
   async function enter(user){
-    me=user;data=await api('/api/data');
+    me=user;data=prep(await api('/api/data'));
     $('login').classList.add('hidden');
     document.querySelector('main').classList.remove('hidden');
     $('who').classList.remove('hidden');
@@ -590,7 +652,7 @@
     clearInterval(pollT);
     if(!isOrg())pollT=setInterval(async()=>{ // родители видят счёт онлайн
       if(document.hidden)return;
-      try{data=await api('/api/data');renderHero();renderLive();renderTabs();renderSport();renderSchedule();}
+      try{data=prep(await api('/api/data'));renderHero();renderLive();renderTabs();renderSport();renderSchedule();}
       catch(e){if(e.status===401)location.reload();}
     },30000);
   }
