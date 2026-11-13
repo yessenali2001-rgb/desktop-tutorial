@@ -3,34 +3,34 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#111233">
+<meta name="theme-color" content="#ffffff">
 <link rel="icon" type="image/png" href="/assets/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap&subset=cyrillic" rel="stylesheet">
 <title>Спартакиада 2026</title>
 <meta name="description" content="Спартакиада: волейбол, настольный теннис, шахматы — участники, матчи и результаты.">
 <style>
-  :root{--bg:#111233;--bg2:#0b0c26;--card:#1a1b47;--text:#ffffff;--muted:#a9abc9;--accent:#cab391;--accent2:#e6d5b8;--on-accent:#111233;--line:#2e3068;--live:#ff4d4d}
+  :root{--bg:#ffffff;--bg2:#f6f3ee;--card:#ffffff;--text:#111233;--muted:#62647f;--accent:#111233;--on-accent:#ffffff;--gold:#cab391;--gold-d:#8f7549;--line:#e4dfd5;--live:#e63946}
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
   body{font-family:'Montserrat',system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
   a{color:inherit;text-decoration:none}
   .wrap{max-width:1100px;margin:0 auto;padding:0 20px}
   .hidden{display:none!important}
-  header{position:sticky;top:0;z-index:10;background:rgba(17,18,51,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+  header{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
   nav{display:flex;align-items:center;justify-content:space-between;height:60px;gap:14px}
   .logo{font-weight:800;letter-spacing:.5px;white-space:nowrap}.logo span{color:var(--accent)}
   nav ul{display:flex;gap:20px;list-style:none;font-size:15px;color:var(--muted)}
   nav ul a:hover{color:var(--text)}
   .who{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--muted)}
   .who button{background:transparent;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit}
-  .hero{padding:56px 0 60px;background:radial-gradient(800px 420px at 90% 0%,rgba(202,179,145,.22),transparent 60%),linear-gradient(180deg,var(--bg2),var(--bg))}
+  .hero{padding:56px 0 60px;background:radial-gradient(800px 420px at 90% 0%,rgba(202,179,145,.35),transparent 60%),linear-gradient(180deg,var(--bg2),var(--bg))}
   .hero-logo{display:block;width:min(420px,80%);height:auto;margin-bottom:34px}
   .brand{display:flex;align-items:center;gap:10px}.brand img{height:34px;width:auto;display:block}
   .login-logo{display:block;width:240px;max-width:80%;margin:0 auto 22px}
-  .tag{display:inline-block;padding:6px 14px;border:1px solid var(--accent);color:var(--accent);border-radius:99px;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
+  .tag{display:inline-block;padding:6px 14px;border:1px solid var(--gold-d);color:var(--gold-d);border-radius:99px;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase}
   h1{font-size:clamp(38px,7.5vw,76px);line-height:1.04;margin:20px 0 16px;font-weight:800;letter-spacing:-.5px}
-  h1 em{font-style:normal;background:linear-gradient(90deg,var(--accent2),var(--accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+  h1 em{font-style:normal;background:linear-gradient(90deg,#b8996b,#8f7549);-webkit-background-clip:text;background-clip:text;color:transparent}
   .lead{max-width:600px;color:var(--muted);font-size:18px}
   .facts{display:flex;flex-wrap:wrap;gap:12px;margin:28px 0}
   .fact{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 18px}
@@ -44,9 +44,15 @@
   .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px}
   .card p{color:var(--muted);font-size:14px}
   .contacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
-  .news{background:var(--card);border-left:4px solid var(--accent);border-radius:10px;padding:16px 20px}
+  .news{background:var(--bg2);border-left:4px solid var(--gold);border-radius:10px;padding:16px 20px}
   .news textarea{width:100%;min-height:70px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font:inherit;padding:8px 10px;margin-top:6px}
-  .tblwrap{overflow-x:auto;border-radius:14px}
+  .tblwrap{overflow-x:auto;border-radius:14px;border:1px solid var(--line)}
+  .card,.fact,#login .box{box-shadow:0 2px 10px rgba(17,18,51,.06)}
+  .venues{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .vcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:0 2px 10px rgba(17,18,51,.06)}
+  .vcard.busy{border-color:var(--live)}
+  .vcard input{width:100%;font-weight:700;margin-bottom:6px}
+  .vnow{margin:8px 0 4px;font-weight:700}
   table{width:100%;border-collapse:collapse;background:var(--card)}
   th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
   th{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
@@ -81,10 +87,11 @@
   .livecard .sp{color:var(--muted);font-size:13px}
   .livecard .vs{font-size:18px;font-weight:700}
   .nolive{color:var(--muted);font-size:14px}
-  #login{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:radial-gradient(700px 400px at 50% 0%,rgba(202,179,145,.18),transparent 65%),var(--bg2)}
+  #login{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;background:radial-gradient(700px 400px at 50% 0%,rgba(202,179,145,.35),transparent 65%),var(--bg2)}
   #login .box{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:28px}
   #login .tabs button{flex:1}
   #login .btn{width:100%}
+  .tblwrap table{background:var(--card)}
   #saveMsg{color:var(--muted);font-size:13px}
   footer{border-top:1px solid var(--line);padding:24px 0;color:var(--muted);font-size:14px;text-align:center}
   @media(max-width:760px){nav ul{display:none}.brand img{height:28px}}
@@ -94,7 +101,7 @@
 
 <div id="login">
   <div class="box">
-    <img class="login-logo" src="/assets/logo-white.png" alt="Білім-Инновация">
+    <img class="login-logo" src="/assets/logo-main.png" alt="Білім-Инновация">
     <h2 style="text-align:center">Спартакиада 2026</h2>
     <p class="sub" style="margin:0;text-align:center">Выберите, как войти</p>
     <div class="tabs" style="margin:18px 0">
@@ -123,7 +130,7 @@
 <header>
   <div class="wrap">
     <nav>
-      <a href="#top" class="brand" aria-label="Білім-Инновация"><img src="/assets/logo-white.png" alt="Білім-Инновация"></a>
+      <a href="#top" class="brand" aria-label="Білім-Инновация"><img src="/assets/logo-main.png" alt="Білім-Инновация"></a>
       <ul>
         <li><a href="#about">О событии</a></li>
         <li><a href="#sports">Соревнования</a></li>
@@ -138,7 +145,7 @@
 <main id="top" class="hidden">
   <div class="hero">
     <div class="wrap">
-      <img class="hero-logo" src="/assets/logo-white.png" alt="Білім-Инновация">
+      <img class="hero-logo" src="/assets/logo-main.png" alt="Білім-Инновация">
       <span class="tag">Волейбол · Настольный теннис · Шахматы</span>
       <h1>Спартакиада<br><em>2026</em></h1>
       <p class="lead">Соревнования, командный дух и яркие эмоции. [Краткое описание: чья спартакиада, для кого проходит.]</p>
@@ -146,6 +153,7 @@
         <div class="fact"><small>Дата</small><b>[дд.мм.гггг]</b></div>
         <div class="fact"><small>Место</small><b>[адрес / площадка]</b></div>
         <div class="fact"><small>Видов спорта</small><b>3</b></div>
+        <div class="fact"><small>Площадок для волейбола</small><b>3</b></div>
       </div>
       <a class="btn" href="#sports">Смотреть матчи</a>
     </div>
@@ -227,6 +235,8 @@
   const isAdmin=()=>isOrg()&&me.sports==='all';
   const canEdit=k=>isOrg()&&(me.sports==='all'||me.sports.includes(k));
   const pn=(S,id)=>{const p=S.participants.find(x=>x.id===id);return p?p.name||'(без имени)':'—';};
+  const venueName=(S,m)=>{const i=parseInt(m.venue);return Number.isInteger(i)&&S.venues&&S.venues[i]!==undefined?(S.venues[i]||'Площадка '+(i+1)):'';};
+  const hasVenues=S=>S.venues&&S.venues.length>0;
   const pcls=(S,id)=>{const p=S.participants.find(x=>x.id===id);return p&&p.cls?' ('+p.cls+')':'';};
 
   // автосохранение (организатор)
@@ -277,7 +287,7 @@
     }
     return rounds;
   }
-  const mk=(round,group,a,b,extra)=>Object.assign({id:uid(),round,group:group||'',a,b,sa:0,sb:0,detail:'',status:'scheduled'},extra||{});
+  const mk=(round,group,a,b,extra)=>Object.assign({id:uid(),round,group:group||'',a,b,sa:0,sb:0,detail:'',venue:'',status:'scheduled'},extra||{});
   function genRoundRobin(S,key){
     const ids=S.participants.filter(p=>p.name.trim()).map(p=>p.id);
     if(ids.length<2)return alert('Добавьте минимум двух участников.');
@@ -295,6 +305,12 @@
     } else {
       roundRobin(ids).forEach((pairs,r)=>pairs.forEach(([x,y])=>S.matches.push(mk(r+1,'',x,y))));
     }
+    for(let r=1;r<=lastRound(S);r++)assignVenues(S,r);
+  }
+  // раскладываем матчи тура по площадкам по кругу
+  function assignVenues(S,round){
+    if(!hasVenues(S))return;
+    let i=0;S.matches.filter(m=>m.round===round&&m.b).forEach(m=>{m.venue=String(i%S.venues.length);i++;});
   }
   function lastRound(S){return S.matches.reduce((m,x)=>Math.max(m,x.round),0);}
   function genKnockout(S){
@@ -317,6 +333,7 @@
       if(ids[i+1])S.matches.push(mk(r+1,'',ids[i],ids[i+1]));
       else S.matches.push(mk(r+1,'',ids[i],'',{status:'finished',sa:1}));
     }
+    assignVenues(S,r+1);
   }
   function genSwiss(S,key){
     const r=lastRound(S);
@@ -339,6 +356,7 @@
       if(b){used.add(b);pairs.push([a,b]);}
     }
     pairs.forEach(([a,b])=>S.matches.push(mk(r+1,'',a,b)));
+    assignVenues(S,r+1);
     if(bye)S.matches.push(mk(r+1,'',bye,'',{status:'finished',sa:1}));
   }
 
@@ -351,7 +369,7 @@
       S.matches.filter(m=>m.status==='live').forEach(m=>{
         any=true;
         box.append(h('div',{class:'livecard'},h('span',{class:'badge b-live'},'● ИДЁТ СЕЙЧАС'),
-          h('span',{class:'sp'},SPORTS[k].icon+' '+SPORTS[k].title),
+          h('span',{class:'sp'},SPORTS[k].icon+' '+SPORTS[k].title+(venueName(S,m)?' · '+venueName(S,m):'')),
           h('span',{class:'vs'},pn(S,m.a)+pcls(S,m.a)+'  '+m.sa+' : '+m.sb+'  '+pn(S,m.b)+pcls(S,m.b)),
           m.detail?h('span',{class:'sp'},m.detail):null));
       });
@@ -412,6 +430,22 @@
       root.append(bar);
     } else root.append(h('p',{class:'fmt'},'Формат: '+meta.formats[S.format]));
 
+    // площадки (волейбол проходит в трёх местах)
+    if(hasVenues(S)){
+      root.append(h('h3',null,'Площадки'));
+      const cards=h('div',{class:'venues'});
+      S.venues.forEach((n,i)=>{
+        const cur=S.matches.find(m=>m.status==='live'&&m.venue===String(i));
+        const next=S.matches.filter(m=>m.status==='scheduled'&&m.venue===String(i)&&m.b).sort((a,b)=>a.round-b.round)[0];
+        const title=edit?(()=>{const inp=h('input',{value:n,placeholder:'Название площадки'});inp.oninput=()=>{S.venues[i]=inp.value;save();};inp.onchange=()=>rerender();return inp;})():h('b',null,n||'Площадка '+(i+1));
+        cards.append(h('div',{class:'vcard'+(cur?' busy':'')},title,
+          cur?h('div',{class:'vnow'},h('span',{class:'badge b-live'},'● ИДЁТ'),' '+pn(S,cur.a)+'  '+cur.sa+' : '+cur.sb+'  '+pn(S,cur.b))
+             :h('div',{class:'nolive',style:'margin-top:6px'},'Свободна'),
+          next?h('div',{class:'nolive'},'Далее: '+pn(S,next.a)+' — '+pn(S,next.b)):null));
+      });
+      root.append(cards);
+    }
+
     // участники
     root.append(h('h3',null,(meta.unit==='Команда'?'Команды':'Участники')+' ('+S.participants.length+')'));
     const ptb=h('tbody');
@@ -466,20 +500,21 @@
           const det=h('input',{value:m.detail,placeholder:meta.scoreHint});det.oninput=()=>{m.detail=det.value;save();};det.onchange=()=>renderLive();
           const st=h('select',null,Object.entries(STATUS).map(([v,t])=>h('option',{value:v},t)));st.value=m.status;
           st.onchange=()=>{m.status=st.value;save();rerender();};
+          const vsel=hasVenues(S)?(()=>{const v=h('select',null,h('option',{value:''},'—'),S.venues.map((n,i)=>h('option',{value:String(i)},n||'Площадка '+(i+1))));v.value=m.venue||'';v.onchange=()=>{m.venue=v.value;save();rerender();};return h('td',null,v);})():null;
           tr.append(h('td',null,rd),h('td',null,sel(m.a,v=>{m.a=v;save();rerender();})),
             h('td',null,sc('sa')),h('td',null,sc('sb')),h('td',null,sel(m.b,v=>{m.b=v;save();rerender();})),
-            h('td',null,det),h('td',null,st),
+            vsel,h('td',null,det),h('td',null,st),
             h('td',null,h('button',{class:'x',onclick:()=>{S.matches=S.matches.filter(x=>x!==m);save();rerender();}},'✕')));
         } else {
           tr.append(h('td',null,matchLabel(S,m)),h('td',null,pn(S,m.a)+pcls(S,m.a)),
             h('td',{class:'score'},m.b||m.status!=='scheduled'?m.sa+' : '+m.sb:'—'),
-            h('td',null,m.b?pn(S,m.b)+pcls(S,m.b):'свободный тур'),h('td',null,m.detail),
+            h('td',null,m.b?pn(S,m.b)+pcls(S,m.b):'свободный тур'),hasVenues(S)?h('td',null,venueName(S,m)||'—'):null,h('td',null,m.detail),
             h('td',null,h('span',{class:'badge '+(m.status==='live'?'b-live':m.status==='finished'?'b-fin':'b-sch')},STATUS[m.status])));
         }
         mtb.append(tr);
       });
-      const head=edit?h('tr',null,h('th',null,'Тур'),h('th',null,'Игрок / команда А'),h('th',{class:'num'},'Счёт А'),h('th',{class:'num'},'Счёт Б'),h('th',null,'Игрок / команда Б'),h('th',null,'Заметка'),h('th',null,'Статус'),h('th'))
-        :h('tr',null,h('th',null,'Тур'),h('th',null,'А'),h('th',{class:'num'},'Счёт'),h('th',null,'Б'),h('th',null,'Заметка'),h('th',null,'Статус'));
+      const head=edit?h('tr',null,h('th',null,'Тур'),h('th',null,'Игрок / команда А'),h('th',{class:'num'},'Счёт А'),h('th',{class:'num'},'Счёт Б'),h('th',null,'Игрок / команда Б'),hasVenues(S)?h('th',null,'Площадка'):null,h('th',null,'Заметка'),h('th',null,'Статус'),h('th'))
+        :h('tr',null,h('th',null,'Тур'),h('th',null,'А'),h('th',{class:'num'},'Счёт'),h('th',null,'Б'),hasVenues(S)?h('th',null,'Площадка'):null,h('th',null,'Заметка'),h('th',null,'Статус'));
       root.append(h('div',{class:'tblwrap'},h('table',null,h('thead',null,head),mtb)));
     }
 

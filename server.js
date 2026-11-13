@@ -54,7 +54,8 @@ if (!fs.existsSync(USERS_FILE)) {
 const users = () => JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
 
 // ---------- контент ----------
-const emptySport = key => ({ format: SPORTS[key][0], groups: 2, participants: [], matches: [] });
+const DEFAULT_VENUES = ['Площадка 1', 'Площадка 2', 'Площадка 3']; // волейбол проходит в трёх местах
+const emptySport = key => ({ format: SPORTS[key][0], groups: 2, venues: key === 'volleyball' ? DEFAULT_VENUES : [], participants: [], matches: [] });
 const DEFAULT = {
   news: 'Добро пожаловать на спартакиаду! [Объявление организаторов]',
   schedule: [
@@ -78,6 +79,9 @@ function sanitizeSport(key, d) {
     id: s(p.id, 20), name: s(p.name, 100), cls: s(p.cls, 20), parent: s(p.parent, 100), group: s(p.group, 5)
   }));
   const ids = new Set(participants.map(p => p.id));
+  const venues = key === 'volleyball'
+    ? (Array.isArray(d.venues) ? d.venues : DEFAULT_VENUES).slice(0, 6).map(v => s(v, 60))
+    : [];
   const matches = (Array.isArray(d.matches) ? d.matches : []).slice(0, 2000).map(m => ({
     id: s(m.id, 20),
     round: Math.max(1, Math.min(99, parseInt(m.round) || 1)),
@@ -86,12 +90,13 @@ function sanitizeSport(key, d) {
     b: ids.has(m.b) ? m.b : '',
     sa: num(m.sa), sb: num(m.sb),
     detail: s(m.detail, 100),
+    venue: /^\d$/.test(String(m.venue)) && Number(m.venue) < venues.length ? String(m.venue) : '',
     status: ['scheduled', 'live', 'finished'].includes(m.status) ? m.status : 'scheduled'
   }));
   return {
     format: SPORTS[key].includes(d.format) ? d.format : SPORTS[key][0],
     groups: Math.max(1, Math.min(8, parseInt(d.groups) || 2)),
-    participants, matches
+    venues, participants, matches
   };
 }
 function sanitizeSchedule(a) {
