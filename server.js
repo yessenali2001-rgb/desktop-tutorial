@@ -7,7 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data'); // на хостинге укажите постоянный диск
 const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const DATA_FILE = path.join(DATA_DIR, 'content.json');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -28,28 +28,37 @@ function check(password, rec) {
   const b = Buffer.from(rec.hash, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
-// При первом запуске создаются аккаунты организаторов:
+// Аккаунты организаторов:
 //   organizer       — главный (всё: расписание, объявления, все виды спорта)
 //   org_volleyball  — только волейбол
 //   org_tennis      — только настольный теннис
 //   org_chess       — только шахматы
-// Пароль главного можно задать через ORGANIZER_PASSWORD, остальные генерируются.
-if (!fs.existsSync(USERS_FILE)) {
+// Пароли задаются переменными окружения (рекомендуется для хостинга):
+//   ORGANIZER_PASSWORD, ORG_VOLLEYBALL_PASSWORD, ORG_TENNIS_PASSWORD, ORG_CHESS_PASSWORD
+// Если переменная не задана, при первом запуске пароль генерируется и печатается в консоль.
+const ACCOUNTS = {
+  organizer: { env: 'ORGANIZER_PASSWORD', sports: 'all' },
+  org_volleyball: { env: 'ORG_VOLLEYBALL_PASSWORD', sports: ['volleyball'] },
+  org_tennis: { env: 'ORG_TENNIS_PASSWORD', sports: ['tennis'] },
+  org_chess: { env: 'ORG_CHESS_PASSWORD', sports: ['chess'] }
+};
+{
   const rnd = () => crypto.randomBytes(6).toString('base64url');
-  const list = {
-    organizer: { pwd: process.env.ORGANIZER_PASSWORD || rnd(), sports: 'all' },
-    org_volleyball: { pwd: rnd(), sports: ['volleyball'] },
-    org_tennis: { pwd: rnd(), sports: ['tennis'] },
-    org_chess: { pwd: rnd(), sports: ['chess'] }
-  };
-  const out = {};
-  console.log('\nСозданы аккаунты организаторов (запишите пароли, повторно не показываются):');
-  for (const [u, v] of Object.entries(list)) {
-    out[u] = { ...hash(v.pwd), sports: v.sports };
-    console.log(`  ${u.padEnd(15)} пароль: ${v.pwd}`);
+  let file = fs.existsSync(USERS_FILE) ? JSON.parse(fs.readFileSync(USERS_FILE, 'utf8')) : {};
+  let changed = false, printed = false;
+  for (const [u, a] of Object.entries(ACCOUNTS)) {
+    const envPwd = process.env[a.env];
+    if (envPwd && envPwd.length < 8) { console.error(`${a.env}: пароль должен быть не короче 8 символов`); process.exit(1); }
+    if (envPwd && !(file[u] && check(envPwd, file[u]))) { file[u] = { ...hash(envPwd), sports: a.sports }; changed = true; }
+    else if (!file[u]) {
+      const pwd = rnd();
+      file[u] = { ...hash(pwd), sports: a.sports }; changed = true;
+      if (!printed) { console.log('\nСозданы аккаунты организаторов (запишите пароли, повторно не показываются):'); printed = true; }
+      console.log(`  ${u.padEnd(15)} пароль: ${pwd}`);
+    }
   }
-  console.log('');
-  fs.writeFileSync(USERS_FILE, JSON.stringify(out, null, 2), { mode: 0o600 });
+  if (printed) console.log('');
+  if (changed) fs.writeFileSync(USERS_FILE, JSON.stringify(file, null, 2), { mode: 0o600 });
 }
 const users = () => JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
 
@@ -122,10 +131,11 @@ function getSession(req) {
   if (!x || x.exp < Date.now()) return null;
   return x;
 }
-function startSession(res, info) {
+function startSession(req, res, info) {
   const t = crypto.randomBytes(24).toString('hex');
   sessions.set(t, { ...info, exp: Date.now() + TTL });
-  res.setHeader('Set-Cookie', `sid=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TTL / 1000}`);
+  const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `sid=${t}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${TTL / 1000}${secure}`);
 }
 const canEdit = (ses, sport) => ses.role === 'organizer' && (ses.sports === 'all' || ses.sports.includes(sport));
 const publicInfo = ses => ({ role: ses.role, name: ses.name, sports: ses.sports });
@@ -144,15 +154,16 @@ const body = req => new Promise((ok, fail) => {
 http.createServer(async (req, res) => {
   const url = req.url.split('?')[0];
   try {
+    if (url === '/healthz') return json(res, 200, { ok: true });
     if (url === '/api/login' && req.method === 'POST') {
       const d = await body(req);
       if (d.role === 'parent') {
         const name = String(d.name || '').trim().slice(0, 50) || 'Родитель';
         const info = { role: 'parent', name, sports: [] };
-        startSession(res, info);
+        startSession(req, res, info);
         return json(res, 200, publicInfo(info));
       }
-      const ip = req.socket.remoteAddress;
+      const ip = (process.env.TRUST_PROXY === '1' && String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()) || req.socket.remoteAddress;
       const a = attempts.get(ip) || { n: 0, until: 0 };
       if (a.until > Date.now()) return json(res, 429, { error: 'Слишком много попыток. Подождите минуту.' });
       const all = users();
@@ -160,7 +171,7 @@ http.createServer(async (req, res) => {
       if (rec && check(String(d.password || ''), rec)) {
         attempts.delete(ip);
         const info = { role: 'organizer', name: String(d.username), sports: rec.sports };
-        startSession(res, info);
+        startSession(req, res, info);
         return json(res, 200, publicInfo(info));
       }
       a.n++; if (a.n >= 5) { a.until = Date.now() + 60e3; a.n = 0; }

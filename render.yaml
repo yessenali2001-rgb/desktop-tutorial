@@ -1,0 +1,26 @@
+# Blueprint для Render.com: New → Blueprint → выберите репозиторий.
+services:
+  - type: web
+    name: spartakiada
+    runtime: node
+    plan: starter            # постоянный диск доступен только на платных тарифах
+    buildCommand: "true"
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    disk:
+      name: data
+      mountPath: /var/data   # здесь хранятся участники, матчи, результаты
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: TRUST_PROXY
+        value: "1"
+      - key: ORGANIZER_PASSWORD
+        sync: false          # Render спросит значения при создании
+      - key: ORG_VOLLEYBALL_PASSWORD
+        sync: false
+      - key: ORG_TENNIS_PASSWORD
+        sync: false
+      - key: ORG_CHESS_PASSWORD
+        sync: false
