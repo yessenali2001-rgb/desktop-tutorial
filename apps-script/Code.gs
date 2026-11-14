@@ -28,6 +28,7 @@ var ACCOUNTS = {
 // Пароли можно задать прямо здесь (логин: пароль). Если логина здесь нет, берётся «Свойство скрипта».
 // В общедоступном репозитории пароли не хранить: заполняйте только свою копию скрипта.
 var PASSWORDS = {};
+var VERSION = '2026-11-14-b'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
 var TOKEN_TTL = 6 * 3600; // секунд (максимум для CacheService)
 var STATUSES = ['scheduled', 'live', 'finished'];
 
@@ -44,7 +45,7 @@ var SHEET = { cfg: 'Настройки', sched: 'Расписание', venues: 
 function doGet(e) {
   try {
     var p = (e && e.parameter) || {};
-    if (p.action === 'ping') return out_({ ok: true });
+    if (p.action === 'ping') return out_({ ok: true, version: VERSION, passwordsSet: passwordsStatus_() });
     var sess = session_(p.token);
     // организаторы читают таблицу напрямую (видят контакты родителей), остальные берут кэш
     var data = sess ? withLock_(function () { ensure_(); return readAll_(); }) : publicData_();
@@ -64,6 +65,13 @@ function doPost(e) {
   } catch (err) {
     return out_({ ok: false, error: String(err && err.message || err) });
   }
+}
+
+// Только да/нет: какие логины имеют пароль (значения паролей не показываются).
+function passwordsStatus_() {
+  var o = {};
+  for (var u in ACCOUNTS) o[u] = !!(PASSWORDS[u] || PropertiesService.getScriptProperties().getProperty(ACCOUNTS[u].prop));
+  return o;
 }
 
 function out_(obj) {
