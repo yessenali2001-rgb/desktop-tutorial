@@ -362,8 +362,9 @@
   }
   // ---------- данные: Google Таблица через скрипт Apps Script ----------
   const CFG=window.APP_CONFIG||{}, APPS_URL=CFG.APPS_URL||'', MODE=CFG.MODE||'live';
-  let SESS=null;try{SESS=JSON.parse(sessionStorage.getItem('sess')||'null');}catch(e){}
-  const setSess=v=>{SESS=v;try{v?sessionStorage.setItem('sess',JSON.stringify(v)):sessionStorage.removeItem('sess');}catch(e){}};
+  // вход запоминается на этом устройстве на 6 часов (как токен в скрипте): обновление страницы не выбрасывает на пароль
+  let SESS=null;try{const o=JSON.parse(localStorage.getItem('sess2')||'null');if(o&&o.exp>Date.now())SESS=o.v;else localStorage.removeItem('sess2');}catch(e){}
+  const setSess=v=>{SESS=v;try{v?localStorage.setItem('sess2',JSON.stringify({v,exp:Date.now()+(v.role==='organizer'?5.5:24)*3600000})):localStorage.removeItem('sess2');}catch(e){}};
   const fail=(msg,status)=>{const e=new Error(msg);e.status=status;return e;};
   const need=()=>{if(!APPS_URL)throw fail('Адрес скрипта не указан: впишите его в docs/config.js');};
   async function gasGet(token){need();
@@ -472,7 +473,7 @@
       if(FEAT.patch){payload.patches={};keys.forEach(k=>{if(!base[k])snapSport(k);const d=diffSport(k);sent[k]=d.snap;if(Object.keys(d.p).length)payload.patches[k]=d.p;});}
       else keys.forEach(k=>{payload.sports[k]=data.sports[k];sent[k]=JSON.parse(ser(data.sports[k]));});   // старый скрипт: сохраняем вид спорта целиком
       try{await api('/api/data','PUT',payload);keys.forEach(k=>{base[k]=sent[k];dirty.delete(k);});$('saveMsg').textContent=flash+'Сохранено ✔ ';flash='';}
-      catch(e){if(metaSent)metaDirty=true;$('saveMsg').textContent='Ошибка сохранения: '+e.message+' ';}
+      catch(e){if(metaSent)metaDirty=true;if(e.status===401){setSess(null);alert('Время входа истекло. Войдите снова — несохранённое повторите.');location.reload();return;}$('saveMsg').textContent='Ошибка сохранения: '+e.message+' ';}
       busy=!!saveT;
     },600);
   }
