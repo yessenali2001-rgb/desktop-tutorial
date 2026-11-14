@@ -25,6 +25,9 @@ var ACCOUNTS = {
   org_tennis: { prop: 'ORG_TENNIS_PASSWORD', sports: ['tennis'] },
   org_chess: { prop: 'ORG_CHESS_PASSWORD', sports: ['chess'] }
 };
+// Пароли можно задать прямо здесь (логин: пароль). Если логина здесь нет, берётся «Свойство скрипта».
+// В общедоступном репозитории пароли не хранить: заполняйте только свою копию скрипта.
+var PASSWORDS = {};
 var TOKEN_TTL = 6 * 3600; // секунд (максимум для CacheService)
 var STATUSES = ['scheduled', 'live', 'finished'];
 
@@ -97,7 +100,7 @@ function login_(b) {
   if (Number(c.get('fails') || 0) >= 10) return { ok: false, error: 'Слишком много попыток. Подождите минуту.' };
   var user = String(b.username || '');
   var acc = Object.prototype.hasOwnProperty.call(ACCOUNTS, user) ? ACCOUNTS[user] : null;
-  var pass = acc ? PropertiesService.getScriptProperties().getProperty(acc.prop) : null;
+  var pass = acc ? (PASSWORDS[user] || PropertiesService.getScriptProperties().getProperty(acc.prop)) : null;
   if (acc && pass && String(b.password || '') === pass) {
     var token = Utilities.getUuid() + Utilities.getUuid();
     c.put('t_' + token, JSON.stringify({ u: user, sports: acc.sports }), TOKEN_TTL);
