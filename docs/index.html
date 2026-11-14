@@ -371,8 +371,8 @@
     return r.json();}
   // демо без интернета: те же правила, что в скрипте (пароль организаторов в демо: demo)
   const DEMO={news:'Добро пожаловать на спартакиаду!',date:'14 ноября 2026',place:'',
-    schedule:[['09:00','Регистрация команд',''],['10:00','Открытие',''],['11:00','Волейбол әкелер','Арена 1 - Жубанов университет, Арена 2 - #38 школа'],['12:00','Волейбол аналар','Арена 3 - БИЛ'],['13:00','Настольный теннис','Зал настольного тенниса'],['15:00','Шахматы','Шахматный зал'],['17:30','Награждение','']].map(r=>({time:r[0],event:r[1],place:r[2]})),
-    sports:{volleyball_dads:{format:'league',groups:2,venues:['Арена 1 - Жубанов университет','Арена 2 - #38 школа'],participants:[],matches:[]},volleyball_moms:{format:'league',groups:2,venues:['Арена 3 - БИЛ'],participants:[],matches:[]},tennis:{format:'league',groups:2,venues:['Зал настольного тенниса'],participants:[],matches:[]},chess:{format:'blitz',groups:2,venues:['Шахматный зал'],participants:[],matches:[]}}};
+    schedule:[['09:00','Регистрация команд',''],['10:00','Открытие',''],['11:00','Волейбол әкелер','Арена 1 - 38 школа, Арена 2 - Жубанов университет'],['12:00','Волейбол аналар','Арена 3 - БИЛ'],['13:00','Настольный теннис','Зал настольного тенниса'],['15:00','Шахматы','Шахматный зал'],['17:30','Награждение','']].map(r=>({time:r[0],event:r[1],place:r[2]})),
+    sports:{volleyball_dads:{format:'league',groups:2,venues:['Арена 1 - 38 школа','Арена 2 - Жубанов университет'],participants:[],matches:[]},volleyball_moms:{format:'league',groups:2,venues:['Арена 3 - БИЛ'],participants:[],matches:[]},tennis:{format:'league',groups:2,venues:['Зал настольного тенниса'],participants:[],matches:[]},chess:{format:'blitz',groups:2,venues:['Шахматный зал'],participants:[],matches:[]}}};
   try{const sv=sessionStorage.getItem('demo');if(sv&&MODE==='demo')Object.assign(DEMO,JSON.parse(sv));}catch(e){}
   async function api(url,method,body){
     if(url==='/api/me'){if(!SESS)throw fail('Нет входа',401);return {role:SESS.role,name:SESS.name,sports:SESS.sports};}

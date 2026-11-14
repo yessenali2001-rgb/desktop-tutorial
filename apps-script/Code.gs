@@ -13,7 +13,7 @@ var SPORTS = {
   chess: ['blitz', 'swiss']                    // Шахматы
 };
 var DEFAULT_VENUES = {
-  volleyball_dads: ['Арена 1 - Жубанов университет', 'Арена 2 - #38 школа'],
+  volleyball_dads: ['Арена 1 - 38 школа', 'Арена 2 - Жубанов университет'],
   volleyball_moms: ['Арена 3 - БИЛ'],
   tennis: ['Зал настольного тенниса'],
   chess: ['Шахматный зал']
