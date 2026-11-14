@@ -440,12 +440,19 @@
 
   // автосохранение (организатор)
   let flash='';
-  function save(){
-    $('saveMsg').textContent='Сохранение…';
+  const dirty=new Set();let busy=false;                       // какие виды спорта изменены и ещё не сохранены
+  const ser=d=>JSON.stringify(d,(k,v)=>k==='_team'?undefined:v);
+  function save(kind){
+    if(kind!=='meta')dirty.add(sport);                         // правка внутри вкладки вида спорта
+    busy=true;$('saveMsg').textContent='Сохранение…';
     clearTimeout(saveT);
     saveT=setTimeout(async()=>{
-      try{await api('/api/data','PUT',data);$('saveMsg').textContent=flash+'Сохранено ✔ ';flash='';}
+      saveT=null;const keys=[...dirty];
+      const payload={news:data.news,date:data.date,place:data.place,schedule:data.schedule,sports:{}};
+      keys.forEach(k=>{payload.sports[k]=data.sports[k];});     // чужие виды спорта не трогаем
+      try{await api('/api/data','PUT',payload);keys.forEach(k=>dirty.delete(k));$('saveMsg').textContent=flash+'Сохранено ✔ ';flash='';}
       catch(e){$('saveMsg').textContent='Ошибка сохранения: '+e.message+' ';}
+      busy=!!saveT;
     },600);
   }
 
@@ -834,8 +841,8 @@
     data.schedule.forEach((r,i)=>{
       const tr=h('tr');
       if(admin){
-        const f=key=>{const inp=h('input',{value:r[key]});inp.oninput=()=>{r[key]=inp.value;save();};return h('td',null,inp);};
-        tr.append(f('time'),f('event'),f('place'),h('td',null,h('button',{class:'x',onclick:()=>{data.schedule.splice(i,1);save();renderSchedule();}},'✕')));
+        const f=key=>{const inp=h('input',{value:r[key]});inp.oninput=()=>{r[key]=inp.value;save('meta');};return h('td',null,inp);};
+        tr.append(f('time'),f('event'),f('place'),h('td',null,h('button',{class:'x',onclick:()=>{data.schedule.splice(i,1);save('meta');renderSchedule();}},'✕')));
       } else tr.append(h('td',null,r.time),h('td',null,r.event),h('td',null,r.place));
       sb.append(tr);
     });
@@ -863,7 +870,13 @@
     if(isOrg()&&me.sports!=='all')sport=me.sports[0];
     renderAll();
     clearInterval(pollT);
-    if(!isOrg())pollT=setInterval(async()=>{ // родители видят счёт онлайн
+    if(isOrg())pollT=setInterval(async()=>{ // чтобы не работать со старой копией (её правки затёрли бы свежие данные)
+      if(document.hidden||busy||dirty.size)return;
+      const a=document.activeElement;if(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)&&document.querySelector('main').contains(a))return;
+      try{const fresh=prep(await api('/api/data'));if(busy||dirty.size)return;if(ser(fresh)!==ser(data)){data=fresh;renderAll();}}
+      catch(e){if(e.status===401)location.reload();}
+    },20000);
+    else pollT=setInterval(async()=>{ // родители видят счёт онлайн
       if(document.hidden)return;
       try{data=prep(await api('/api/data'));renderHero();renderLive();renderTabs();renderSport();renderSchedule();}
       catch(e){if(e.status===401)location.reload();}
@@ -878,10 +891,10 @@
     try{await enter(await api('/api/login','POST',{role:'organizer',username:$('ouser').value,password:$('opass').value}));$('opass').value='';}
     catch(x){e.target.querySelector('.err').textContent=x.message;}};
   $('logout').onclick=async()=>{await api('/api/logout','POST');location.reload();};
-  $('addSched').onclick=()=>{data.schedule.push({time:'',event:'',place:''});save();renderSchedule();};
-  $('newsEdit').addEventListener('input',()=>{data.news=$('newsEdit').value;save();});
-  $('dateEdit').addEventListener('input',()=>{data.date=$('dateEdit').value;renderHero();save();});
-  $('placeEdit').addEventListener('input',()=>{data.place=$('placeEdit').value;renderHero();save();});
+  $('addSched').onclick=()=>{data.schedule.push({time:'',event:'',place:''});save('meta');renderSchedule();};
+  $('newsEdit').addEventListener('input',()=>{data.news=$('newsEdit').value;save('meta');});
+  $('dateEdit').addEventListener('input',()=>{data.date=$('dateEdit').value;renderHero();save('meta');});
+  $('placeEdit').addEventListener('input',()=>{data.place=$('placeEdit').value;renderHero();save('meta');});
   api('/api/me').then(enter).catch(()=>{});
 })();
 </script>
