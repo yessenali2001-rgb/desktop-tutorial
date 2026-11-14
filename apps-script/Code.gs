@@ -28,7 +28,7 @@ var ACCOUNTS = {
 // Пароли можно задать прямо здесь (логин: пароль). Если логина здесь нет, берётся «Свойство скрипта».
 // В общедоступном репозитории пароли не хранить: заполняйте только свою копию скрипта.
 var PASSWORDS = {};
-var VERSION = '2026-11-14-c'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
+var VERSION = '2026-11-14-d'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
 var TOKEN_TTL = 6 * 3600; // секунд (максимум для CacheService)
 var STATUSES = ['scheduled', 'live', 'finished'];
 
@@ -135,6 +135,10 @@ function save_(b) {
   if (!sess) return { ok: false, error: 'Нужен вход организатора', auth: false };
   var inc = b.data || {};
   var patches = b.patches || inc.patches;
+  // Старые открытые страницы сохраняют вид спорта целиком и затирают чужие правки (например, названия арен): такие записи не принимаем.
+  if (!patches && !b.full && inc.sports && Object.keys(inc.sports).length) {
+    return { ok: false, error: 'Страница устарела: обновите её (F5), иначе ваши правки могут затереть чужие.' };
+  }
   cache_().removeAll(pubKeys_());
   withLock_(function () {
     ensure_();

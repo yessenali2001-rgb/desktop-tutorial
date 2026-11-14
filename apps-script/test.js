@@ -34,7 +34,7 @@ const ad=E.post({action:'login',username:'organizer',password:'adminpass1'});ass
 const mk=(id,name,cls,parent)=>({id,name,cls,parent,group:''});
 const dads={format:'championship',groups:2,venues:['Большой зал','Арена 2'],participants:[mk('p1','Алпамыс','7А','Иванова'),mk('p2','Батыр','7Б','Петров')],
  matches:[{id:'m1',round:1,group:'',a:'p1',b:'p2',sa:15,sb:12.5,detail:'2-я партия',venue:'0',status:'live'},{id:'m2',round:1,group:'',a:'p1',b:'',sa:1,sb:0,detail:'',venue:'',status:'finished'}]};
-let s=E.post({action:'save',token:lv.token,data:{news:'взлом',sports:{volleyball_dads:dads,chess:{participants:[mk('c1','X','1','')]}}}});assert(s.ok,JSON.stringify(s));
+let s=E.post({action:'save',full:true,token:lv.token,data:{news:'взлом',sports:{volleyball_dads:dads,chess:{participants:[mk('c1','X','1','')]}}}});assert(s.ok,JSON.stringify(s));
 let g=E.get({});assert(g.ok);
 assert.strictEqual(g.data.news,'Добро пожаловать на спартакиаду!');               // news не изменён (не админ)
 assert.strictEqual(g.data.sports.chess.participants.length,0);                    // чужой вид спорта не записан
@@ -46,7 +46,7 @@ assert.strictEqual(d.matches[1].b,'');assert.strictEqual(d.matches[1].venue,'');
 g=E.get({token:lv.token});assert.strictEqual(g.data.sports.volleyball_dads.participants[0].parent,'Иванова');
 console.log('Матчи в таблице:',E.sheets['Матчи'].d.slice(0,3).map(r=>r.join('|')));
 // админ
-s=E.post({action:'save',token:ad.token,data:{news:'Новости',date:'14 ноября 2026',place:'Лицей',schedule:[{time:'09:00',event:'Открытие',place:'Зал'}],sports:{chess:{format:'swiss',participants:[mk('c1','Аружан','5А','Мама')],matches:[]}}}});assert(s.ok);
+s=E.post({action:'save',full:true,token:ad.token,data:{news:'Новости',date:'14 ноября 2026',place:'Лицей',schedule:[{time:'09:00',event:'Открытие',place:'Зал'}],sports:{chess:{format:'swiss',participants:[mk('c1','Аружан','5А','Мама')],matches:[]}}}});assert(s.ok);
 g=E.get({});assert.strictEqual(g.data.news,'Новости');assert.strictEqual(g.data.date,'14 ноября 2026');
 assert.deepStrictEqual(g.data.schedule,[{time:'09:00',event:'Открытие',place:'Зал'}]);
 assert.strictEqual(g.data.sports.chess.format,'swiss');assert.strictEqual(g.data.sports.chess.participants[0].name,'Аружан');
@@ -56,7 +56,7 @@ assert(!E.post({action:'save',data:{news:'x'}}).ok);
 // выход
 E.post({action:'logout',token:ad.token});assert(!E.post({action:'save',token:ad.token,data:{news:'y'}}).ok);
 // защита: неверные id в матчах, статус
-s=E.post({action:'save',token:lv.token,data:{sports:{volleyball_moms:{format:'bad',participants:[mk('a','A','1','')],matches:[{id:'z',round:500,a:'nope',b:'a',sa:'abc',sb:1,status:'weird',venue:'9'}]}}}});assert(s.ok);
+s=E.post({action:'save',full:true,token:lv.token,data:{sports:{volleyball_moms:{format:'bad',participants:[mk('a','A','1','')],matches:[{id:'z',round:500,a:'nope',b:'a',sa:'abc',sb:1,status:'weird',venue:'9'}]}}}});assert(s.ok);
 const mm=E.get({}).data.sports.volleyball_moms;assert.strictEqual(mm.format,'league');assert.strictEqual(mm.matches[0].a,'');assert.strictEqual(mm.matches[0].round,99);assert.strictEqual(mm.matches[0].sa,0);assert.strictEqual(mm.matches[0].status,'scheduled');assert.strictEqual(mm.matches[0].venue,'');
 // блокировка после 10 неудачных попыток
 for(let i=0;i<10;i++)E.post({action:'login',username:'organizer',password:'x'});
@@ -64,11 +64,11 @@ assert(/много попыток/.test(E.post({action:'login',username:'organiz
 // кэш: второе чтение родителем идёт из кэша и обновляется после сохранения
 const E2=makeEnv({ORGANIZER_PASSWORD:'adminpass1'});E2.get({});
 const l2=E2.post({action:'login',username:'organizer',password:'adminpass1'});
-E2.post({action:'save',token:l2.token,data:{news:'A',sports:{}}});
+E2.post({action:'save',full:true,token:l2.token,data:{news:'A',sports:{}}});
 assert.strictEqual(E2.get({}).data.news,'A');
 const before=E2.sheets['Настройки'].d.length;
 assert.strictEqual(E2.get({}).data.news,'A');                       // из кэша
-E2.post({action:'save',token:l2.token,data:{news:'B',sports:{}}});
+E2.post({action:'save',full:true,token:l2.token,data:{news:'B',sports:{}}});
 assert.strictEqual(E2.get({}).data.news,'B');                       // кэш сброшен
 console.log('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
 
@@ -79,7 +79,7 @@ console.log('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
   const t=E3.post({action:'login',username:'org_volleyball',password:'volleypass'}).token;
   const P=(id,n)=>({id,name:n,cls:'',parent:'',group:'А'});
   const M=(id,a,b)=>({id,round:1,group:'А',a,b,sa:0,sb:0,detail:'',venue:'0',status:'scheduled'});
-  E3.post({action:'save',token:t,data:{sports:{volleyball_dads:{format:'league',groups:2,venues:['Арена 1','Арена 2'],participants:[P('a','7А'),P('b','7Ә'),P('c','8А')],matches:[M('m1','a','b'),M('m2','b','c')]}}}});
+  E3.post({action:'save',full:true,token:t,data:{sports:{volleyball_dads:{format:'league',groups:2,venues:['Арена 1','Арена 2'],participants:[P('a','7А'),P('b','7Ә'),P('c','8А')],matches:[M('m1','a','b'),M('m2','b','c')]}}}});
   // организатор 1 вводит счёт m1, организатор 2 одновременно m2 и переименовывает арену 2
   assert(E3.post({action:'save',token:t,patches:{volleyball_dads:{mUp:[{...M('m1','a','b'),detail:'15-10; 15-9',status:'finished'}]}}}).ok);
   assert(E3.post({action:'save',token:t,patches:{volleyball_dads:{mUp:[{...M('m2','b','c'),status:'live'}],venues:{1:'Новое имя'}}}}).ok);
@@ -101,3 +101,6 @@ console.log('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
   assert.strictEqual(E3.get({}).data.sports.chess.participants.length,0);
   console.log('точечные правки: ок');
 }
+
+{const E4=makeEnv({ORG_VOLLEYBALL_PASSWORD:'volleypass'});const tk=E4.post({action:'login',username:'org_volleyball',password:'volleypass'}).token;
+ const r=E4.post({action:'save',token:tk,data:{sports:{volleyball_dads:{venues:['x','y'],participants:[],matches:[]}}}});assert(!r.ok&&/устарела/.test(r.error));console.log('старые страницы отклоняются: ок');}
