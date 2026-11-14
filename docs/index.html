@@ -895,6 +895,22 @@
   $('newsEdit').addEventListener('input',()=>{data.news=$('newsEdit').value;save('meta');});
   $('dateEdit').addEventListener('input',()=>{data.date=$('dateEdit').value;renderHero();save('meta');});
   $('placeEdit').addEventListener('input',()=>{data.place=$('placeEdit').value;renderHero();save('meta');});
+  // автообновление версии сайта: если на сервере появилась новая версия, страница сама перезагружается (когда нет несохранённых правок)
+  let VER=null;
+  async function verTick(){
+    if(MODE==='demo')return;
+    try{
+      const r=await fetch(location.pathname,{method:'HEAD',cache:'no-store'});
+      const v=r.headers.get('etag')||r.headers.get('last-modified')||'';
+      if(!v)return;
+      if(VER===null){VER=v;return;}
+      if(v!==VER&&!busy&&!dirty.size){
+        const a=document.activeElement;
+        if(!(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)))location.reload();
+      }
+    }catch(e){}
+  }
+  verTick();setInterval(verTick,60000);
   api('/api/me').then(enter).catch(()=>{});
 })();
 </script>
