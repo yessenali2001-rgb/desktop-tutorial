@@ -28,7 +28,7 @@ var ACCOUNTS = {
 // Пароли можно задать прямо здесь (логин: пароль). Если логина здесь нет, берётся «Свойство скрипта».
 // В общедоступном репозитории пароли не хранить: заполняйте только свою копию скрипта.
 var PASSWORDS = {};
-var VERSION = '2026-11-14-d'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
+var VERSION = '2026-11-14-e'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
 var TOKEN_TTL = 6 * 3600; // секунд (максимум для CacheService)
 var STATUSES = ['scheduled', 'live', 'finished'];
 
@@ -48,7 +48,7 @@ function doGet(e) {
     if (p.action === 'ping') return out_({ ok: true, version: VERSION, passwordsSet: passwordsStatus_(), features: ['patch'] });
     var sess = session_(p.token);
     // организаторы читают таблицу напрямую (видят контакты родителей), остальные берут кэш
-    var data = sess ? withLock_(function () { ensure_(); return readAll_(); }) : publicData_();
+    var data = sess ? readFree_() : publicData_();
     return out_({ ok: true, data: data });
   } catch (err) {
     return out_({ ok: false, error: String(err && err.message || err) });
@@ -91,7 +91,7 @@ function publicData_() {
     for (var k in SPORTS) data.sports[k] = JSON.parse(got['pub_' + k]);
     return data;
   }
-  var fresh = withLock_(function () { ensure_(); return readAll_(); });
+  var fresh = readFree_();
   stripParents_(fresh);
   var put = { pub_main: JSON.stringify({ news: fresh.news, date: fresh.date, place: fresh.place, schedule: fresh.schedule }) };
   for (var key in SPORTS) put['pub_' + key] = JSON.stringify(fresh.sports[key]);
@@ -159,6 +159,12 @@ function save_(b) {
   });
   cache_().removeAll(pubKeys_());
   return { ok: true };
+}
+
+// Чтение не ждёт очереди записи: родители и опрос организаторов не блокируются, пока кто-то сохраняет счёт.
+function readFree_() {
+  if (!cache_().get('db_ready')) { withLock_(ensure_); cache_().put('db_ready', '1', 3600); }
+  return readAll_();
 }
 
 function withLock_(fn) {
