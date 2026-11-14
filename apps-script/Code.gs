@@ -28,7 +28,7 @@ var ACCOUNTS = {
 // Пароли можно задать прямо здесь (логин: пароль). Если логина здесь нет, берётся «Свойство скрипта».
 // В общедоступном репозитории пароли не хранить: заполняйте только свою копию скрипта.
 var PASSWORDS = {};
-var VERSION = '2026-11-14-b'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
+var VERSION = '2026-11-14-c'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
 var TOKEN_TTL = 6 * 3600; // секунд (максимум для CacheService)
 var STATUSES = ['scheduled', 'live', 'finished'];
 
@@ -45,7 +45,7 @@ var SHEET = { cfg: 'Настройки', sched: 'Расписание', venues: 
 function doGet(e) {
   try {
     var p = (e && e.parameter) || {};
-    if (p.action === 'ping') return out_({ ok: true, version: VERSION, passwordsSet: passwordsStatus_() });
+    if (p.action === 'ping') return out_({ ok: true, version: VERSION, passwordsSet: passwordsStatus_(), features: ['patch'] });
     var sess = session_(p.token);
     // организаторы читают таблицу напрямую (видят контакты родителей), остальные берут кэш
     var data = sess ? withLock_(function () { ensure_(); return readAll_(); }) : publicData_();
@@ -134,19 +134,23 @@ function save_(b) {
   var sess = session_(b.token);
   if (!sess) return { ok: false, error: 'Нужен вход организатора', auth: false };
   var inc = b.data || {};
+  var patches = b.patches || inc.patches;
   cache_().removeAll(pubKeys_());
   withLock_(function () {
     ensure_();
     if (sess.sports === 'all') {
+      // общие данные пишутся только если они пришли (страница, где их не трогали, их не затирает)
       var cfg = {};
-      cfg.news = s_(inc.news, 1000);
-      cfg.date = s_(inc.date, 100);
-      cfg.place = s_(inc.place, 200);
-      writeCfg_(cfg);
-      writeSchedule_(sanitizeSchedule_(inc.schedule));
+      if (inc.news !== undefined) cfg.news = s_(inc.news, 1000);
+      if (inc.date !== undefined) cfg.date = s_(inc.date, 100);
+      if (inc.place !== undefined) cfg.place = s_(inc.place, 200);
+      if (Object.keys(cfg).length) writeCfg_(cfg);
+      if (inc.schedule !== undefined) writeSchedule_(sanitizeSchedule_(inc.schedule));
     }
     for (var key in SPORTS) {
-      if (canEdit_(sess, key) && inc.sports && inc.sports[key]) writeSport_(key, sanitizeSport_(key, inc.sports[key]));
+      if (!canEdit_(sess, key)) continue;
+      if (patches && patches[key]) writeSport_(key, sanitizeSport_(key, applyPatch_(readAll_().sports[key], patches[key])));
+      else if (inc.sports && inc.sports[key]) writeSport_(key, sanitizeSport_(key, inc.sports[key]));
     }
   });
   cache_().removeAll(pubKeys_());
@@ -162,6 +166,36 @@ function withLock_(fn) {
 // ---------------------------------------------------------------- проверка данных
 function s_(v, n) { return String(v == null ? '' : v).slice(0, n); }
 function num_(v) { v = Number(v); return isFinite(v) ? Math.max(-1e6, Math.min(1e6, v)) : 0; }
+
+// Точечная правка: меняются только присланные матчи/участники/арены, остальное остаётся как в таблице.
+// Так несколько организаторов могут вводить счёт одновременно под одним логином.
+function applyPatch_(cur, p) {
+  function byId(list) { var o = {}; list.forEach(function (x) { o[x.id] = true; }); return o; }
+  function upsert(list, ups, skipMissing) {
+    var have = byId(list);
+    (Array.isArray(ups) ? ups : []).forEach(function (u) {
+      if (!u || !u.id) return;
+      if (have[u.id]) list = list.map(function (x) { return x.id === u.id ? u : x; });
+      else if (!skipMissing) list.push(u);
+    });
+    return list;
+  }
+  function drop(list, ids) {
+    var del = {}; (Array.isArray(ids) ? ids : []).forEach(function (i) { del[i] = true; });
+    return list.filter(function (x) { return !del[x.id]; });
+  }
+  if (p.format !== undefined) cur.format = p.format;
+  if (p.groups !== undefined) cur.groups = p.groups;
+  if (p.venues && typeof p.venues === 'object') {
+    for (var i in p.venues) { var n = parseInt(i, 10); if (n >= 0 && n < 6) cur.venues[n] = p.venues[i]; }
+  }
+  cur.participants = upsert(drop(cur.participants, p.pDel), p.pUp, false);
+  var have = byId(cur.matches);
+  cur.matches = drop(cur.matches, p.mDel);
+  (Array.isArray(p.mAdd) ? p.mAdd : []).forEach(function (m) { if (m && m.id && !have[m.id]) { have[m.id] = true; cur.matches.push(m); } }); // уже созданный (например плей-офф) не затирается
+  cur.matches = upsert(cur.matches, p.mUp, true);                                                                    // удалённый другим не воскресает
+  return cur;
+}
 
 function sanitizeSport_(key, d) {
   d = d || {};

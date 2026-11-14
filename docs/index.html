@@ -388,7 +388,7 @@
       setSess({role:'organizer',name:r.name,sports:r.sports,token:r.token});return SESS;}
     if(url==='/api/logout'){if(SESS&&SESS.token&&MODE!=='demo')gasPost({action:'logout',token:SESS.token}).catch(()=>{});setSess(null);return {};}
     if(MODE==='demo'){
-      if(method==='PUT'){const d=body,adm=SESS&&SESS.sports==='all';
+      if(method==='PUT'){const d=body,adm=SESS&&SESS.sports==='all';d.sports=d.sports||{};
         if(adm){['news','date','place','schedule'].forEach(k=>{DEMO[k]=JSON.parse(JSON.stringify(d[k]));});}
         for(const k in DEMO.sports)if(SESS&&(adm||SESS.sports.includes(k))&&d.sports[k])DEMO.sports[k]=JSON.parse(JSON.stringify(d.sports[k]));
         try{sessionStorage.setItem('demo',JSON.stringify(DEMO));}catch(e){}
@@ -440,18 +440,39 @@
 
   // автосохранение (организатор)
   let flash='';
-  const dirty=new Set();let busy=false;                       // какие виды спорта изменены и ещё не сохранены
+  const dirty=new Set();let busy=false,metaDirty=false;       // какие виды спорта изменены и ещё не сохранены
   const ser=d=>JSON.stringify(d,(k,v)=>k==='_team'?undefined:v);
+  const base={};let FEAT={};                                  // base: что, по нашим данным, уже лежит в таблице
+  const snapSport=k=>{base[k]=JSON.parse(ser(data.sports[k]));};
+  const snapAll=()=>{for(const k in data.sports)snapSport(k);};
+  // что изменили именно мы: только эти матчи/участники отправляются в таблицу (чужие правки не затираются)
+  function diffSport(k){
+    const S=JSON.parse(ser(data.sports[k])),B=base[k],p={};
+    if(S.format!==B.format)p.format=S.format;
+    if(S.groups!==B.groups)p.groups=S.groups;
+    const v={};S.venues.forEach((n,i)=>{if(n!==B.venues[i])v[i]=n;});if(Object.keys(v).length)p.venues=v;
+    const part=(L,O,up,del,add)=>{
+      const o=new Map(O.map(x=>[x.id,JSON.stringify(x)])),ids=new Set(L.map(x=>x.id));
+      L.forEach(x=>{if(!o.has(x.id)){if(add)(p[add]=p[add]||[]).push(x);else(p[up]=p[up]||[]).push(x);}else if(o.get(x.id)!==JSON.stringify(x))(p[up]=p[up]||[]).push(x);});
+      O.forEach(x=>{if(!ids.has(x.id))(p[del]=p[del]||[]).push(x.id);});
+    };
+    part(S.participants,B.participants,'pUp','pDel');
+    part(S.matches,B.matches,'mUp','mDel','mAdd');
+    return {p,snap:S};
+  }
   function save(kind){
-    if(kind!=='meta')dirty.add(sport);                         // правка внутри вкладки вида спорта
+    if(kind==='meta')metaDirty=true;else dirty.add(sport);     // правка внутри вкладки вида спорта
     busy=true;$('saveMsg').textContent='Сохранение…';
     clearTimeout(saveT);
     saveT=setTimeout(async()=>{
-      saveT=null;const keys=[...dirty];
-      const payload={news:data.news,date:data.date,place:data.place,schedule:data.schedule,sports:{}};
-      keys.forEach(k=>{payload.sports[k]=data.sports[k];});     // чужие виды спорта не трогаем
-      try{await api('/api/data','PUT',payload);keys.forEach(k=>dirty.delete(k));$('saveMsg').textContent=flash+'Сохранено ✔ ';flash='';}
-      catch(e){$('saveMsg').textContent='Ошибка сохранения: '+e.message+' ';}
+      saveT=null;const keys=[...dirty],sent={};
+      const payload={sports:{}};
+      if(metaDirty||!FEAT.patch)Object.assign(payload,{news:data.news,date:data.date,place:data.place,schedule:data.schedule});
+      const metaSent=metaDirty;metaDirty=false;
+      if(FEAT.patch){payload.patches={};keys.forEach(k=>{if(!base[k])snapSport(k);const d=diffSport(k);sent[k]=d.snap;if(Object.keys(d.p).length)payload.patches[k]=d.p;});}
+      else keys.forEach(k=>{payload.sports[k]=data.sports[k];sent[k]=JSON.parse(ser(data.sports[k]));});   // старый скрипт: сохраняем вид спорта целиком
+      try{await api('/api/data','PUT',payload);keys.forEach(k=>{base[k]=sent[k];dirty.delete(k);});$('saveMsg').textContent=flash+'Сохранено ✔ ';flash='';}
+      catch(e){if(metaSent)metaDirty=true;$('saveMsg').textContent='Ошибка сохранения: '+e.message+' ';}
       busy=!!saveT;
     },600);
   }
@@ -575,7 +596,7 @@
       const all=standings(key,S),top=gs.map(g=>all.filter(r=>r.p.group===g).map(r=>r.p.id));
       if(top.length!==2||top[0].length<2||top[1].length<2)return warn('Для плей-офф нужны две группы, в каждой минимум две команды.');
       const r=lastRound(S)+1;
-      S.matches.push(venue(mk(r,'SF',top[0][0],top[1][1]),0),venue(mk(r,'SF',top[1][0],top[0][1]),1));
+      S.matches.push(venue(mk(r,'SF',top[0][0],top[1][1],{id:'po-SF1'}),0),venue(mk(r,'SF',top[1][0],top[0][1],{id:'po-SF2'}),1));
       return true;
     }
     if(!fin.length){
@@ -583,7 +604,7 @@
       const a=winnerLoser(sf[0]),b=winnerLoser(sf[1]);
       if(!a||!b)return warn('В полуфинале должен быть победитель: счёт по партиям не должен быть равным.');
       const r=lastRound(S)+1;
-      S.matches.push(venue(mk(r,'F',a[0],b[0]),0),venue(mk(r,'B',a[1],b[1]),1));
+      S.matches.push(venue(mk(r,'F',a[0],b[0],{id:'po-F'}),0),venue(mk(r,'B',a[1],b[1],{id:'po-B'}),1));
       return true;
     }
     return warn('Плей-офф уже составлен.');
@@ -862,7 +883,7 @@
 
   // ---------- вход ----------
   async function enter(user){
-    me=user;data=prep(await api('/api/data'));
+    me=user;data=prep(await api('/api/data'));FEAT={};if(isOrg()&&MODE!=='demo'){try{const pr=await (await fetch(APPS_URL+'?action=ping&t='+Date.now())).json();FEAT={patch:(pr.features||[]).includes('patch')};}catch(e){}}if(isOrg())snapAll();
     $('login').classList.add('hidden');
     document.querySelector('main').classList.remove('hidden');
     $('who').classList.remove('hidden');
@@ -873,7 +894,7 @@
     if(isOrg())pollT=setInterval(async()=>{ // чтобы не работать со старой копией (её правки затёрли бы свежие данные)
       if(document.hidden||busy||dirty.size)return;
       const a=document.activeElement;if(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName)&&document.querySelector('main').contains(a))return;
-      try{const fresh=prep(await api('/api/data'));if(busy||dirty.size)return;if(ser(fresh)!==ser(data)){data=fresh;renderAll();}}
+      try{const fresh=prep(await api('/api/data'));if(busy||dirty.size)return;if(ser(fresh)!==ser(data)){data=fresh;snapAll();renderAll();}}
       catch(e){if(e.status===401)location.reload();}
     },20000);
     else pollT=setInterval(async()=>{ // родители видят счёт онлайн

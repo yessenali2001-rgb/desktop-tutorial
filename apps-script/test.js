@@ -71,3 +71,33 @@ assert.strictEqual(E2.get({}).data.news,'A');                       // из кэ
 E2.post({action:'save',token:l2.token,data:{news:'B',sports:{}}});
 assert.strictEqual(E2.get({}).data.news,'B');                       // кэш сброшен
 console.log('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
+
+// ---- точечные правки: два организатора одного вида спорта пишут одновременно
+{
+  const E3=makeEnv({ORGANIZER_PASSWORD:'adminpass1',ORG_VOLLEYBALL_PASSWORD:'volleypass'});
+  assert.deepStrictEqual(E3.get({action:'ping'}).features,['patch']);
+  const t=E3.post({action:'login',username:'org_volleyball',password:'volleypass'}).token;
+  const P=(id,n)=>({id,name:n,cls:'',parent:'',group:'А'});
+  const M=(id,a,b)=>({id,round:1,group:'А',a,b,sa:0,sb:0,detail:'',venue:'0',status:'scheduled'});
+  E3.post({action:'save',token:t,data:{sports:{volleyball_dads:{format:'league',groups:2,venues:['Арена 1','Арена 2'],participants:[P('a','7А'),P('b','7Ә'),P('c','8А')],matches:[M('m1','a','b'),M('m2','b','c')]}}}});
+  // организатор 1 вводит счёт m1, организатор 2 одновременно m2 и переименовывает арену 2
+  assert(E3.post({action:'save',token:t,patches:{volleyball_dads:{mUp:[{...M('m1','a','b'),detail:'15-10; 15-9',status:'finished'}]}}}).ok);
+  assert(E3.post({action:'save',token:t,patches:{volleyball_dads:{mUp:[{...M('m2','b','c'),status:'live'}],venues:{1:'Новое имя'}}}}).ok);
+  let d=E3.get({}).data.sports.volleyball_dads;
+  assert.strictEqual(d.matches.find(m=>m.id==='m1').status,'finished');
+  assert.strictEqual(d.matches.find(m=>m.id==='m2').status,'live');
+  assert.deepStrictEqual(d.venues,['Арена 1','Новое имя']);
+  // удалённый матч не воскресает, добавленный дважды не дублируется, чужие данные сохраняются
+  E3.post({action:'save',token:t,patches:{volleyball_dads:{mDel:['m2']}}});
+  E3.post({action:'save',token:t,patches:{volleyball_dads:{mUp:[{...M('m2','b','c'),status:'finished'}],mAdd:[M('po-SF1','a','c'),M('po-SF1','a','c')]}}});
+  E3.post({action:'save',token:t,patches:{volleyball_dads:{mAdd:[{...M('po-SF1','a','c'),status:'finished'}]}}});
+  d=E3.get({}).data.sports.volleyball_dads;
+  assert(!d.matches.find(m=>m.id==='m2'));
+  assert.strictEqual(d.matches.filter(m=>m.id==='po-SF1').length,1);
+  assert.strictEqual(d.matches.find(m=>m.id==='po-SF1').status,'scheduled');
+  assert.strictEqual(d.participants.length,3);
+  // чужой вид спорта патчем не записать
+  assert(E3.post({action:'save',token:t,patches:{chess:{pUp:[P('x','X')]}}}).ok);
+  assert.strictEqual(E3.get({}).data.sports.chess.participants.length,0);
+  console.log('точечные правки: ок');
+}
