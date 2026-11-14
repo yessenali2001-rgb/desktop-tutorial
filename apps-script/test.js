@@ -34,10 +34,10 @@ const ad=E.post({action:'login',username:'organizer',password:'adminpass1'});ass
 const mk=(id,name,cls,parent)=>({id,name,cls,parent,group:''});
 const dads={format:'championship',groups:2,venues:['Большой зал','Арена 2'],participants:[mk('p1','Алпамыс','7А','Иванова'),mk('p2','Батыр','7Б','Петров')],
  matches:[{id:'m1',round:1,group:'',a:'p1',b:'p2',sa:15,sb:12.5,detail:'2-я партия',venue:'0',status:'live'},{id:'m2',round:1,group:'',a:'p1',b:'',sa:1,sb:0,detail:'',venue:'',status:'finished'}]};
-let s=E.post({action:'save',full:true,token:lv.token,data:{news:'взлом',sports:{volleyball_dads:dads,chess:{participants:[mk('c1','X','1','')]}}}});assert(s.ok,JSON.stringify(s));
+let s=E.post({action:'save',full:true,token:lv.token,data:{news:'взлом',sports:{volleyball_dads:dads,chess_dads:{participants:[mk('c1','X','1','')]}}}});assert(s.ok,JSON.stringify(s));
 let g=E.get({});assert(g.ok);
 assert.strictEqual(g.data.news,'Добро пожаловать на спартакиаду!');               // news не изменён (не админ)
-assert.strictEqual(g.data.sports.chess.participants.length,0);                    // чужой вид спорта не записан
+assert.strictEqual(g.data.sports.chess_dads.participants.length,0);                    // чужой вид спорта не записан
 const d=g.data.sports.volleyball_dads;
 assert.strictEqual(d.format,'championship');assert.deepStrictEqual(d.venues,['Большой зал','Арена 2']);
 assert.strictEqual(d.participants.length,2);assert(!('parent' in d.participants[0]),'родитель не должен виден без входа');
@@ -46,10 +46,10 @@ assert.strictEqual(d.matches[1].b,'');assert.strictEqual(d.matches[1].venue,'');
 g=E.get({token:lv.token});assert.strictEqual(g.data.sports.volleyball_dads.participants[0].parent,'Иванова');
 console.log('Матчи в таблице:',E.sheets['Матчи'].d.slice(0,3).map(r=>r.join('|')));
 // админ
-s=E.post({action:'save',full:true,token:ad.token,data:{news:'Новости',date:'14 ноября 2026',place:'Лицей',schedule:[{time:'09:00',event:'Открытие',place:'Зал'}],sports:{chess:{format:'swiss',participants:[mk('c1','Аружан','5А','Мама')],matches:[]}}}});assert(s.ok);
+s=E.post({action:'save',full:true,token:ad.token,data:{news:'Новости',date:'14 ноября 2026',place:'Лицей',schedule:[{time:'09:00',event:'Открытие',place:'Зал'}],sports:{chess_dads:{format:'swiss',participants:[mk('c1','Аружан','5А','Мама')],matches:[]}}}});assert(s.ok);
 g=E.get({});assert.strictEqual(g.data.news,'Новости');assert.strictEqual(g.data.date,'14 ноября 2026');
 assert.deepStrictEqual(g.data.schedule,[{time:'09:00',event:'Открытие',place:'Зал'}]);
-assert.strictEqual(g.data.sports.chess.format,'swiss');assert.strictEqual(g.data.sports.chess.participants[0].name,'Аружан');
+assert.strictEqual(g.data.sports.chess_dads.format,'swiss');assert.strictEqual(g.data.sports.chess_dads.participants[0].name,'Аружан');
 assert.strictEqual(g.data.sports.volleyball_dads.participants.length,2);          // данные волейбола сохранились
 // без токена нельзя писать
 assert(!E.post({action:'save',data:{news:'x'}}).ok);
@@ -97,10 +97,23 @@ console.log('ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
   assert.strictEqual(d.matches.find(m=>m.id==='po-SF1').status,'scheduled');
   assert.strictEqual(d.participants.length,3);
   // чужой вид спорта патчем не записать
-  assert(E3.post({action:'save',token:t,patches:{chess:{pUp:[P('x','X')]}}}).ok);
-  assert.strictEqual(E3.get({}).data.sports.chess.participants.length,0);
+  assert(E3.post({action:'save',token:t,patches:{chess_dads:{pUp:[P('x','X')]}}}).ok);
+  assert.strictEqual(E3.get({}).data.sports.chess_dads.participants.length,0);
   console.log('точечные правки: ок');
 }
 
 {const E4=makeEnv({ORG_VOLLEYBALL_PASSWORD:'volleypass'});const tk=E4.post({action:'login',username:'org_volleyball',password:'volleypass'}).token;
  const r=E4.post({action:'save',token:tk,data:{sports:{volleyball_dads:{venues:['x','y'],participants:[],matches:[]}}}});assert(!r.ok&&/устарела/.test(r.error));console.log('старые страницы отклоняются: ок');}
+{ // старые записи tennis/chess переходят в «папы»
+  const E5=makeEnv({ORGANIZER_PASSWORD:'adminpass1'});E5.get({});
+  E5.sheets['Участники'].d.push(['tennis','t1','Игрок','7А','','А'],['chess','c1','Шахматист','8А','','']);
+  E5.sheets['Матчи'].d.push(['tennis','tm1',1,'А','t1','','',0,'','','scheduled','','']);
+  E5.sheets['Настройки'].d.push(['format_tennis','group'],['groups_chess','3']);
+  E5.sheets['Арены'].d.push(['chess',1,'Мой зал']);
+  E5.ctx.cache_().remove('db_ready2');
+  const d=E5.get({token:E5.post({action:'login',username:'organizer',password:'adminpass1'}).token}).data.sports;
+  assert.strictEqual(d.tennis_dads.participants[0].name,'Игрок');assert.strictEqual(d.tennis_dads.matches[0].id,'tm1');
+  assert.strictEqual(d.tennis_dads.format,'group');assert.strictEqual(d.chess_dads.participants[0].name,'Шахматист');
+  assert.strictEqual(d.chess_dads.groups,3);assert.deepStrictEqual(d.chess_dads.venues,['Мой зал']);assert.strictEqual(d.tennis_moms.participants.length,0);
+  console.log('перенос tennis/chess в «папы»: ок');
+}

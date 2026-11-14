@@ -9,26 +9,30 @@
 var SPORTS = {
   volleyball_dads: ['league', 'championship'], // Волейбол әкелер
   volleyball_moms: ['league', 'championship'], // Волейбол аналар
-  tennis: ['league', 'group'],                 // Настольный теннис
-  chess: ['blitz', 'swiss']                    // Шахматы
+  tennis_dads: ['league', 'group'],            // Настольный теннис папы
+  tennis_moms: ['league', 'group'],            // Настольный теннис мамы
+  chess_dads: ['blitz', 'swiss'],              // Шахматы папы
+  chess_moms: ['blitz', 'swiss']               // Шахматы мамы
 };
 var DEFAULT_VENUES = {
   volleyball_dads: ['Арена 1 - 38 школа', 'Арена 2 - Жубанов университет'],
   volleyball_moms: ['Арена 3 - БИЛ'],
-  tennis: ['Зал настольного тенниса'],
-  chess: ['Шахматный зал']
+  tennis_dads: ['Зал настольного тенниса'],
+  tennis_moms: ['Зал настольного тенниса'],
+  chess_dads: ['Шахматный зал'],
+  chess_moms: ['Шахматный зал']
 };
 // Пароли хранятся в «Свойствах скрипта» (Project Settings → Script properties).
 var ACCOUNTS = {
   organizer: { prop: 'ORGANIZER_PASSWORD', sports: 'all' },
   org_volleyball: { prop: 'ORG_VOLLEYBALL_PASSWORD', sports: ['volleyball_dads', 'volleyball_moms'] },
-  org_tennis: { prop: 'ORG_TENNIS_PASSWORD', sports: ['tennis'] },
-  org_chess: { prop: 'ORG_CHESS_PASSWORD', sports: ['chess'] }
+  org_tennis: { prop: 'ORG_TENNIS_PASSWORD', sports: ['tennis_dads', 'tennis_moms'] },
+  org_chess: { prop: 'ORG_CHESS_PASSWORD', sports: ['chess_dads', 'chess_moms'] }
 };
 // Пароли можно задать прямо здесь (логин: пароль). Если логина здесь нет, берётся «Свойство скрипта».
 // В общедоступном репозитории пароли не хранить: заполняйте только свою копию скрипта.
 var PASSWORDS = {};
-var VERSION = '2026-11-14-e'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
+var VERSION = '2026-11-14-f'; // меняется при обновлении кода: видно по ?action=ping, что развёрнута новая версия
 var TOKEN_TTL = 6 * 3600; // секунд (максимум для CacheService)
 var STATUSES = ['scheduled', 'live', 'finished'];
 
@@ -141,7 +145,7 @@ function save_(b) {
   }
   cache_().removeAll(pubKeys_());
   withLock_(function () {
-    ensure_();
+    ensure_(); migrate_();
     if (sess.sports === 'all') {
       // общие данные пишутся только если они пришли (страница, где их не трогали, их не затирает)
       var cfg = {};
@@ -163,8 +167,20 @@ function save_(b) {
 
 // Чтение не ждёт очереди записи: родители и опрос организаторов не блокируются, пока кто-то сохраняет счёт.
 function readFree_() {
-  if (!cache_().get('db_ready')) { withLock_(ensure_); cache_().put('db_ready', '1', 3600); }
+  if (!cache_().get('db_ready2')) { withLock_(function () { ensure_(); migrate_(); }); cache_().put('db_ready2', '1', 3600); }
   return readAll_();
+}
+
+// Раньше были виды «tennis» и «chess» (без деления на пап и мам): их записи переходят в «папы».
+function migrate_() {
+  var ren = { tennis: 'tennis_dads', chess: 'chess_dads', format_tennis: 'format_tennis_dads', format_chess: 'format_chess_dads', groups_tennis: 'groups_tennis_dads', groups_chess: 'groups_chess_dads' };
+  ['cfg', 'venues', 'people', 'matches'].forEach(function (kind) {
+    var sh = sheet_(kind), n = sh.getLastRow() - 1;
+    if (n < 1) return;
+    var rng = sh.getRange(2, 1, n, 1), v = rng.getValues(), changed = false;
+    v.forEach(function (r) { var k = String(r[0]); if (Object.prototype.hasOwnProperty.call(ren, k)) { r[0] = ren[k]; changed = true; } });
+    if (changed) rng.setValues(v);
+  });
 }
 
 function withLock_(fn) {
