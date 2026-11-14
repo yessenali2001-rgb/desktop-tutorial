@@ -455,7 +455,7 @@
     }
   }
   function matchLabel(S,m){
-    const g=S.format==='group'&&m.group?'Группа '+m.group+' · ':'';
+    const g=m.group?'Группа '+m.group+' · ':'';
     const w=S.format==='championship'?'Раунд ':(S.format==='swiss'?'Тур ':'Тур ');
     return g+w+m.round;
   }
@@ -468,7 +468,7 @@
     function standBox(){
       stand.replaceChildren();
       const chunks=[];
-      if(S.format==='group'){
+      if(S.format==='group'||S.participants.some(p=>p.group)){
         const gs=[...new Set(S.participants.map(p=>p.group).filter(Boolean))].sort();
         if(gs.length){
           gs.forEach(g=>{chunks.push(h('h3',null,'Группа '+g));
@@ -523,24 +523,27 @@
     // участники
     root.append(h('h3',null,(meta.unit==='Команда'?'Команды':'Участники')+' ('+S.participants.length+')'));
     const team=!!S._team;
+    const hasG=S.participants.some(p=>p.group);
     const ptb=h('tbody');
     const partRow=(p,i)=>{
       const tr=h('tr',null,h('td',{class:'num'},i+1));
+      {const _a=tr.append.bind(tr);tr.append=(...k)=>_a(...k.filter(x=>x!=null));}
       if(edit){
         const f=(key,ph)=>{const inp=h('input',{value:p[key]||'',placeholder:ph});inp.oninput=()=>{p[key]=inp.value;save();};
           inp.onchange=()=>refresh();return h('td',null,inp);};
         if(team)tr.append(f('name','Класс, например 7А'));else tr.append(f('name','Имя и фамилия'),f('cls','напр. 7А'),f('parent','ФИО родителя'));
+        if(hasG){const gi=h('input',{value:p.group||'',placeholder:'А',maxlength:5,style:'width:70px'});gi.oninput=()=>{p.group=gi.value;save();};gi.onchange=()=>refresh();tr.append(h('td',null,gi));}
         tr.append(h('td',null,nextText(S,p)));
         tr.append(h('td',null,h('button',{class:'x',title:'Удалить',onclick:()=>{
           const used=S.matches.some(m=>m.a===p.id||m.b===p.id);
           if(used&&!confirm('Участник есть в матчах. Матчи с ним будут удалены. Продолжить?'))return;
           S.participants=S.participants.filter(x=>x!==p);S.matches=S.matches.filter(m=>m.a!==p.id&&m.b!==p.id);save();rerender();}},'✕')));
-      } else {if(team)tr.append(h('td',null,p.name));else tr.append(h('td',null,p.name),h('td',null,p.cls));tr.append(h('td',null,nextText(S,p)));}
+      } else {if(team)tr.append(h('td',null,p.name));else tr.append(h('td',null,p.name),h('td',null,p.cls));if(hasG)tr.append(h('td',null,p.group||''));tr.append(h('td',null,nextText(S,p)));}
       return tr;
     };
     S.participants.forEach((p,i)=>ptb.append(partRow(p,i)));
     root.append(h('div',{class:'tblwrap'},h('table',null,
-      h('thead',null,h('tr',null,h('th',{class:'num'},'№'),h('th',null,team?'Класс (команда)':'Имя и фамилия'),team?null:h('th',null,'Класс'),edit&&!team?h('th',null,'Родитель'):null,h('th',null,'Следующий матч'),edit?h('th'):null)),ptb)));
+      h('thead',null,h('tr',null,h('th',{class:'num'},'№'),h('th',null,team?'Класс (команда)':'Имя и фамилия'),team?null:h('th',null,'Класс'),edit&&!team?h('th',null,'Родитель'):null,hasG?h('th',null,'Группа'):null,h('th',null,'Следующий матч'),edit?h('th'):null)),ptb)));
     if(edit){
       const ta=h('textarea',{class:'hidden',rows:6,style:'width:100%;margin-top:10px',placeholder:team?'По одной команде в строке (класс):\n7А\n7Б\n8А':'По одному участнику в строке:\nИмя Фамилия; 7А; ФИО родителя'});
       root.append(h('div',{class:'bar'},
@@ -569,6 +572,7 @@
       const sorted=S.matches.slice().sort((x,y)=>x.round-y.round||x.group.localeCompare(y.group));
       sorted.forEach(m=>{
         const tr=h('tr',{class:m.status==='live'?'live':''});
+        {const _a=tr.append.bind(tr);tr.append=(...k)=>_a(...k.filter(x=>x!=null));} // пустые ячейки не должны печататься как «null»
         if(edit){
           const sel=(cur,onch)=>{const s=h('select',null,h('option',{value:''},'—'),S.participants.map(p=>h('option',{value:p.id},(p.name||'(без имени)')+(!team&&p.cls?' ('+p.cls+')':''))));s.value=cur;s.onchange=()=>onch(s.value);return s;};
           const sc=key=>{const i=h('input',{class:'sc',type:'number',step:'0.5',value:m[key]});i.oninput=()=>{m[key]=Number(i.value)||0;save();refresh();renderLive();};return i;};
